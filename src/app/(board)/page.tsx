@@ -250,23 +250,18 @@ function Card({ issue }: { issue: Issue }) {
         <div className="result">{issue.resultText}</div>
       )}
 
-      {!developing && (
-        <div className="card-actions">
-          <Link href={`/issues/${issue.id}`} className="recap-link">
-            Recap
-          </Link>
+      <div className="card-actions">
+        {!developing && (
           <button className="develop-btn" onClick={() => setOpen(true)}>
             Develop this
           </button>
-        </div>
-      )}
-      {developing && (
-        <div className="card-actions">
-          <Link href={`/issues/${issue.id}`} className="recap-link">
-            Recap (live)
-          </Link>
-        </div>
-      )}
+        )}
+      </div>
+      <div className="recap-row">
+        <Link href={`/issues/${issue.id}`} className="recap-link">
+          {developing ? 'Recap (live)' : 'Recap'}
+        </Link>
+      </div>
       {developing && <div className="result developing">developing… (live via opencode)</div>}
 
       {open && (
