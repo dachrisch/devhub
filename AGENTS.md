@@ -78,6 +78,32 @@ permissions grant **Read** access to Organization membership — otherwise the `
 scope won't be granted and org checks fail silently (`/?auth=denied`). If login returns
 `auth=denied`, unauthorize and re-authorize the app, approving all requested scopes.
 
+## Batch Operations
+
+The board supports batch operations for advancing multiple issues through the pipeline:
+
+### Batch Selection
+- Click checkboxes on cards to select issues
+- Use `Ctrl+A` to select all visible issues
+- Use `Escape` to clear selection
+
+### Batch Actions
+- **Advance selected**: Move selected issues to the next stage (backlog → refinement, refinement → backlog)
+- **Validate selected**: Start validation flow for selected issues (assesses readiness)
+- **Develop selected**: Start development for selected issues (backlog/refinement → developing)
+
+### Keyboard Shortcuts
+- `Ctrl+A`: Select all visible issues
+- `Escape`: Clear selection
+- `Ctrl+Enter`: Advance selected issues
+
+### Validation Gate
+The validate-then-implement flow provides a two-step process:
+1. **Validate**: An opencode session assesses if the issue is clear enough to implement
+2. **Implement**: If validation passes, a full develop session implements the issue
+
+This helps reduce blocked runs caused by underspecified issues.
+
 ## Not yet verified live (from the plan)
 
 Auto-approve behavior on `code.lehel.xyz` and whether opencode can see `WORKSPACE_ROOT`

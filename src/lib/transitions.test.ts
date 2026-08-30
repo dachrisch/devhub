@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALLOWED_TRANSITIONS, canTransition } from './transitions.js';
+import { ALLOWED_TRANSITIONS, canTransition, canBatchAdvance, getBatchAdvanceTarget } from './transitions.js';
 import { isIssueState } from './types.js';
 
 describe('transitions', () => {
@@ -25,5 +25,29 @@ describe('transitions', () => {
     expect(isIssueState('refinement')).toBe(true);
     expect(isIssueState('rollout')).toBe(true);
     expect(isIssueState('bogus')).toBe(false);
+  });
+});
+
+describe('batch transitions', () => {
+  it('allows batch advance from backlog to refinement', () => {
+    expect(canBatchAdvance('backlog')).toBe(true);
+    expect(getBatchAdvanceTarget('backlog')).toBe('refinement');
+  });
+
+  it('allows batch advance from refinement to backlog', () => {
+    expect(canBatchAdvance('refinement')).toBe(true);
+    expect(getBatchAdvanceTarget('refinement')).toBe('backlog');
+  });
+
+  it('rejects batch advance from other states', () => {
+    expect(canBatchAdvance('developing')).toBe(false);
+    expect(canBatchAdvance('pr')).toBe(false);
+    expect(canBatchAdvance('rollout')).toBe(false);
+    expect(canBatchAdvance('blocked')).toBe(false);
+  });
+
+  it('returns null for getBatchAdvanceTarget from unsupported states', () => {
+    expect(getBatchAdvanceTarget('developing')).toBeNull();
+    expect(getBatchAdvanceTarget('pr')).toBeNull();
   });
 });

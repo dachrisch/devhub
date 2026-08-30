@@ -135,6 +135,32 @@ export default function BoardPage() {
   // Last-seen state per issue, so live transitions to pr/blocked can be told
   // apart from cards that already were in that state on load.
   const prevStatesRef = useRef<Map<number, IssueState>>(new Map());
+  const batchStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Batch selection state
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [batchStatus, setBatchStatus] = useState<{
+    operation: string;
+    total: number;
+    completed: number;
+    errors: number;
+  } | null>(null);
+
+  const toggleSelection = useCallback((issueId: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(issueId)) {
+        next.delete(issueId);
+      } else {
+        next.add(issueId);
+      }
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
 
   const signedIn = Boolean(user);
 
@@ -208,6 +234,12 @@ export default function BoardPage() {
   }, [refreshError]);
 
   useEffect(() => {
+    return () => {
+      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!searchHelp) return;
     const onDown = (e: MouseEvent) => {
       if (helpRef.current && !helpRef.current.contains(e.target as Node)) setSearchHelp(false);
@@ -222,6 +254,151 @@ export default function BoardPage() {
       document.removeEventListener('keydown', onKey);
     };
   }, [searchHelp]);
+
+  const advanceSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+
+    const total = selectedIds.size;
+    setBatchStatus({ operation: 'advancing', total, completed: 0, errors: 0 });
+    setRefreshing(true);
+    try {
+      const res = await fetch('/api/issues/batch-advance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ issueIds: Array.from(selectedIds) }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json() as { error?: string };
+        throw new Error(data.error || `batch advance failed (HTTP ${res.status})`);
+      }
+
+      const result = await res.json() as { results: Array<{ id: number; success: boolean; error?: string }> };
+      const completed = result.results.filter((r) => r.success).length;
+      const errors = result.results.filter((r) => !r.success).length;
+
+      setBatchStatus({ operation: 'advancing', total, completed, errors });
+      clearSelection();
+      setRefreshError(null);
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefreshing(false);
+      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
+      batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
+    }
+  }, [selectedIds, clearSelection]);
+
+  const validateSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    
+    const total = selectedIds.size;
+    setBatchStatus({ operation: 'validating', total, completed: 0, errors: 0 });
+    setRefreshing(true);
+    try {
+      const res = await fetch('/api/issues/batch-advance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          issueIds: Array.from(selectedIds),
+          mode: 'validate'
+        }),
+      });
+      
+      if (!res.ok) {
+        const data = await res.json() as { error?: string };
+        throw new Error(data.error || `batch validation failed (HTTP ${res.status})`);
+      }
+
+      const result = await res.json() as { results: Array<{ id: number; success: boolean; error?: string }> };
+      const completed = result.results.filter((r) => r.success).length;
+      const errors = result.results.filter((r) => !r.success).length;
+
+      setBatchStatus({ operation: 'validating', total, completed, errors });
+      clearSelection();
+      setRefreshError(null);
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefreshing(false);
+      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
+      batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
+    }
+  }, [selectedIds, clearSelection]);
+
+  const developSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    
+    const total = selectedIds.size;
+    setBatchStatus({ operation: 'developing', total, completed: 0, errors: 0 });
+    setRefreshing(true);
+    try {
+      const res = await fetch('/api/issues/batch-advance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          issueIds: Array.from(selectedIds),
+          mode: 'develop'
+        }),
+      });
+      
+      const data = await res.json() as { 
+        ok?: boolean;
+        error?: string;
+        results?: Array<{ id: number; success: boolean; error?: string; mode?: string }>;
+      };
+
+      if (!res.ok) {
+        throw new Error(data.error || `batch develop failed (HTTP ${res.status})`);
+      }
+      
+      const succeeded = data.results?.filter((r) => r.success).length ?? 0;
+      const failed = data.results?.filter((r) => !r.success) ?? [];
+
+      setBatchStatus({ operation: 'developing', total, completed: succeeded, errors: failed.length });
+      const summary = failed.length > 0
+        ? `Develop started for ${succeeded} issue(s), ${failed.length} failed: ${failed.map((f) => `#${f.id} (${f.error})`).join(', ')}`
+        : `Develop started for ${succeeded} issue(s)`;
+      
+      setRefreshError(failed.length > 0 ? summary : null);
+      clearSelection();
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefreshing(false);
+      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
+      batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
+    }
+  }, [selectedIds, clearSelection]);
+
+  // Keyboard shortcuts for batch operations
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
+      // Ctrl/Cmd + A to select all visible issues (skip when in a text input)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !isInput) {
+        e.preventDefault();
+        const visibleIssues = issues.filter((i) => matchesIssue(i, query));
+        setSelectedIds(new Set(visibleIssues.map((i) => i.id)));
+      }
+
+      // Escape to clear selection
+      if (e.key === 'Escape') {
+        clearSelection();
+      }
+
+      // Ctrl/Cmd + Enter to advance selected
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && selectedIds.size > 0) {
+        e.preventDefault();
+        advanceSelected();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [issues, query, selectedIds, clearSelection, advanceSelected]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -364,6 +541,40 @@ export default function BoardPage() {
               </button>
             </>
           )}
+          <button className="header-icon-btn" onClick={refresh} disabled={refreshing} aria-label="Refresh issues">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={refreshing ? 'spin' : ''}>
+              <path d="M8 2.5a5.487 5.487 0 00-4.131 1.869l1.204 1.204A.25.25 0 014.896 6H1.25A.25.25 0 011 5.75V2.104a.25.25 0 01.427-.177l1.38 1.38A7.001 7.001 0 0114.95 7.16a.75.75 0 01-1.49.178A5.501 5.501 0 008 2.5zM1.705 8.005a.75.75 0 01.834.656 5.501 5.501 0 009.592 2.97l-1.204-1.204a.25.25 0 01.177-.427h3.646a.25.25 0 01.25.25v3.646a.25.25 0 01-.427.177l-1.38-1.38A7.001 7.001 0 011.05 8.84a.75.75 0 01.656-.834z"/>
+            </svg>
+          </button>
+          {selectedIds.size > 0 && (
+            <>
+              <button
+                className="develop-batch-btn"
+                onClick={developSelected}
+                disabled={refreshing}
+              >
+                Develop selected ({selectedIds.size})
+              </button>
+              <button
+                className="validate-btn"
+                onClick={validateSelected}
+                disabled={refreshing}
+              >
+                Validate selected ({selectedIds.size})
+              </button>
+              <button
+                className="advance-btn"
+                onClick={advanceSelected}
+                disabled={refreshing}
+              >
+                Advance selected ({selectedIds.size})
+              </button>
+              <div className="keyboard-hints">
+                <span>Ctrl+Enter to advance</span>
+                <span>Esc to clear</span>
+              </div>
+            </>
+          )}
         </div>
       </header>
 
@@ -373,6 +584,15 @@ export default function BoardPage() {
           <button className="ghost" onClick={() => setRefreshError(null)}>
             Dismiss
           </button>
+        </div>
+      )}
+
+      {batchStatus && (
+        <div className="batch-status">
+          <span>{batchStatus.operation}: {batchStatus.completed}/{batchStatus.total}</span>
+          {batchStatus.errors > 0 && (
+            <span className="batch-errors">({batchStatus.errors} errors)</span>
+          )}
         </div>
       )}
 
@@ -450,7 +670,14 @@ export default function BoardPage() {
               {items.length === 0 ? (
                 <div className="empty">nothing here</div>
               ) : (
-                items.map((issue) => <Card key={issue.id} issue={issue} />)
+                items.map((issue) => (
+                  <Card
+                    key={issue.id}
+                    issue={issue}
+                    selected={selectedIds.has(issue.id)}
+                    onToggleSelection={toggleSelection}
+                  />
+                ))
               )}
             </section>
           );
@@ -517,12 +744,18 @@ function RecentlyReleased({ issues }: { issues: Issue[] }) {
   );
 }
 
-function Card({ issue }: { issue: Issue }) {
+interface CardProps {
+  issue: Issue;
+  selected: boolean;
+  onToggleSelection: (issueId: number) => void;
+}
+
+function Card({ issue, selected, onToggleSelection }: CardProps) {
   const [command, setCommand] = useState('');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [selected, setSelected] = useState<ModelOption | null>(null);
+  const [selectedModel, setSelectedModel] = useState<ModelOption | null>(null);
   const color = repoColor(`${issue.owner}/${issue.repo}`);
   const developing = issue.state === 'developing';
 
@@ -532,7 +765,7 @@ function Card({ issue }: { issue: Issue }) {
       if (!res.ok) return;
       const data = (await res.json()) as { models: ModelOption[]; default: ModelOption | null };
       setModels(data.models ?? []);
-      setSelected(data.default ?? null);
+      setSelectedModel(data.default ?? null);
     } catch {
       /* non-fatal: fall back to no override */
     }
@@ -547,9 +780,9 @@ function Card({ issue }: { issue: Issue }) {
     setBusy(true);
     try {
       const body: { command: string; modelId?: string; providerID?: string } = { command };
-      if (selected) {
-        body.modelId = selected.id;
-        body.providerID = selected.providerID;
+      if (selectedModel) {
+        body.modelId = selectedModel.id;
+        body.providerID = selectedModel.providerID;
       }
       await fetch(`/api/issues/${issue.id}/develop`, {
         method: 'POST',
@@ -560,7 +793,29 @@ function Card({ issue }: { issue: Issue }) {
     } finally {
       setBusy(false);
     }
-  }, [issue.id, command, selected]);
+  }, [issue.id, command, selectedModel]);
+
+  const stagedDevelop = useCallback(async () => {
+    setBusy(true);
+    try {
+      const body: { command: string; modelId?: string; providerID?: string; staged?: boolean } = { 
+        command,
+        staged: true 
+      };
+      if (selectedModel) {
+        body.modelId = selectedModel.id;
+        body.providerID = selectedModel.providerID;
+      }
+      await fetch(`/api/issues/${issue.id}/develop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }, [issue.id, command, selectedModel]);
 
   const transition = useCallback(
     async (target: IssueState) => {
@@ -580,15 +835,23 @@ function Card({ issue }: { issue: Issue }) {
 
   return (
     <div className="card" style={{ borderLeftColor: color }}>
-      <div className="repo">
-        <span
-          className="repo-pill"
-          style={{ color, borderColor: color, background: `${color}22` }}
-        >
-          {issue.owner}/{issue.repo}
-        </span>
-        <span className="issue-number">#{issue.number}</span>
-        <span className={`age ${urgencyTier(issue.updatedAt)}`}>{relTime(issue.updatedAt)}</span>
+      <div className="card-header">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelection(issue.id)}
+          className="card-checkbox"
+        />
+        <div className="repo">
+          <span
+            className="repo-pill"
+            style={{ color, borderColor: color, background: `${color}22` }}
+          >
+            {issue.owner}/{issue.repo}
+          </span>
+          <span className="issue-number">#{issue.number}</span>
+          <span className={`age ${urgencyTier(issue.updatedAt)}`}>{relTime(issue.updatedAt)}</span>
+        </div>
       </div>
       <div className="title">
         <a href={issue.htmlUrl} target="_blank" rel="noreferrer">
@@ -611,6 +874,11 @@ function Card({ issue }: { issue: Issue }) {
       {issue.state === 'blocked' && issue.resultText && (
         <div className="result">{issue.resultText}</div>
       )}
+      {issue.state === 'refinement' && issue.resultText && (
+        <div className="result">
+          <strong>Validation:</strong> {issue.resultText}
+        </div>
+      )}
 
 <div className="card-actions">
         {issue.state === 'backlog' && (
@@ -624,9 +892,17 @@ function Card({ issue }: { issue: Issue }) {
           </button>
         )}
         {(issue.state === 'backlog' || issue.state === 'refinement' || issue.state === 'blocked') && (
-          <button className="develop-btn" onClick={openModal}>
-            Develop this
-          </button>
+          <>
+            <button className="develop-btn" onClick={openModal}>
+              Develop this
+            </button>
+            <button className="validate-btn" onClick={() => {
+              setCommand('');
+              openModal();
+            }}>
+              Develop (with validation)
+            </button>
+          </>
         )}
       </div>
       <div className="recap-row">
@@ -662,13 +938,16 @@ function Card({ issue }: { issue: Issue }) {
             <label className="modal-label" htmlFor="devhub-model">
               Model (optional — default = pinned tiers)
             </label>
-            <ModelPicker models={models} value={selected} onChange={setSelected} />
+            <ModelPicker models={models} value={selectedModel} onChange={setSelectedModel} />
             <div className="modal-actions">
               <button className="ghost" onClick={() => setOpen(false)} disabled={busy}>
                 Cancel
               </button>
               <button className="develop-btn" onClick={develop} disabled={busy}>
                 {busy ? 'Starting…' : 'Start developing'}
+              </button>
+              <button className="validate-btn" onClick={stagedDevelop} disabled={busy}>
+                {busy ? 'Starting…' : 'Validate & Develop'}
               </button>
             </div>
           </div>

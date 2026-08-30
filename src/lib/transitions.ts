@@ -11,3 +11,17 @@ export const ALLOWED_TRANSITIONS: Partial<Record<IssueState, IssueState[]>> = {
 export function canTransition(from: IssueState, to: IssueState): boolean {
   return (ALLOWED_TRANSITIONS[from] ?? []).includes(to);
 }
+
+// Batch advance transitions: used by the "Advance selected" batch action.
+export const BATCH_ADVANCE_TRANSITIONS: Partial<Record<IssueState, IssueState>> = {
+  backlog: 'refinement',
+  refinement: 'backlog',
+};
+
+export function canBatchAdvance(from: IssueState): boolean {
+  return from in BATCH_ADVANCE_TRANSITIONS;
+}
+
+export function getBatchAdvanceTarget(from: IssueState): IssueState | null {
+  return BATCH_ADVANCE_TRANSITIONS[from] ?? null;
+}
