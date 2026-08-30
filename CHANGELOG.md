@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.8](https://github.com/dachrisch/devhub/compare/v1.0.7...v1.0.8) (2026-08-30)
+
+
+### Bug Fixes
+
+* confine board scroll to items area, keep header fixed ([7065f7d](https://github.com/dachrisch/devhub/commit/7065f7d9bbd40bf0eedb9800e8b618af13945b7b))
+
 ## [1.0.7](https://github.com/dachrisch/devhub/compare/v1.0.6...v1.0.7) (2026-08-30)
 
 
