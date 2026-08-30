@@ -103,6 +103,15 @@ export default function RecapPage() {
         </a>
       </div>
 
+      {issue.linkedPrUrl && issue.state !== 'pr' && (
+        <div className="recap-result pr">
+          <h3>Linked pull request</h3>
+          <p>
+            PR: <a href={issue.linkedPrUrl}>{issue.linkedPrUrl}</a>
+          </p>
+        </div>
+      )}
+
       {issue.state === 'developing' && (
         <div className="recap-live">
           <span className="pulse" /> {latest ? activityLine(latest.payload) : 'Starting agent…'}

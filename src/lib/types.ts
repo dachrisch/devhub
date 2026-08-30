@@ -13,6 +13,7 @@ export interface IssueRow {
   session_id: string | null;
   result_pr_url: string | null;
   result_text: string | null;
+  linked_pr_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -46,6 +47,7 @@ export interface Issue {
   sessionId: string | null;
   resultPrUrl: string | null;
   resultText: string | null;
+  linkedPrUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -64,6 +66,7 @@ export function serializeIssue(row: IssueRow): Issue {
     sessionId: row.session_id,
     resultPrUrl: row.result_pr_url,
     resultText: row.result_text,
+    linkedPrUrl: row.linked_pr_url,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -30,6 +30,7 @@ function migrate(database: Database.Database): void {
       session_id TEXT,
       result_pr_url TEXT,
       result_text TEXT,
+      linked_pr_url TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(owner, repo, number)
@@ -121,6 +122,10 @@ export function setResult(id: number, state: IssueState, resultPrUrl: string | n
     )
     .run(state, resultPrUrl, resultText, id);
   return getIssue(id);
+}
+
+export function setLinkedPrUrl(id: number, linkedPrUrl: string | null): void {
+  getDb().prepare(`UPDATE issues SET linked_pr_url = ?, updated_at = datetime('now') WHERE id = ?`).run(linkedPrUrl, id);
 }
 
 export function appendEvent(issueId: number, kind: string, payload: unknown): IssueEvent {

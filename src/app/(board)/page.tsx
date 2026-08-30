@@ -232,7 +232,7 @@ function Card({ issue }: { issue: Issue }) {
           {issue.owner}/{issue.repo}
         </span>
         <span className="issue-number">#{issue.number}</span>
-        <span className="age">{relTime(issue.createdAt)}</span>
+        <span className="age">{relTime(issue.updatedAt)}</span>
       </div>
       <div className="title">
         <a href={issue.htmlUrl} target="_blank" rel="noreferrer">
@@ -240,6 +240,12 @@ function Card({ issue }: { issue: Issue }) {
         </a>
       </div>
       {issue.body && <div className="excerpt">{excerpt(issue.body)}</div>}
+
+      {issue.linkedPrUrl && issue.state !== 'pr' && (
+        <div className="result">
+          PR: <a href={issue.linkedPrUrl}>{issue.linkedPrUrl}</a>
+        </div>
+      )}
 
       {issue.state === 'pr' && issue.resultPrUrl && (
         <div className="result">

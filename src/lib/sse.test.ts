@@ -15,6 +15,7 @@ const sampleIssue: Issue = {
   sessionId: null,
   resultPrUrl: null,
   resultText: null,
+  linkedPrUrl: null,
   createdAt: '',
   updatedAt: '',
 };
