@@ -81,6 +81,17 @@ function relTime(iso: string): string {
   return `${secs}s ago`;
 }
 
+// Staleness tier for a card, based on time since last update. Used as a
+// lightweight urgency cue for triaging a crowded backlog.
+function urgencyTier(iso: string): 'fresh' | 'aging' | 'stale' {
+  const then = new Date(iso.replace(' ', 'T') + 'Z').getTime();
+  if (Number.isNaN(then)) return 'fresh';
+  const days = (Date.now() - then) / 86400000;
+  if (days >= 14) return 'stale';
+  if (days >= 4) return 'aging';
+  return 'fresh';
+}
+
 function excerpt(body: string): string {
   const flat = body.replace(/```[\s\S]*?```/g, ' ').replace(/[#>*`_\-]/g, ' ').replace(/\s+/g, ' ').trim();
   return flat.length > 180 ? `${flat.slice(0, 180)}…` : flat;
@@ -113,16 +124,26 @@ export default function BoardPage() {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [repoFilter, setRepoFilter] = useState<string | null>(null);
+  const [sorts, setSorts] = useState<Partial<Record<IssueState, 'newest' | 'oldest'>>>({});
+  const [searchHelp, setSearchHelp] = useState(false);
   const [activeColumn, setActiveColumn] = useState<IssueState>('backlog');
   const [searchExpanded, setSearchExpanded] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<Map<IssueState, HTMLElement>>(new Map());
+  const helpRef = useRef<HTMLDivElement>(null);
   const { user, loading, denied, logout } = useAuth();
   // Last-seen state per issue, so live transitions to pr/blocked can be told
   // apart from cards that already were in that state on load.
   const prevStatesRef = useRef<Map<number, IssueState>>(new Map());
 
   const signedIn = Boolean(user);
+
+  const repos = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of issues) set.add(`${i.owner}/${i.repo}`);
+    return Array.from(set).sort();
+  }, [issues]);
 
   const upsert = useCallback((issue: Issue) => {
     setIssues((prev) => {
@@ -186,6 +207,22 @@ export default function BoardPage() {
     const t = setTimeout(() => setRefreshError(null), 8000);
     return () => clearTimeout(t);
   }, [refreshError]);
+
+  useEffect(() => {
+    if (!searchHelp) return;
+    const onDown = (e: MouseEvent) => {
+      if (helpRef.current && !helpRef.current.contains(e.target as Node)) setSearchHelp(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSearchHelp(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [searchHelp]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -293,12 +330,38 @@ export default function BoardPage() {
                 Cancel
               </button>
             )}
+            <div className="search-help" ref={helpRef}>
+              <button
+                className="search-help-btn"
+                onClick={() => setSearchHelp((h) => !h)}
+                aria-label="Search syntax help"
+                aria-expanded={searchHelp}
+              >
+                ?
+              </button>
+              {searchHelp && (
+                <div className="search-help-menu">
+                  <div className="search-help-title">Search filters</div>
+                  <div className="search-help-item"><code>repo:</code> match repo name</div>
+                  <div className="search-help-item"><code>title:</code> match title</div>
+                  <div className="search-help-item"><code>owner:</code> match owner</div>
+                  <div className="search-help-item"><code>state:</code> match state</div>
+                  <div className="search-help-item"><code>body:</code> match body</div>
+                  <div className="search-help-item"><code>number:</code> match issue #</div>
+                  <div className="search-help-note">Combine filters with plain text. e.g. repo:web auth</div>
+                </div>
+              )}
+            </div>
           </div>
           <span
-            className={`conn-dot ${connected ? 'ok' : 'off'}`}
+            className={`conn-status ${connected ? 'ok' : 'off'}`}
             title={connected ? 'live' : 'connecting…'}
             aria-label={connected ? 'live' : 'connecting…'}
-          />
+            role="status"
+          >
+            <span className="conn-dot" />
+            {connected ? 'live' : 'connecting…'}
+          </span>
           {lastRefreshed && (
             <span className="last-refreshed">Last refreshed {fmtTime(lastRefreshed)}</span>
           )}
@@ -332,9 +395,39 @@ export default function BoardPage() {
 
       <RecentlyReleased issues={issues} />
 
+      {repos.length > 1 && (
+        <div className="repo-chips" role="group" aria-label="Filter by repo">
+          <button
+            className={`repo-chip${repoFilter === null ? ' active' : ''}`}
+            onClick={() => setRepoFilter(null)}
+          >
+            All
+          </button>
+          {repos.map((r) => {
+            const color = repoColor(r);
+            return (
+              <button
+                key={r}
+                className={`repo-chip${repoFilter === r ? ' active' : ''}`}
+                onClick={() => setRepoFilter(repoFilter === r ? null : r)}
+                style={{ '--chip-color': color } as React.CSSProperties}
+              >
+                <span className="repo-chip-dot" />
+                {r}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="board" ref={boardRef}>
         {COLUMNS.map((col) => {
-          const items = issues.filter((i) => i.state === col && matchesIssue(i, query));
+          const items = issues
+            .filter((i) => i.state === col && matchesIssue(i, query) && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter))
+            .sort((a, b) => {
+              const dir = sorts[col] === 'oldest' ? 1 : -1;
+              return a.updatedAt.localeCompare(b.updatedAt) * dir;
+            });
           return (
             <section 
               className="column" 
@@ -347,6 +440,16 @@ export default function BoardPage() {
                 <span className={`dot ${col}`} />
                 {col}
                 <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({items.length})</span>
+                <button
+                  className="sort-toggle"
+                  onClick={() =>
+                    setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
+                  }
+                  title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                  aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                >
+                  {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
+                </button>
               </div>
               {items.length === 0 ? (
                 <div className="empty">nothing here</div>
@@ -489,7 +592,7 @@ function Card({ issue }: { issue: Issue }) {
           {issue.owner}/{issue.repo}
         </span>
         <span className="issue-number">#{issue.number}</span>
-        <span className="age">{relTime(issue.updatedAt)}</span>
+        <span className={`age ${urgencyTier(issue.updatedAt)}`}>{relTime(issue.updatedAt)}</span>
       </div>
       <div className="title">
         <a href={issue.htmlUrl} target="_blank" rel="noreferrer">
