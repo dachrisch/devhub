@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/dachrisch/devhub/compare/v1.1.0...v1.1.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* add diagnostic logging to auth callback ([#27](https://github.com/dachrisch/devhub/issues/27)) ([e4762c6](https://github.com/dachrisch/devhub/commit/e4762c61e2d09b0e5792c7a4ccce24ccb3436c14))
+
 ## [1.1.0](https://github.com/dachrisch/devhub/compare/v1.0.9...v1.1.0) (2026-08-30)
 
 
