@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.2](https://github.com/dachrisch/devhub/compare/v1.9.1...v1.9.2) (2026-08-30)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @types/better-sqlite3 to v9 ([#62](https://github.com/dachrisch/devhub/issues/62)) ([c940da0](https://github.com/dachrisch/devhub/commit/c940da07c3d385b1de8e995ffa3c910e6779ebaf))
+
 ## [1.9.1](https://github.com/dachrisch/devhub/compare/v1.9.0...v1.9.1) (2026-08-30)
 
 
