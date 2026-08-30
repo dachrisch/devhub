@@ -356,6 +356,21 @@ header h1 {
   cursor: not-allowed;
 }
 
+.develop-batch-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.develop-batch-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .validate-btn {
   background: var(--developing);
   color: white;

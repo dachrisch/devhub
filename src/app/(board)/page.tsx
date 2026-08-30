@@ -259,6 +259,34 @@ export default function BoardPage() {
     }
   }, [selectedIds, clearSelection]);
 
+  const developSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    
+    setRefreshing(true);
+    try {
+      const res = await fetch('/api/issues/batch-advance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          issueIds: Array.from(selectedIds),
+          mode: 'develop'
+        }),
+      });
+      
+      if (!res.ok) {
+        const data = await res.json() as { error?: string };
+        throw new Error(data.error || `batch develop failed (HTTP ${res.status})`);
+      }
+      
+      clearSelection();
+      setRefreshError(null);
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefreshing(false);
+    }
+  }, [selectedIds, clearSelection]);
+
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -392,6 +420,13 @@ export default function BoardPage() {
           </button>
           {selectedIds.size > 0 && (
             <>
+              <button
+                className="develop-batch-btn"
+                onClick={developSelected}
+                disabled={refreshing}
+              >
+                Develop selected ({selectedIds.size})
+              </button>
               <button
                 className="validate-btn"
                 onClick={validateSelected}
