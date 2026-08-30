@@ -137,7 +137,6 @@ export default function BoardPage() {
     });
   }, []);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used in Task 2
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
   }, []);
@@ -206,6 +205,31 @@ export default function BoardPage() {
     const t = setTimeout(() => setRefreshError(null), 8000);
     return () => clearTimeout(t);
   }, [refreshError]);
+
+  const advanceSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+
+    setRefreshing(true);
+    try {
+      const res = await fetch('/api/issues/batch-advance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ issueIds: Array.from(selectedIds) }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json() as { error?: string };
+        throw new Error(data.error || `batch advance failed (HTTP ${res.status})`);
+      }
+
+      clearSelection();
+      setRefreshError(null);
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefreshing(false);
+    }
+  }, [selectedIds, clearSelection]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -341,10 +365,7 @@ export default function BoardPage() {
           {selectedIds.size > 0 && (
             <button
               className="advance-btn"
-              onClick={() => {
-                // Will be implemented in Task 2
-                console.log('Advance selected:', Array.from(selectedIds));
-              }}
+              onClick={advanceSelected}
               disabled={refreshing}
             >
               Advance selected ({selectedIds.size})
