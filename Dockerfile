@@ -20,6 +20,7 @@ RUN npm ci --omit=dev
 
 # ---- runtime: slim image with only what's needed to run ----
 FROM node:22-alpine AS runtime
+RUN apk add --no-cache curl
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000

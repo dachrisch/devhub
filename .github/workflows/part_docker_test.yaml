@@ -53,10 +53,13 @@ jobs:
             docker logs test_container
             exit 1
           fi
-          # Install curl and test HTTP response
-          docker exec test_container sh -c "apk add --no-cache curl > /dev/null 2>&1"
-          http_code=$(docker exec test_container sh -c "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/auth/me || echo '000'")
-          echo "HTTP response code: $http_code"
+          # Test HTTP response using curl (pre-installed in image)
+          for i in {1..10}; do
+            http_code=$(docker exec test_container curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/auth/me || echo '000')
+            echo "Attempt $i — HTTP response code: $http_code"
+            if [ "$http_code" != "000" ]; then break; fi
+            sleep 3
+          done
           if [ "$http_code" = "000" ]; then
             echo "❌ Container is not responding on port 3000."
             docker logs test_container
