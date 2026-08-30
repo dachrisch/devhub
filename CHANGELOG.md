@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.2](https://github.com/dachrisch/devhub/compare/v1.1.1...v1.1.2) (2026-08-30)
+
+
+### Bug Fixes
+
+* chown /data to node user in Dockerfile ([50b0528](https://github.com/dachrisch/devhub/commit/50b052887a3c39d365bba9f2016057273362c46e))
+* chown /data to node user in Dockerfile ([5a40a66](https://github.com/dachrisch/devhub/commit/5a40a662454532951e61a64dee9434b9c3f4170f))
+
 ## [1.1.1](https://github.com/dachrisch/devhub/compare/v1.1.0...v1.1.1) (2026-08-30)
 
 
