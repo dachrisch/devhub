@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/dachrisch/devhub/compare/v1.0.4...v1.0.5) (2026-08-30)
+
+
+### Bug Fixes
+
+* health check accepts any non-500 response ([7105de6](https://github.com/dachrisch/devhub/commit/7105de6c130cff63e32b97a9ead8a67342193558))
+
 ## [1.0.4](https://github.com/dachrisch/devhub/compare/v1.0.3...v1.0.4) (2026-08-30)
 
 
