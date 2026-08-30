@@ -4,36 +4,13 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import type { Issue, IssueEvent } from '@/lib/types';
+import { activityLine, condense, eventSnippet, isNoise } from '@/lib/recap';
 import { useAuth } from '@/components/use-auth';
 import { WelcomeScreen } from '@/components/auth-ui';
 
 interface OpencodeEventMsg {
   issueId: number;
   event: Record<string, unknown>;
-}
-
-function activityLine(ev: Record<string, unknown> | undefined): string {
-  const type = (ev?.type as string) ?? '';
-  if (type.includes('tool.called')) return 'Running a tool…';
-  if (type.includes('tool.success')) return 'Tool finished';
-  if (type.includes('tool')) return 'Using a tool…';
-  if (type.includes('text')) return 'Writing response…';
-  if (type.includes('step')) return 'Working on a step…';
-  if (type.includes('session')) return 'In session…';
-  return type || 'Working…';
-}
-
-function eventSnippet(ev: Record<string, unknown> | undefined): string {
-  const data = (ev?.data ?? {}) as Record<string, unknown>;
-  const text =
-    typeof data.text === 'string'
-      ? data.text
-      : typeof data.title === 'string'
-        ? data.title
-        : typeof data.tool === 'string'
-          ? `tool: ${data.tool}`
-          : '';
-  return text.replace(/\s+/g, ' ').trim();
 }
 
 export default function RecapPage() {
@@ -106,7 +83,10 @@ export default function RecapPage() {
   }
 
   const done = issue.state === 'pr' || issue.state === 'blocked';
-  const latest = events.find((e) => e.kind === 'opencode');
+  // Strip tool calls / reasoning / keepalives and collapse consecutive
+  // identical opencode events so the recap reads as a digest.
+  const feed = condense(events.filter((e) => (e.kind === 'opencode' ? !isNoise(e.payload) : true)));
+  const latest = feed.find((e) => e.kind === 'opencode');
 
   return (
     <div className="recap-wrap">
@@ -125,9 +105,9 @@ export default function RecapPage() {
 
       {issue.state === 'developing' && (
         <div className="recap-live">
-          <span className="pulse" /> {latest ? activityLine(latest.payload as Record<string, unknown>) : 'Starting agent…'}
-          {latest && eventSnippet(latest.payload as Record<string, unknown>) && (
-            <div className="recap-snippet">{eventSnippet(latest.payload as Record<string, unknown>)}</div>
+          <span className="pulse" /> {latest ? activityLine(latest.payload) : 'Starting agent…'}
+          {latest && eventSnippet(latest.payload) && (
+            <div className="recap-snippet">{eventSnippet(latest.payload)}</div>
           )}
         </div>
       )}
@@ -146,14 +126,14 @@ export default function RecapPage() {
 
       <h4 className="recap-feed-head">Agent activity</h4>
       <div className="recap-feed">
-        {events.length === 0 && <p className="muted">No events yet.</p>}
-        {events.map((e, idx) => (
+        {feed.length === 0 && <p className="muted">No meaningful activity yet.</p>}
+        {feed.map((e, idx) => (
           <div className="recap-event" key={`${e.ts}-${idx}`}>
-            <span className="recap-event-type">{e.kind}</span>
+            <span className="recap-event-type">{e.kind === 'opencode' ? activityLine(e.payload) : e.kind}</span>
             <span className="recap-event-time">{e.ts}</span>
             <div className="recap-event-payload">
               {e.kind === 'opencode'
-                ? eventSnippet(e.payload as Record<string, unknown>) || activityLine(e.payload as Record<string, unknown>)
+                ? eventSnippet(e.payload) || activityLine(e.payload)
                 : JSON.stringify(e.payload).slice(0, 200)}
             </div>
           </div>
