@@ -113,6 +113,10 @@ export default function BoardPage() {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [activeColumn, setActiveColumn] = useState<IssueState>('backlog');
+  const [searchExpanded, setSearchExpanded] = useState(false);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const columnRefs = useRef<Map<IssueState, HTMLElement>>(new Map());
   const { user, loading, denied, logout } = useAuth();
   // Last-seen state per issue, so live transitions to pr/blocked can be told
   // apart from cards that already were in that state on load.
@@ -206,6 +210,37 @@ export default function BoardPage() {
     }
   }, []);
 
+  const scrollToColumn = useCallback((col: IssueState) => {
+    const el = columnRefs.current.get(col);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            for (const [col, el] of columnRefs.current.entries()) {
+              if (el === entry.target) {
+                setActiveColumn(col);
+                break;
+              }
+            }
+          }
+        });
+      },
+      { root: boardRef.current, threshold: 0.5 }
+    );
+    
+    columnRefs.current.forEach((el) => observer.observe(el));
+    
+    return () => observer.disconnect();
+  }, [signedIn]);
+
   if (!signedIn) {
     return (
       <div className="page-wrap">
@@ -227,13 +262,38 @@ export default function BoardPage() {
           <Logo size={28} />
           <span className="brand-name">DevHub</span>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <input
-            className="search"
-            placeholder="Search…  e.g. repo:web title:auth or free text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="search-wrapper">
+            <button 
+              className="search-toggle" 
+              onClick={() => setSearchExpanded(true)}
+              aria-label="Open search"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M11.5 7a4.499 4.499 0 11-8.998 0A4.499 4.499 0 0111.5 7zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
+              </svg>
+            </button>
+            <input
+              className={`search${searchExpanded ? ' expanded' : ''}`}
+              placeholder="Search…  e.g. repo:web title:auth or free text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onBlur={() => {
+                if (!query) setSearchExpanded(false);
+              }}
+            />
+            {searchExpanded && (
+              <button 
+                className="search-cancel" 
+                onClick={() => {
+                  setSearchExpanded(false);
+                  setQuery('');
+                }}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
           <span
             className={`conn-dot ${connected ? 'ok' : 'off'}`}
             title={connected ? 'live' : 'connecting…'}
@@ -246,11 +306,17 @@ export default function BoardPage() {
             <>
               <Avatar login={user.login} avatarUrl={user.avatarUrl} />
               <span className="auth-login">{user.login}</span>
-              <button onClick={logout}>Sign out</button>
+              <button className="header-icon-btn" onClick={logout} aria-label="Sign out">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2 2.75C2 1.784 2.784 1 3.75 1h2.5a.75.75 0 010 1.5h-2.5a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h2.5a.75.75 0 010 1.5h-2.5A1.75 1.75 0 012 13.25V2.75zm10.44 4.5H6.75a.75.75 0 000 1.5h5.69l-1.97 1.97a.75.75 0 101.06 1.06l3.25-3.25a.75.75 0 000-1.06l-3.25-3.25a.75.75 0 10-1.06 1.06l1.97 1.97z"/>
+                </svg>
+              </button>
             </>
           )}
-          <button onClick={refresh} disabled={refreshing}>
-            {refreshing ? 'Refreshing…' : 'Refresh issues'}
+          <button className="header-icon-btn" onClick={refresh} disabled={refreshing} aria-label="Refresh issues">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={refreshing ? 'spin' : ''}>
+              <path d="M8 2.5a5.487 5.487 0 00-4.131 1.869l1.204 1.204A.25.25 0 014.896 6H1.25A.25.25 0 011 5.75V2.104a.25.25 0 01.427-.177l1.38 1.38A7.001 7.001 0 0114.95 7.16a.75.75 0 01-1.49.178A5.501 5.501 0 008 2.5zM1.705 8.005a.75.75 0 01.834.656 5.501 5.501 0 009.592 2.97l-1.204-1.204a.25.25 0 01.177-.427h3.646a.25.25 0 01.25.25v3.646a.25.25 0 01-.427.177l-1.38-1.38A7.001 7.001 0 011.05 8.84a.75.75 0 01.656-.834z"/>
+            </svg>
           </button>
         </div>
       </header>
@@ -266,11 +332,17 @@ export default function BoardPage() {
 
       <RecentlyReleased issues={issues} />
 
-      <div className="board">
+      <div className="board" ref={boardRef}>
         {COLUMNS.map((col) => {
           const items = issues.filter((i) => i.state === col && matchesIssue(i, query));
           return (
-            <section className="column" key={col}>
+            <section 
+              className="column" 
+              key={col}
+              ref={(el) => {
+                if (el) columnRefs.current.set(col, el);
+              }}
+            >
               <div className="column-head">
                 <span className={`dot ${col}`} />
                 {col}
@@ -285,6 +357,29 @@ export default function BoardPage() {
           );
         })}
       </div>
+
+      <nav className="bottom-nav" role="tablist" aria-label="Board columns">
+        {COLUMNS.map((col) => {
+          const count = issues.filter((i) => i.state === col).length;
+          return (
+            <button
+              key={col}
+              className={`bottom-nav-tab${activeColumn === col ? ' active' : ''}`}
+              onClick={() => {
+                setActiveColumn(col);
+                scrollToColumn(col);
+              }}
+              role="tab"
+              aria-selected={activeColumn === col}
+              aria-label={`${col} column, ${count} items`}
+            >
+              <span className={`dot ${col}`} />
+              <span>{col}</span>
+              <span className="bottom-nav-badge">{count}</span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }
