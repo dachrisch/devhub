@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.0](https://github.com/dachrisch/devhub/compare/v1.7.0...v1.8.0) (2026-08-30)
+
+
+### Features
+
+* board filtering, sorting, search help, urgency cues, and live status pill ([cfae5f6](https://github.com/dachrisch/devhub/commit/cfae5f643b40ccf75a690757352e42254c8fc09b))
+* board filtering, sorting, search help, urgency cues, live status ([e58d588](https://github.com/dachrisch/devhub/commit/e58d5882158d216c0535ff40fc486abbe738d343))
+
 ## [1.7.0](https://github.com/dachrisch/devhub/compare/v1.6.0...v1.7.0) (2026-08-30)
 
 
