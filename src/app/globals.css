@@ -20,6 +20,7 @@ html,
 body {
   margin: 0;
   padding: 0;
+  height: 100%;
   background: var(--bg);
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -32,6 +33,13 @@ a {
 
 a:hover {
   text-decoration: underline;
+}
+
+.page-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
 }
 
 header {
@@ -154,6 +162,9 @@ header h1 {
   gap: 16px;
   padding: 24px;
   align-items: start;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .column {
