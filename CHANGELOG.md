@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/dachrisch/devhub/compare/v1.0.1...v1.0.2) (2026-08-30)
+
+
+### Bug Fixes
+
+* sync package-lock.json for npm ci ([f6887c7](https://github.com/dachrisch/devhub/commit/f6887c7e12a4db2621257352f8c2f8ef2b2dbb0c))
+
 ## [1.0.1](https://github.com/dachrisch/devhub/compare/v1.0.0...v1.0.1) (2026-08-30)
 
 
