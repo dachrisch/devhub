@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/dachrisch/devhub/compare/v1.1.2...v1.2.0) (2026-08-30)
+
+
+### Features
+
+* let operator pick which opencode model runs a develop job ([4b5690f](https://github.com/dachrisch/devhub/commit/4b5690f4f306951b2cc840e585798ada59d620d1))
+* let operator pick which opencode model runs a develop job ([f568e6b](https://github.com/dachrisch/devhub/commit/f568e6b6628580471a52ba38de803b1203feb4e8)), closes [#14](https://github.com/dachrisch/devhub/issues/14)
+
 ## [1.1.2](https://github.com/dachrisch/devhub/compare/v1.1.1...v1.1.2) (2026-08-30)
 
 
