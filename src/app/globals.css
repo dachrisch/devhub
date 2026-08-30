@@ -7,8 +7,10 @@
   --muted: #8b949e;
   --accent: #58a6ff;
   --backlog: #8b949e;
+  --refinement: #bc8cff;
   --developing: #d29922;
   --pr: #3fb950;
+  --rollout: #39c5cf;
   --blocked: #f85149;
 }
 
@@ -158,13 +160,13 @@ header h1 {
 
 .board {
   display: grid;
-  grid-template-columns: repeat(4, minmax(240px, 1fr));
+  grid-template-columns: repeat(5, minmax(260px, 1fr));
   gap: 16px;
   padding: 24px;
   align-items: start;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: auto;
 }
 
 .column {
@@ -194,14 +196,90 @@ header h1 {
 .dot.backlog {
   background: var(--backlog);
 }
+.dot.refinement {
+  background: var(--refinement);
+}
 .dot.developing {
   background: var(--developing);
 }
 .dot.pr {
   background: var(--pr);
 }
+.dot.rollout {
+  background: var(--rollout);
+}
 .dot.blocked {
   background: var(--blocked);
+}
+
+.released-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  min-height: 36px;
+}
+
+.released-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.released-list {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.released-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+  font-size: 12px;
+  max-width: 360px;
+}
+
+.released-item:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.released-tag {
+  color: var(--rollout);
+  font-weight: 600;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.released-title {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.released-time {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.released-toggle {
+  white-space: nowrap;
 }
 
 .card {
@@ -268,6 +346,12 @@ header h1 {
 .card-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+}
+
+.release-tag {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .recap-row {
@@ -614,6 +698,10 @@ button:disabled {
 
 .recap-result.pr {
   border-left-color: var(--pr);
+}
+
+.recap-result.rollout {
+  border-left-color: var(--rollout);
 }
 
 .recap-result.blocked {

@@ -7,7 +7,11 @@ import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
 
-const COLUMNS: IssueState[] = ['backlog', 'developing', 'pr', 'blocked'];
+const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'blocked'];
+
+// Released tickets are shown in a slim strip under the header, capped so the
+// strip stays compact.
+const RELEASED_CAP = 5;
 
 interface ModelOption {
   id: string;
@@ -183,6 +187,8 @@ export default function BoardPage() {
         </div>
       </header>
 
+      <RecentlyReleased issues={issues} />
+
       <div className="board">
         {COLUMNS.map((col) => {
           const items = issues.filter((i) => i.state === col && matchesIssue(i, query));
@@ -202,6 +208,40 @@ export default function BoardPage() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function RecentlyReleased({ issues }: { issues: Issue[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const rolled = useMemo(
+    () =>
+      issues
+        .filter((i) => i.state === 'rollout')
+        .sort((a, b) => (b.releasedAt ?? '').localeCompare(a.releasedAt ?? '')),
+    [issues]
+  );
+  if (rolled.length === 0) return null;
+  const visible = expanded ? rolled : rolled.slice(0, RELEASED_CAP);
+  return (
+    <div className="released-strip">
+      <span className="released-label">Released</span>
+      <div className="released-list">
+        {visible.map((issue) => (
+          <Link key={issue.id} href={`/issues/${issue.id}`} className="released-item">
+            <span className="released-tag">{issue.releaseTag ?? '?'}</span>
+            <span className="released-title">
+              {issue.owner}/{issue.repo} #{issue.number}: {issue.title}
+            </span>
+            <span className="released-time">{relTime(issue.releasedAt ?? issue.updatedAt)}</span>
+          </Link>
+        ))}
+      </div>
+      {rolled.length > RELEASED_CAP && (
+        <button className="released-toggle" onClick={() => setExpanded((e) => !e)}>
+          {expanded ? 'Collapse' : `+${rolled.length - RELEASED_CAP} more`}
+        </button>
+      )}
     </div>
   );
 }
@@ -251,6 +291,22 @@ function Card({ issue }: { issue: Issue }) {
     }
   }, [issue.id, command, selected]);
 
+  const transition = useCallback(
+    async (target: IssueState) => {
+      setBusy(true);
+      try {
+        await fetch(`/api/issues/${issue.id}/transition`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: target }),
+        });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [issue.id]
+  );
+
   return (
     <div className="card" style={{ borderLeftColor: color }}>
       <div className="repo">
@@ -286,7 +342,17 @@ function Card({ issue }: { issue: Issue }) {
       )}
 
 <div className="card-actions">
-        {!developing && (
+        {issue.state === 'backlog' && (
+          <button className="ghost" onClick={() => transition('refinement')} disabled={busy}>
+            Refine
+          </button>
+        )}
+        {issue.state === 'refinement' && (
+          <button className="ghost" onClick={() => transition('backlog')} disabled={busy}>
+            Back to backlog
+          </button>
+        )}
+        {(issue.state === 'backlog' || issue.state === 'refinement' || issue.state === 'blocked') && (
           <button className="develop-btn" onClick={openModal}>
             Develop this
           </button>

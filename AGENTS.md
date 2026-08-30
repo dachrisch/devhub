@@ -39,9 +39,13 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
 ## Domain wiring
 
 - `src/lib/store.ts` — SQLite (`issues`, `events`). `upsertIssue` only writes metadata when a
-  row is `backlog`; it never clobbers `developing`/`pr`/`blocked`.
+  row is `backlog`; it never clobbers `refinement`/`developing`/`pr`/`rollout`/`blocked`.
 - `src/lib/github.ts` — `POST /api/issues` (refresh) ingests open issues from `dachrisch` +
-  `bumbleflies`, filtered by `GITHUB_TOPICS`, skipping PRs.
+  `bumbleflies`, filtered by `GITHUB_TOPICS`, skipping PRs. It also runs `sweepRollouts`,
+  which advances `pr` cards to the terminal `rollout` state once their PR is merged **and** a
+  release tag contains the merge commit (`GET /pulls/{n}` merged + `GET /tags` + compare).
+  Manual board moves are restricted to `backlog → refinement` / `refinement → backlog`
+  (`src/lib/transitions.ts`, `POST /api/issues/[id]/transition`).
 - `src/lib/opencode.ts` — opencode driver. Auth header `X-Api-Key`. Model picker lists
   **all** server models (free + paid, e.g. DeepSeek V4 Flash) via `GET .../api/model`;
   pinned tiers `mimo-v2.5-free` → `deepseek-v4-flash` → `big-pickle` (provider `opencode`)
@@ -51,7 +55,7 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
   (no cloning). Final assistant message must end in a PR URL or `CANNOT FULFILL: <reason>`.
 - `src/lib/develop.ts` — `startDevelop` runs fire-and-forget; it owns all state transitions
   and SSE broadcasts. `POST /api/issues/[id]/develop` returns 202 immediately. **Never
-  re-develop an issue in `pr` state** (`canDevelop` only allows `backlog`/`blocked`).
+  re-develop an issue in `pr` state** (`canDevelop` only allows `backlog`/`refinement`/`blocked`).
 
 ## Env
 

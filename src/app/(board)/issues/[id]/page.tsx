@@ -90,7 +90,7 @@ export default function RecapPage() {
     );
   }
 
-  const done = issue.state === 'pr' || issue.state === 'blocked';
+  const done = issue.state === 'pr' || issue.state === 'rollout' || issue.state === 'blocked';
   // Strip tool calls / reasoning / keepalives and collapse consecutive
   // identical opencode events so the recap reads as a digest.
   const feed = condense(events.filter((e) => (e.kind === 'opencode' ? !isNoise(e.payload) : true)));
@@ -133,11 +133,22 @@ export default function RecapPage() {
 
       {done && (
         <div className={`recap-result ${issue.state}`}>
-          <h3>{issue.state === 'pr' ? 'Done — pull request opened' : 'Blocked'}</h3>
+          <h3>
+            {issue.state === 'pr'
+              ? 'Done — pull request opened'
+              : issue.state === 'rollout'
+                ? 'Done — released'
+                : 'Blocked'}
+          </h3>
           {modelEvent && <p className="recap-model">Model: {modelLabel(modelEvent.payload)}</p>}
           {issue.resultPrUrl && (
             <p>
               PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
+            </p>
+          )}
+          {issue.releaseTag && (
+            <p>
+              Released in <span className="release-tag">{issue.releaseTag}</span>
             </p>
           )}
           {issue.resultText && <pre className="recap-text">{issue.resultText}</pre>}

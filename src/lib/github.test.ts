@@ -13,6 +13,7 @@ const {
   isBotIssue,
   isAllowedMember,
   refreshIssues,
+  sweepRollouts,
   setIssueStateLabels,
   commentOnIssue,
 } = await import('./github.js');
@@ -134,7 +135,77 @@ describe('refreshIssues', () => {
       return ghResponse([])();
     }) as unknown as typeof fetch;
     const result = await refreshIssues('token-abc', fetchFn);
-    expect(result).toEqual({ repos: 0, issues: 0 });
+    expect(result).toEqual({ repos: 0, issues: 0, rolledOut: 0 });
+  });
+});
+
+describe('sweepRollouts', () => {
+  function makePrIssue(): number {
+    store.upsertIssue({
+      githubIssueId: 500,
+      owner: 'dachrisch',
+      repo: 'matched',
+      number: 9,
+      title: 'merged & tagged',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/matched/issues/9',
+    });
+    const issue = store.getIssueByGithub('dachrisch', 'matched', 9)!;
+    store.setResult(issue.id, 'pr', 'https://github.com/dachrisch/matched/pull/42', 'shipped');
+    return issue.id;
+  }
+
+  function ghResponse(body: unknown) {
+    return async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => body,
+    });
+  }
+
+  it('advances a merged + tagged PR to rollout', async () => {
+    const id = makePrIssue();
+    const fetchFn = (async (url: string, init?: { method?: string }) => {
+      if (url.includes('/pulls/42')) return ghResponse({ merged: true, merge_commit_sha: 'abc123' })();
+      if (url.includes('/tags')) {
+        return ghResponse([{ name: 'v1.4.0', commit: { sha: 'def456' } }, { name: 'v1.3.0', commit: { sha: 'old' } }])();
+      }
+      if (url.includes('/compare/abc123')) return ghResponse({ status: 'ahead' })();
+      return ghResponse(init?.method === 'GET' ? { labels: [] } : {})();
+    }) as unknown as typeof fetch;
+
+    expect(await sweepRollouts('token-abc', fetchFn)).toBe(1);
+    const updated = store.getIssue(id);
+    expect(updated?.state).toBe('rollout');
+    expect(updated?.releaseTag).toBe('v1.4.0');
+    expect(updated?.releasedAt).toBeTruthy();
+  });
+
+  it('leaves an unmerged PR in pr', async () => {
+    const id = makePrIssue();
+    const fetchFn = (async (url: string) => {
+      if (url.includes('/pulls/42')) return ghResponse({ merged: false, merge_commit_sha: null })();
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+
+    expect(await sweepRollouts('token-abc', fetchFn)).toBe(0);
+    expect(store.getIssue(id)?.state).toBe('pr');
+  });
+
+  it('leaves a merged but untagged PR in pr', async () => {
+    const id = makePrIssue();
+    const fetchFn = (async (url: string) => {
+      if (url.includes('/pulls/42')) return ghResponse({ merged: true, merge_commit_sha: 'abc123' })();
+      if (url.includes('/tags')) {
+        return ghResponse([{ name: 'v1.2.0', commit: { sha: 'old' } }])();
+      }
+      if (url.includes('/compare/abc123')) return ghResponse({ status: 'behind' })();
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+
+    expect(await sweepRollouts('token-abc', fetchFn)).toBe(0);
+    expect(store.getIssue(id)?.state).toBe('pr');
   });
 });
 

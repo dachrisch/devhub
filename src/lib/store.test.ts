@@ -101,4 +101,38 @@ describe('store', () => {
     store.setDefaultModel(null);
     expect(store.getDefaultModel()).toBeNull();
   });
+
+  it('marks a merged + tagged issue as rollout', () => {
+    store.upsertIssue({
+      githubIssueId: 13,
+      owner: 'bumbleflies',
+      repo: 'api',
+      number: 8,
+      title: 'Release me',
+      body: null,
+      htmlUrl: 'https://github.com/bumbleflies/api/issues/8',
+    });
+    const id = store.getIssueByGithub('bumbleflies', 'api', 8)!.id;
+    store.setResult(id, 'pr', 'https://github.com/bumbleflies/api/pull/77', 'shipped');
+    store.setRollout(id, 'v1.5.0');
+    const rolled = store.getIssue(id);
+    expect(rolled?.state).toBe('rollout');
+    expect(rolled?.releaseTag).toBe('v1.5.0');
+    expect(rolled?.releasedAt).toBeTruthy();
+  });
+
+  it('exposes the migration-added rollout columns on every issue', () => {
+    store.upsertIssue({
+      githubIssueId: 14,
+      owner: 'dachrisch',
+      repo: 'cli',
+      number: 2,
+      title: 'Plain card',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/cli/issues/2',
+    });
+    const issue = store.getIssueByGithub('dachrisch', 'cli', 2)!;
+    expect(issue.releaseTag).toBeNull();
+    expect(issue.releasedAt).toBeNull();
+  });
 });

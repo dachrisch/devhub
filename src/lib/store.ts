@@ -57,6 +57,16 @@ function migrate(database: Database.Database): void {
       value TEXT NOT NULL
     );
   `);
+
+  // One-time migration: rollout metadata for the terminal "released" state.
+  const issueCols = database.prepare('PRAGMA table_info(issues)').all() as { name: string }[];
+  const hasColumn = (name: string) => issueCols.some((c) => c.name === name);
+  if (!hasColumn('release_tag')) {
+    database.exec(`ALTER TABLE issues ADD COLUMN release_tag TEXT`);
+  }
+  if (!hasColumn('released_at')) {
+    database.exec(`ALTER TABLE issues ADD COLUMN released_at TEXT`);
+  }
 }
 
 export interface UpsertIssueInput {
@@ -130,6 +140,16 @@ export function setResult(id: number, state: IssueState, resultPrUrl: string | n
 
 export function setLinkedPrUrl(id: number, linkedPrUrl: string | null): void {
   getDb().prepare(`UPDATE issues SET linked_pr_url = ?, updated_at = datetime('now') WHERE id = ?`).run(linkedPrUrl, id);
+}
+
+// Marks a merged + release-tagged PR as rolled out (the board's "done" state).
+export function setRollout(id: number, releaseTag: string): Issue | null {
+  getDb()
+    .prepare(
+      `UPDATE issues SET state = 'rollout', release_tag = ?, released_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+    )
+    .run(releaseTag, id);
+  return getIssue(id);
 }
 
 export function appendEvent(issueId: number, kind: string, payload: unknown): IssueEvent {
