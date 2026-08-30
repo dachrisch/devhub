@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/dachrisch/devhub/compare/v1.0.9...v1.1.0) (2026-08-30)
+
+
+### Features
+
+* Show last status change time and linked PRs on cards ([50e81b5](https://github.com/dachrisch/devhub/commit/50e81b549500de6a89d928dd8bc03bb68d1fb66e))
+
 ## [1.0.9](https://github.com/dachrisch/devhub/compare/v1.0.8...v1.0.9) (2026-08-30)
 
 
