@@ -634,7 +634,7 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
               setCommand('');
               openModal();
             }}>
-              Validate & Develop
+              Develop (with validation)
             </button>
           </>
         )}

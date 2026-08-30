@@ -100,6 +100,7 @@ export async function startStagedDevelop(
   selectedModel?: OpencodeModel | null
 ): Promise<void> {
   // Phase 1: Validate
+  const originalState = issue.state;
   const validating = setIssueState(issue.id, 'refinement');
   if (validating) publishIssue(validating);
   void mirrorLabels(issue, 'refinement', token);
@@ -125,10 +126,10 @@ export async function startStagedDevelop(
     });
 
     if (!result.ready) {
-      // Validation failed - stay in refinement with feedback
-      const blocked = setResult(issue.id, 'refinement', null, `Validation: ${result.summary}`);
-      if (blocked) publishIssue(blocked);
-      void mirrorLabels(issue, 'refinement', token);
+      // Validation failed - restore original state with feedback
+      const restored = setResult(issue.id, originalState, null, `Validation: ${result.summary}`);
+      if (restored) publishIssue(restored);
+      void mirrorLabels(issue, originalState, token);
       void mirrorComment(issue, `DevHub validation found issues:\n\n${result.summary}`, token);
       return;
     }
@@ -139,9 +140,9 @@ export async function startStagedDevelop(
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     appendEvent(issue.id, 'validation-error', { message: reason });
-    const blocked = setResult(issue.id, 'blocked', null, `Validation failed: ${reason}`);
-    if (blocked) publishIssue(blocked);
-    void mirrorLabels(issue, 'blocked', token);
+    const restored = setResult(issue.id, originalState, null, `Validation failed: ${reason}`);
+    if (restored) publishIssue(restored);
+    void mirrorLabels(issue, originalState, token);
     void mirrorComment(issue, `DevHub validation failed: ${reason}`, token);
     return;
   }
