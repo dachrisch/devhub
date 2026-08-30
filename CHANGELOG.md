@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/dachrisch/devhub/compare/v1.9.0...v1.9.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* mobile board layout — overflow, header collision, active-tab tracking ([#60](https://github.com/dachrisch/devhub/issues/60)) ([24ca38c](https://github.com/dachrisch/devhub/commit/24ca38c2411ea85988ce05ed1d02ace3ad2f8f7a))
+
 ## [1.9.0](https://github.com/dachrisch/devhub/compare/v1.8.0...v1.9.0) (2026-08-30)
 
 
