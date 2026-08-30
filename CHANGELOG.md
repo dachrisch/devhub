@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0](https://github.com/dachrisch/devhub/compare/v1.5.0...v1.6.0) (2026-08-30)
+
+
+### Features
+
+* status & feedback surfacing ([#48](https://github.com/dachrisch/devhub/issues/48)) ([cef1cb2](https://github.com/dachrisch/devhub/commit/cef1cb29813fc95361c7cac59c41666beeea63cb))
+* surface refresh failures, last-refreshed time, and pr/blocked notifications ([62d7c1c](https://github.com/dachrisch/devhub/commit/62d7c1ce93ec5d669e0d22df19128c7834c49214))
+
 ## [1.5.0](https://github.com/dachrisch/devhub/compare/v1.4.0...v1.5.0) (2026-08-30)
 
 
