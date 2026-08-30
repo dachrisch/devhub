@@ -6,15 +6,17 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  const base = process.env.PUBLIC_BASE_URL;
+
   if (!verifyState(req)) {
-    return NextResponse.redirect(new URL('/?auth=denied', req.url), {
+    return NextResponse.redirect(new URL('/?auth=denied', base), {
       headers: { 'Set-Cookie': sessionClearCookie(STATE_COOKIE) },
     });
   }
 
   const code = new URL(req.url).searchParams.get('code');
   if (!code) {
-    return NextResponse.redirect(new URL('/?auth=denied', req.url), {
+    return NextResponse.redirect(new URL('/?auth=denied', base), {
       headers: { 'Set-Cookie': sessionClearCookie(STATE_COOKIE) },
     });
   }
@@ -24,17 +26,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const user = await fetchUser(token);
 
     if (!(await isAllowedMember(token))) {
-      return NextResponse.redirect(new URL('/?auth=denied', req.url), {
+      return NextResponse.redirect(new URL('/?auth=denied', base), {
         headers: { 'Set-Cookie': sessionClearCookie(STATE_COOKIE) },
       });
     }
 
     const { cookie } = createSession(token, user);
-    return NextResponse.redirect(new URL('/', req.url), {
+    return NextResponse.redirect(new URL('/', base), {
       headers: { 'Set-Cookie': [cookie, sessionClearCookie(STATE_COOKIE)].join(', ') },
     });
   } catch {
-    return NextResponse.redirect(new URL('/?auth=denied', req.url), {
+    return NextResponse.redirect(new URL('/?auth=denied', base), {
       headers: { 'Set-Cookie': sessionClearCookie(STATE_COOKIE) },
     });
   }
