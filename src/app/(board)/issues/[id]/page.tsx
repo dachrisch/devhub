@@ -103,7 +103,11 @@ export default function RecapPage() {
         <Link href="/" className="recap-link">← Board</Link>
         <span className={`dot ${issue.state}`} />
         <span className="recap-state">{issue.state}</span>
-        <span className="recap-conn">{connected ? 'live' : 'connecting…'}</span>
+        <span
+          className={`recap-conn conn-dot ${connected ? 'ok' : 'off'}`}
+          title={connected ? 'live' : 'connecting…'}
+          aria-label={connected ? 'live' : 'connecting…'}
+        />
       </header>
 
       <div className="recap-title">

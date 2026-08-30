@@ -158,6 +158,40 @@ header h1 {
   border-color: var(--accent);
 }
 
+.conn-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--muted);
+  display: inline-block;
+  flex: none;
+}
+
+.conn-dot.ok {
+  background: var(--pr);
+  box-shadow: 0 0 6px rgba(63, 185, 80, 0.6);
+}
+
+.last-refreshed {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 24px 0;
+  padding: 10px 14px;
+  background: rgba(248, 81, 73, 0.12);
+  border: 1px solid var(--blocked);
+  border-radius: 8px;
+  color: var(--blocked);
+  font-size: 13px;
+}
+
 .board {
   display: grid;
   grid-template-columns: repeat(5, minmax(260px, 1fr));

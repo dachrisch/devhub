@@ -86,12 +86,37 @@ function excerpt(body: string): string {
   return flat.length > 180 ? `${flat.slice(0, 180)}…` : flat;
 }
 
+function fmtTime(d: Date): string {
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Fire a browser notification when a card lands in a state that needs the
+// operator's attention (PR opened = success, blocked = needs a look). Only
+// fires for transitions seen live over SSE; existing cards on load are not
+// re-notified.
+function notifyStateChange(issue: Issue): void {
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  const title = issue.state === 'pr' ? 'DevHub: pull request opened' : 'DevHub: develop run blocked';
+  const body = `${issue.owner}/${issue.repo} #${issue.number}: ${issue.title}`;
+  try {
+    new Notification(title, { body, tag: `devhub-${issue.id}-${issue.state}` });
+  } catch {
+    // ignore
+  }
+}
+
 export default function BoardPage() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [connected, setConnected] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const { user, loading, denied, logout } = useAuth();
+  // Last-seen state per issue, so live transitions to pr/blocked can be told
+  // apart from cards that already were in that state on load.
+  const prevStatesRef = useRef<Map<number, IssueState>>(new Map());
 
   const signedIn = Boolean(user);
 
@@ -111,7 +136,12 @@ export default function BoardPage() {
     fetch('/api/issues')
       .then((r) => r.json())
       .then((data: { issues: Issue[] }) => {
-        if (active) setIssues(data.issues);
+        if (active) {
+          setIssues(data.issues);
+          setLastRefreshed(new Date());
+          const prev = prevStatesRef.current;
+          for (const i of data.issues) prev.set(i.id, i.state);
+        }
       })
       .catch(() => {});
 
@@ -122,7 +152,13 @@ export default function BoardPage() {
       try {
         const msg = JSON.parse(e.data);
         if (msg.type === 'issue') {
-          upsert(msg.issue as Issue);
+          const issue = msg.issue as Issue;
+          const prevState = prevStatesRef.current.get(issue.id);
+          prevStatesRef.current.set(issue.id, issue.state);
+          if (prevState && prevState !== issue.state) {
+            if (issue.state === 'pr' || issue.state === 'blocked') notifyStateChange(issue);
+          }
+          upsert(issue);
         }
       } catch {
         // ignore malformed
@@ -134,10 +170,37 @@ export default function BoardPage() {
     };
   }, [signedIn, upsert]);
 
+  useEffect(() => {
+    if (!signedIn) return;
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, [signedIn]);
+
+  useEffect(() => {
+    if (!refreshError) return;
+    const t = setTimeout(() => setRefreshError(null), 8000);
+    return () => clearTimeout(t);
+  }, [refreshError]);
+
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await fetch('/api/issues', { method: 'POST' });
+      const res = await fetch('/api/issues', { method: 'POST' });
+      if (!res.ok) {
+        let detail = '';
+        try {
+          const data = (await res.json()) as { error?: string };
+          detail = data.error ?? '';
+        } catch {
+          // non-JSON body
+        }
+        throw new Error(detail || `refresh failed (HTTP ${res.status})`);
+      }
+      setRefreshError(null);
+      setLastRefreshed(new Date());
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
       setRefreshing(false);
     }
@@ -171,9 +234,14 @@ export default function BoardPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            {connected ? 'live' : 'connecting…'}
-          </span>
+          <span
+            className={`conn-dot ${connected ? 'ok' : 'off'}`}
+            title={connected ? 'live' : 'connecting…'}
+            aria-label={connected ? 'live' : 'connecting…'}
+          />
+          {lastRefreshed && (
+            <span className="last-refreshed">Last refreshed {fmtTime(lastRefreshed)}</span>
+          )}
           {user && (
             <>
               <Avatar login={user.login} avatarUrl={user.avatarUrl} />
@@ -186,6 +254,15 @@ export default function BoardPage() {
           </button>
         </div>
       </header>
+
+      {refreshError && (
+        <div className="banner" role="alert">
+          <span>Refresh failed: {refreshError}</span>
+          <button className="ghost" onClick={() => setRefreshError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <RecentlyReleased issues={issues} />
 
