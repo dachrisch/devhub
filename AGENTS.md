@@ -53,9 +53,17 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
 
 ## Env
 
-Copy `.env.example` → `.env`. Required: `OPENCODE_API_KEY`, `GH_TOKEN`,
-`BUMBLEFLIES_GH_TOKEN`. `OPENCODE_ALLOW_INSECURE_TLS=true` only for the opt-in insecure
-deployment (not production `code.lehel.xyz`).
+Copy `.env.example` → `.env`. Required: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
+(GitHub OAuth App) and opencode credentials (`OPENCODE_BASIC_PASSWORD` for
+`code.lehel.xyz`, or `OPENCODE_API_KEY` for a local server). `OPENCODE_ALLOW_INSECURE_TLS=true`
+only for the opt-in insecure deployment (not production `code.lehel.xyz`).
+
+Auth: GitHub OAuth (scopes `repo` + `read:org`). Only members of `GITHUB_ALLOWED_ORG`
+(=`bumbleflies`) get a session. Sessions live in the `auth_sessions` table; the OAuth
+token is server-side only. `src/lib/auth.ts` owns cookies + membership checks; the
+`/api/auth/*` routes own the flow. All `/api/issues*` and `/api/stream` require a session;
+`POST /api/issues` and `POST /api/issues/[id]/develop` additionally re-check org membership.
+GitHub API calls in `src/lib/github.ts` take the token as an argument — never read env PATs.
 
 ## Not yet verified live (from the plan)
 

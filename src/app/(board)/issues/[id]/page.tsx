@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import type { Issue, IssueEvent } from '@/lib/types';
+import { useAuth } from '@/components/use-auth';
+import { WelcomeScreen } from '@/components/auth-ui';
 
 interface OpencodeEventMsg {
   issueId: number;
@@ -40,6 +42,8 @@ export default function RecapPage() {
   const [issue, setIssue] = useState<Issue | null>(null);
   const [events, setEvents] = useState<IssueEvent[]>([]);
   const [connected, setConnected] = useState(false);
+  const { user } = useAuth();
+  const signedIn = Boolean(user);
 
   const applyIssue = useCallback((i: Issue) => setIssue(i), []);
   const applyEvent = useCallback((e: IssueEvent) => {
@@ -50,7 +54,7 @@ export default function RecapPage() {
   }, []);
 
   useEffect(() => {
-    if (!Number.isInteger(id)) return;
+    if (!signedIn || !Number.isInteger(id)) return;
     let active = true;
     fetch(`/api/issues/${id}`)
       .then((r) => r.json())
@@ -82,7 +86,15 @@ export default function RecapPage() {
       active = false;
       es.close();
     };
-  }, [id, applyIssue, applyEvent]);
+  }, [signedIn, id, applyIssue, applyEvent]);
+
+  if (!signedIn) {
+    return (
+      <div className="recap-wrap">
+        <WelcomeScreen />
+      </div>
+    );
+  }
 
   if (!issue) {
     return (

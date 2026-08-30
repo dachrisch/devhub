@@ -2,9 +2,6 @@ import { ENV } from './env';
 import { deleteIssueByGithub, upsertIssue } from './store';
 import type { IssueState } from './types';
 
-const OWNER = 'dachrisch';
-const ORG = 'bumbleflies';
-
 // Labels DevHub keeps in sync with its own issue state. Other labels on the
 // issue are preserved.
 export const STATE_LABELS: Record<IssueState, string> = {
@@ -13,10 +10,6 @@ export const STATE_LABELS: Record<IssueState, string> = {
   pr: 'devhub:pr',
   blocked: 'devhub:blocked',
 };
-
-function tokenForOwner(owner: string): string {
-  return owner === OWNER ? ENV.ghToken : ENV.bumblefliesGhToken;
-}
 
 function ghHeaders(token: string): Record<string, string> {
   return {
@@ -34,10 +27,9 @@ export async function setIssueStateLabels(
   repo: string,
   number: number,
   state: IssueState,
+  token: string,
   fetchFn: FetchFn = fetch
 ): Promise<void> {
-  const token = tokenForOwner(owner);
-  if (!token) return;
   const url = `https://api.github.com/repos/${owner}/${repo}/issues/${number}`;
   const res = await fetchFn(url, { headers: ghHeaders(token) });
   if (!res.ok) throw new Error(`GitHub issue fetch failed (${res.status})`);
@@ -58,10 +50,9 @@ export async function commentOnIssue(
   repo: string,
   number: number,
   body: string,
+  token: string,
   fetchFn: FetchFn = fetch
 ): Promise<void> {
-  const token = tokenForOwner(owner);
-  if (!token) return;
   const res = await fetchFn(`https://api.github.com/repos/${owner}/${repo}/issues/${number}/comments`, {
     method: 'POST',
     headers: { ...ghHeaders(token), 'Content-Type': 'application/json' },
@@ -109,7 +100,7 @@ type FetchFn = typeof fetch;
 async function ghGet(url: string, token: string, fetchFn: FetchFn, acc: unknown[] = []): Promise<unknown[]> {
   const sep = url.includes('?') ? '&' : '?';
   const res = await fetchFn(`${url}${sep}per_page=100`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+    headers: ghHeaders(token),
   });
   if (!res.ok) {
     throw new Error(`GitHub request failed (${res.status}): ${url}`);
@@ -132,27 +123,22 @@ function nextPage(res: Response): string | null {
   return null;
 }
 
-export async function refreshIssues(fetchFn: FetchFn = fetch): Promise<{ repos: number; issues: number }> {
-  const targets: Array<{ owner: string; token: string }> = [
-    { owner: OWNER, token: ENV.ghToken },
-    { owner: ORG, token: ENV.bumblefliesGhToken },
-  ];
+// True when the authenticated user is a member of GITHUB_ALLOWED_ORG.
+// Used by the callback (authorization gate) and refresh (revocation re-check).
+export async function isAllowedMember(token: string, fetchFn: FetchFn = fetch): Promise<boolean> {
+  const orgs = (await ghGet('https://api.github.com/user/orgs', token, fetchFn)) as Array<{ login: string }>;
+  const allowed = ENV.githubAllowedOrg.toLowerCase();
+  return orgs.some((o) => o.login.toLowerCase() === allowed);
+}
 
-  const matchingRepos: GhRepo[] = [];
-  for (const { owner, token } of targets) {
-    if (!token) continue;
-    const repos = (await ghGet(`https://api.github.com/users/${owner}/repos`, token, fetchFn)) as GhRepo[];
-    for (const repo of repos) {
-      if (repoMatchesTopics(repo.topics, ENV.githubTopics)) {
-        matchingRepos.push(repo);
-      }
-    }
-  }
+// Ingests open issues from all repos the authenticated user can access that
+// match GITHUB_TOPICS. The token comes from the session — never from env.
+export async function refreshIssues(token: string, fetchFn: FetchFn = fetch): Promise<{ repos: number; issues: number }> {
+  const repos = (await ghGet('https://api.github.com/user/repos', token, fetchFn)) as GhRepo[];
+  const matchingRepos = repos.filter((repo) => repoMatchesTopics(repo.topics, ENV.githubTopics));
 
   let issueCount = 0;
   for (const repo of matchingRepos) {
-    const token = repo.owner.login === OWNER ? ENV.ghToken : ENV.bumblefliesGhToken;
-    if (!token) continue;
     const issues = (await ghGet(`https://api.github.com/repos/${repo.full_name}/issues`, token, fetchFn)) as GhIssue[];
     for (const issue of issues) {
       if (isPullRequest(issue)) continue;

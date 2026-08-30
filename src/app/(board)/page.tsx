@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Issue, IssueState } from '@/lib/types';
+import { useAuth } from '@/components/use-auth';
+import { Avatar, WelcomeScreen } from '@/components/auth-ui';
+import { Logo } from '@/components/logo';
 
 const COLUMNS: IssueState[] = ['backlog', 'developing', 'pr', 'blocked'];
 
@@ -79,6 +82,9 @@ export default function BoardPage() {
   const [connected, setConnected] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
+  const { user, loading, denied, logout } = useAuth();
+
+  const signedIn = Boolean(user);
 
   const upsert = useCallback((issue: Issue) => {
     setIssues((prev) => {
@@ -91,6 +97,7 @@ export default function BoardPage() {
   }, []);
 
   useEffect(() => {
+    if (!signedIn) return;
     let active = true;
     fetch('/api/issues')
       .then((r) => r.json())
@@ -116,7 +123,7 @@ export default function BoardPage() {
       active = false;
       es.close();
     };
-  }, [upsert]);
+  }, [signedIn, upsert]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -127,10 +134,27 @@ export default function BoardPage() {
     }
   }, []);
 
+  if (!signedIn) {
+    return (
+      <>
+        <header className="app-head">
+          <div className="brand">
+            <Logo size={28} />
+            <span className="brand-name">DevHub</span>
+          </div>
+        </header>
+        {!loading && <WelcomeScreen denied={denied} />}
+      </>
+    );
+  }
+
   return (
     <>
-      <header>
-        <h1>DevHub</h1>
+      <header className="app-head">
+        <div className="brand">
+          <Logo size={28} />
+          <span className="brand-name">DevHub</span>
+        </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <input
             className="search"
@@ -141,6 +165,13 @@ export default function BoardPage() {
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>
             {connected ? 'live' : 'connecting…'}
           </span>
+          {user && (
+            <>
+              <Avatar login={user.login} avatarUrl={user.avatarUrl} />
+              <span className="auth-login">{user.login}</span>
+              <button onClick={logout}>Sign out</button>
+            </>
+          )}
           <button onClick={refresh} disabled={refreshing}>
             {refreshing ? 'Refreshing…' : 'Refresh issues'}
           </button>

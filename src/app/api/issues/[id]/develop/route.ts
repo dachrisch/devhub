@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getIssue } from '@/lib/store';
 import { canDevelop, startDevelop } from '@/lib/develop';
+import { UnauthorizedError, ForbiddenError, requireMember } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!Number.isInteger(issueId)) {
     return NextResponse.json({ error: 'invalid id' }, { status: 400 });
   }
+
+  let session;
+  try {
+    session = await requireMember(req);
+  } catch (err) {
+    if (err instanceof UnauthorizedError) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
+    if (err instanceof ForbiddenError) return NextResponse.json({ error: 'not a bumbleflies member' }, { status: 403 });
+    return NextResponse.json({ error: 'github auth failed' }, { status: 401 });
+  }
+
   const issue = getIssue(issueId);
   if (!issue) {
     return NextResponse.json({ error: 'not found' }, { status: 404 });
@@ -26,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const command = typeof body.command === 'string' ? body.command : '';
 
   // Fire-and-forget: the route returns immediately; progress streams via SSE.
-  void startDevelop(issue, command);
+  void startDevelop(issue, command, session.token);
 
   return NextResponse.json({ ok: true, state: 'developing' }, { status: 202 });
 }

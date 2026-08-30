@@ -1,9 +1,13 @@
+import { NextRequest, NextResponse } from 'next/server';
 import { broadcaster, type ServerEvent } from '@/lib/sse';
+import { getSession } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: Request): Promise<Response> {
+export async function GET(req: NextRequest): Promise<Response> {
+  if (!getSession(req)) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {

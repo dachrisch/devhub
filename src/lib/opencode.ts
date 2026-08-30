@@ -286,7 +286,6 @@ export function buildDevelopPrompt(issue: Issue, command: string): string {
   const repoPath = `${ENV.openWorkspaceRoot}/${issue.repo}`;
   const worktreePath = `${repoPath}/.worktrees/${issue.id}`;
   const branch = `devhub/issue-${issue.number}`;
-  const orgHint = issue.owner === 'bumbleflies' ? 'the bumbleflies org' : 'dachrisch';
 
   const parts = [
     `You are implementing a GitHub issue on a personal dev command board (DevHub).`,
@@ -345,7 +344,7 @@ export function buildDevelopPrompt(issue: Issue, command: string): string {
     `  --title "<type>: <short description>" \\`,
     `  --body "Fixes #${issue.number}"`,
     `\`\`\``,
-    `Use the GitHub PAT from the environment for ${orgHint}.`,
+    `Use your authenticated \`gh\` (GitHub CLI) — the checkout is already provisioned for the correct owner.`,
     ``,
     `### 7. Clean up the worktree`,
     `\`\`\`bash`,

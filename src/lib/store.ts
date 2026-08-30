@@ -43,6 +43,14 @@ function migrate(database: Database.Database): void {
       FOREIGN KEY(issue_id) REFERENCES issues(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_events_issue ON events(issue_id);
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      id TEXT PRIMARY KEY,
+      token TEXT NOT NULL,
+      login TEXT NOT NULL,
+      avatar_url TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL
+    );
   `);
 }
 
@@ -154,4 +162,56 @@ function safeParse(json: string): unknown {
   } catch {
     return null;
   }
+}
+
+export interface AuthSessionRow {
+  id: string;
+  token: string;
+  login: string;
+  avatar_url: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface AuthSession {
+  id: string;
+  token: string;
+  login: string;
+  avatarUrl: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export function createAuthSession(session: AuthSession): void {
+  const db = getDb();
+  db.prepare(`DELETE FROM auth_sessions WHERE expires_at <= datetime('now')`).run();
+  db.prepare(
+    `INSERT INTO auth_sessions (id, token, login, avatar_url, created_at, expires_at)
+     VALUES (@id, @token, @login, @avatarUrl, @createdAt, @expiresAt)`
+  ).run(session);
+}
+
+export function getAuthSession(id: string): AuthSession | null {
+  const row = getDb().prepare('SELECT * FROM auth_sessions WHERE id = ?').get(id) as AuthSessionRow | undefined;
+  if (!row) return null;
+  if (row.expires_at <= new Date().toISOString().slice(0, 19).replace('T', ' ')) {
+    deleteAuthSession(id);
+    return null;
+  }
+  return serializeAuthSession(row);
+}
+
+export function deleteAuthSession(id: string): void {
+  getDb().prepare('DELETE FROM auth_sessions WHERE id = ?').run(id);
+}
+
+function serializeAuthSession(row: AuthSessionRow): AuthSession {
+  return {
+    id: row.id,
+    token: row.token,
+    login: row.login,
+    avatarUrl: row.avatar_url,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  };
 }

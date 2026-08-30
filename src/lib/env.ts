@@ -3,8 +3,10 @@ export interface DevhubEnv {
   opencodeApiKey: string;
   opencodeBasicUser: string;
   opencodeBasicPassword: string;
-  ghToken: string;
-  bumblefliesGhToken: string;
+  githubClientId: string;
+  githubClientSecret: string;
+  githubRedirectUri: string;
+  githubAllowedOrg: string;
   githubTopics: string[];
   workspaceRoot: string;
   openWorkspaceRoot: string;
@@ -16,8 +18,10 @@ export const ENV: DevhubEnv = {
   opencodeApiKey: process.env.OPENCODE_API_KEY ?? '',
   opencodeBasicUser: process.env.OPENCODE_BASIC_USER ?? 'opencode',
   opencodeBasicPassword: process.env.OPENCODE_BASIC_PASSWORD ?? '',
-  ghToken: process.env.GH_TOKEN ?? '',
-  bumblefliesGhToken: process.env.BUMBLEFLIES_GH_TOKEN ?? '',
+  githubClientId: process.env.GITHUB_CLIENT_ID ?? '',
+  githubClientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
+  githubRedirectUri: process.env.GITHUB_REDIRECT_URI ?? 'http://localhost:3000/api/auth/callback',
+  githubAllowedOrg: process.env.GITHUB_ALLOWED_ORG ?? 'bumbleflies',
   githubTopics: (process.env.GITHUB_TOPICS ?? 'gh-dash,dachrisch,bumbleflies')
     .split(',')
     .map((t) => t.trim())

@@ -5,17 +5,17 @@ import { publishIssue, publishOpencodeEvent } from './sse';
 
 // Best-effort mirror of DevHub state/notes onto the GitHub issue (labels +
 // a comment). Failures here must never break the develop run.
-async function mirrorLabels(issue: Issue, state: Issue['state']): Promise<void> {
+async function mirrorLabels(issue: Issue, state: Issue['state'], token: string): Promise<void> {
   try {
-    await setIssueStateLabels(issue.owner, issue.repo, issue.number, state);
+    await setIssueStateLabels(issue.owner, issue.repo, issue.number, state, token);
   } catch {
     /* non-fatal */
   }
 }
 
-async function mirrorComment(issue: Issue, body: string): Promise<void> {
+async function mirrorComment(issue: Issue, body: string, token: string): Promise<void> {
   try {
-    await commentOnIssue(issue.owner, issue.repo, issue.number, body);
+    await commentOnIssue(issue.owner, issue.repo, issue.number, body, token);
   } catch {
     /* non-fatal */
   }
@@ -23,12 +23,13 @@ async function mirrorComment(issue: Issue, body: string): Promise<void> {
 
 // Kicks off (and runs to completion) a "develop this" session for an issue.
 // Intended to be called fire-and-forget from the API route: it owns all
-// server-side state transitions and broadcasts them over SSE.
-export async function startDevelop(issue: Issue, command: string): Promise<void> {
+// server-side state transitions and broadcasts them over SSE. `token` is the
+// operator's GitHub OAuth token used for state mirroring on the issue.
+export async function startDevelop(issue: Issue, command: string, token: string): Promise<void> {
   const developing = setIssueState(issue.id, 'developing');
   if (developing) publishIssue(developing);
-  void mirrorLabels(issue, 'developing');
-  void mirrorComment(issue, 'DevHub started developing this issue.');
+  void mirrorLabels(issue, 'developing', token);
+  void mirrorComment(issue, 'DevHub started developing this issue.', token);
 
   try {
     const prompt = buildDevelopPrompt(issue, command);
@@ -48,13 +49,14 @@ export async function startDevelop(issue: Issue, command: string): Promise<void>
       : setResult(issue.id, 'blocked', null, text);
     if (updated) publishIssue(updated);
     if (prUrl) {
-      void mirrorLabels(issue, 'pr');
-      void mirrorComment(issue, `DevHub opened a pull request: ${prUrl}`);
+      void mirrorLabels(issue, 'pr', token);
+      void mirrorComment(issue, `DevHub opened a pull request: ${prUrl}`, token);
     } else {
-      void mirrorLabels(issue, 'blocked');
+      void mirrorLabels(issue, 'blocked', token);
       void mirrorComment(
         issue,
-        `DevHub finished but did not open a PR.\n\n${text.slice(0, 4000)}`
+        `DevHub finished but did not open a PR.\n\n${text.slice(0, 4000)}`,
+        token
       );
     }
   } catch (err) {
@@ -62,8 +64,8 @@ export async function startDevelop(issue: Issue, command: string): Promise<void>
     appendEvent(issue.id, 'error', { message: reason });
     const blocked = setResult(issue.id, 'blocked', null, `CANNOT FULFILL: ${reason}`);
     if (blocked) publishIssue(blocked);
-    void mirrorLabels(issue, 'blocked');
-    void mirrorComment(issue, `DevHub could not fulfill this issue: ${reason}`);
+    void mirrorLabels(issue, 'blocked', token);
+    void mirrorComment(issue, `DevHub could not fulfill this issue: ${reason}`, token);
   }
 }
 

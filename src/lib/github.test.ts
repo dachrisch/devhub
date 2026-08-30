@@ -4,12 +4,18 @@ import os from 'node:os';
 import path from 'node:path';
 
 process.env.DEVHUB_DB = path.join(os.tmpdir(), `devhub-gh-test-${process.pid}.db`);
-process.env.GH_TOKEN = 'pat-dachrisch';
-process.env.BUMBLEFLIES_GH_TOKEN = 'pat-bumbleflies';
 process.env.GITHUB_TOPICS = 'bumbleflies,dachrisch';
+process.env.GITHUB_ALLOWED_ORG = 'bumbleflies';
 
-const { repoMatchesTopics, isPullRequest, isBotIssue, refreshIssues, setIssueStateLabels, commentOnIssue } =
-  await import('./github.js');
+const {
+  repoMatchesTopics,
+  isPullRequest,
+  isBotIssue,
+  isAllowedMember,
+  refreshIssues,
+  setIssueStateLabels,
+  commentOnIssue,
+} = await import('./github.js');
 const store = await import('./store.js');
 
 afterAll(() => {
@@ -54,14 +60,10 @@ function ghResponse(body: unknown) {
 describe('refreshIssues', () => {
   it('ingests matching open issues and skips PRs', async () => {
     const fetchFn = (async (url: string) => {
-      if (url.includes('/users/dachrisch/repos')) {
+      if (url.includes('/user/repos')) {
         return ghResponse([
           { name: 'matched', full_name: 'dachrisch/matched', owner: { login: 'dachrisch' }, topics: ['dachrisch'] },
           { name: 'other', full_name: 'dachrisch/other', owner: { login: 'dachrisch' }, topics: ['unrelated'] },
-        ])();
-      }
-      if (url.includes('/users/bumbleflies/repos')) {
-        return ghResponse([
           { name: 'bee', full_name: 'bumbleflies/bee', owner: { login: 'bumbleflies' }, topics: ['bumbleflies'] },
         ])();
       }
@@ -78,7 +80,7 @@ describe('refreshIssues', () => {
       return ghResponse([])();
     }) as unknown as typeof fetch;
 
-    const result = await refreshIssues(fetchFn);
+    const result = await refreshIssues('token-abc', fetchFn);
     expect(result.repos).toBe(2);
     expect(result.issues).toBe(2);
 
@@ -86,6 +88,33 @@ describe('refreshIssues', () => {
     expect(store.getIssueByGithub('dachrisch', 'matched', 2)).toBeNull(); // PR skipped
     expect(store.getIssueByGithub('dachrisch', 'matched', 3)).toBeNull(); // bot issue skipped
     expect(store.getIssueByGithub('bumbleflies', 'bee', 3)?.title).toBe('org issue');
+  });
+
+  it('reports no repos when the user cannot access matching org repos', async () => {
+    const fetchFn = (async (url: string) => {
+      if (url.includes('/user/repos')) return ghResponse([])();
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+    const result = await refreshIssues('token-abc', fetchFn);
+    expect(result).toEqual({ repos: 0, issues: 0 });
+  });
+});
+
+describe('isAllowedMember', () => {
+  it('accepts a member of the allowed org', async () => {
+    const fetchFn = (async (url: string) => {
+      if (url.includes('/user/orgs')) return ghResponse([{ login: 'other' }, { login: 'bumbleflies' }])();
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+    expect(await isAllowedMember('token-abc', fetchFn)).toBe(true);
+  });
+
+  it('rejects a non-member', async () => {
+    const fetchFn = (async (url: string) => {
+      if (url.includes('/user/orgs')) return ghResponse([{ login: 'other' }])();
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+    expect(await isAllowedMember('token-abc', fetchFn)).toBe(false);
   });
 });
 
@@ -100,7 +129,7 @@ describe('github mirroring', () => {
       return ghResponse({})();
     }) as unknown as typeof fetch;
 
-    await setIssueStateLabels('dachrisch', 'matched', 1, 'developing', fetchFn);
+    await setIssueStateLabels('dachrisch', 'matched', 1, 'developing', 'token-abc', fetchFn);
     const patch = calls.find((c) => c.method === 'PATCH')!;
     expect(patch.url).toBe('https://api.github.com/repos/dachrisch/matched/issues/1');
     expect(JSON.parse(patch.body!).labels).toEqual(['bug', 'devhub:developing']);
@@ -113,7 +142,7 @@ describe('github mirroring', () => {
       return ghResponse({})();
     }) as unknown as typeof fetch;
 
-    await commentOnIssue('dachrisch', 'matched', 1, 'hello'.padEnd(70000, 'x'), fetchFn);
+    await commentOnIssue('dachrisch', 'matched', 1, 'hello'.padEnd(70000, 'x'), 'token-abc', fetchFn);
     const parsed = JSON.parse(body);
     expect(parsed.body.length).toBe(60000);
   });
