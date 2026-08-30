@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+
+name: "🐳🏗️ Build Docker Image"
+
+on:
+  workflow_call:
+    inputs:
+      dockerfile:
+        required: false
+        description: Path to the Dockerfile (relative to repo root)
+        type: string
+        default: Dockerfile
+      image_name:
+        required: true
+        description: Local image name used for the tar artifact
+        type: string
+    outputs:
+      artifact_name:
+        description: Name of the uploaded GitHub Actions artifact containing the Docker image tar
+        value: ${{ jobs.build.outputs.artifact_name }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: "🐳🛠️ Setup Docker buildx"
+        uses: docker/setup-buildx-action@v4
+
+      - name: "🐳🏗️ Build Docker image"
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ inputs.dockerfile }}
+          tags: ${{ inputs.image_name }}:latest
+          outputs: type=docker,dest=/tmp/${{ inputs.image_name }}.tar
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: "📤 Upload Docker image as artifact"
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-image-${{ inputs.image_name }}
+          path: /tmp/${{ inputs.image_name }}.tar
+          retention-days: 1
+
+      - name: "🏷️ Set artifact name output"
+        id: set-artifact-name
+        run: echo "artifact_name=docker-image-${{ inputs.image_name }}" >> $GITHUB_OUTPUT

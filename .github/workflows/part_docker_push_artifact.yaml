@@ -1,0 +1,78 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+
+name: "🐳🚀 Push Docker Image to Registry"
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        required: true
+        description: Name of the artifact containing the Docker image tar
+        type: string
+      image_name:
+        required: true
+        description: Full registry path e.g. dachrisch/devhub
+        type: string
+      local_image_name:
+        required: true
+        description: Local image name used when loading the tar (matches tar filename)
+        type: string
+    secrets:
+      DOCKER_TOKEN:
+        required: true
+        description: Docker Hub access token for dachrisch
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: docker.io
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: "📥 Download Docker image artifact"
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: /tmp
+
+      - name: "🐳 Load Docker image"
+        run: |
+          docker load --input /tmp/${{ inputs.local_image_name }}.tar
+          docker image ls -a
+
+      - name: "🔐 Log into Docker Hub"
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: "🏷️ Extract Docker metadata"
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ inputs.image_name }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ github.ref_name }}
+
+      - name: "🐳🏷️ Tag Docker image"
+        run: |
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            docker tag ${{ inputs.local_image_name }}:latest "$tag"
+            echo "Tagged: $tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
+
+      - name: "🐳🚀 Push Docker image"
+        run: |
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            docker push "$tag"
+            echo "Pushed: $tag"
+          done <<< "${{ steps.meta.outputs.tags }}"

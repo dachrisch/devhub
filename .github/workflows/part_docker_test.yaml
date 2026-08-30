@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+
+name: "🐳🧪 Test Docker Image"
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        required: true
+        description: Name of the artifact containing the Docker image tar
+        type: string
+      image_name:
+        required: true
+        description: Local name of the Docker image (matches the tar filename)
+        type: string
+      env_vars:
+        required: false
+        description: Space-separated "-e KEY=VALUE" pairs passed to docker run
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "📥 Download Docker image artifact"
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: /tmp
+
+      - name: "🐳 Load Docker image"
+        run: |
+          docker load --input /tmp/${{ inputs.image_name }}.tar
+          docker image ls -a
+
+      - name: "🐳🧪 Test Docker image health"
+        run: |
+          docker run --rm --detach --name test_container \
+            --add-host=host.docker.internal:host-gateway \
+            ${{ inputs.env_vars }} \
+            ${{ inputs.image_name }}:latest
+          for i in {1..10}; do
+            status=$(docker inspect --format='{{.State.Health.Status}}' test_container)
+            health_details=$(docker inspect --format='{{json .State.Health}}' test_container)
+            echo "Attempt $i — Health status: $status"
+            echo "Health details: $health_details"
+            if [ "$status" = "healthy" ]; then break; fi
+            sleep 6
+          done
+          if [ "$status" != "healthy" ]; then
+            echo "❌ Container did not become healthy after 10 attempts."
+            docker logs test_container
+            exit 1
+          fi
+          echo "✅ Container is healthy"
+          docker stop test_container

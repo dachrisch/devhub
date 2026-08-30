@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+
+name: "🏗️🧪 Build & Test branches"
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - "*"
+
+permissions:
+  contents: write
+  checks: write
+  security-events: write
+
+concurrency:
+  group: build-test-branch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-build:
+    uses: ./.github/workflows/part_node_build.yaml
+
+  docker-image:
+    needs: [node-build]
+    uses: ./.github/workflows/part_docker_build.yaml
+    with:
+      image_name: devhub
+
+  image-test:
+    needs: [docker-image]
+    uses: ./.github/workflows/part_docker_test.yaml
+    with:
+      artifact_name: ${{ needs.docker-image.outputs.artifact_name }}
+      image_name: devhub
+      env_vars: >-
+        -e NODE_ENV=production
+        -e DEVHUB_DB=/tmp/devhub-test.db
