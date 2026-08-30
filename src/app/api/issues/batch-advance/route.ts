@@ -35,7 +35,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'batch size limit exceeded (max 50)' }, { status: 400 });
   }
 
-  const results: Array<{ id: number; success: boolean; error?: string; mode?: string }> = [];
+  const results: Array<{ id: number; success: boolean; error?: string; mode?: string; currentState?: string; attemptedTarget?: string }> = [];
 
   for (const issueId of issueIds) {
     const issue = getIssue(issueId);
@@ -70,7 +70,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     if (!canBatchAdvance(issue.state)) {
-      results.push({ id: issueId, success: false, error: `cannot advance from '${issue.state}'` });
+      const target = getBatchAdvanceTarget(issue.state);
+      results.push({ id: issueId, success: false, error: `cannot advance from '${issue.state}'`, currentState: issue.state, attemptedTarget: target ?? undefined });
       continue;
     }
 

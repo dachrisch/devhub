@@ -124,6 +124,12 @@ export default function BoardPage() {
 
   // Batch selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [batchStatus, setBatchStatus] = useState<{
+    operation: string;
+    total: number;
+    completed: number;
+    errors: number;
+  } | null>(null);
 
   const toggleSelection = useCallback((issueId: number) => {
     setSelectedIds((prev) => {
@@ -209,6 +215,8 @@ export default function BoardPage() {
   const advanceSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
 
+    const total = selectedIds.size;
+    setBatchStatus({ operation: 'advancing', total, completed: 0, errors: 0 });
     setRefreshing(true);
     try {
       const res = await fetch('/api/issues/batch-advance', {
@@ -222,12 +230,18 @@ export default function BoardPage() {
         throw new Error(data.error || `batch advance failed (HTTP ${res.status})`);
       }
 
+      const result = await res.json() as { results: Array<{ id: number; success: boolean; error?: string }> };
+      const completed = result.results.filter((r) => r.success).length;
+      const errors = result.results.filter((r) => !r.success).length;
+
+      setBatchStatus({ operation: 'advancing', total, completed, errors });
       clearSelection();
       setRefreshError(null);
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
       setRefreshing(false);
+      setTimeout(() => setBatchStatus(null), 3000);
     }
   }, [selectedIds, clearSelection]);
 
@@ -463,6 +477,15 @@ export default function BoardPage() {
           <button className="ghost" onClick={() => setRefreshError(null)}>
             Dismiss
           </button>
+        </div>
+      )}
+
+      {batchStatus && (
+        <div className="batch-status">
+          <span>{batchStatus.operation}: {batchStatus.completed}/{batchStatus.total}</span>
+          {batchStatus.errors > 0 && (
+            <span className="batch-errors">({batchStatus.errors} errors)</span>
+          )}
         </div>
       )}
 
