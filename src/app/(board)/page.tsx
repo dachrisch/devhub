@@ -136,7 +136,7 @@ export default function BoardPage() {
 
   if (!signedIn) {
     return (
-      <>
+      <div className="page-wrap">
         <header className="app-head">
           <div className="brand">
             <Logo size={28} />
@@ -144,12 +144,12 @@ export default function BoardPage() {
           </div>
         </header>
         {!loading && <WelcomeScreen denied={denied} />}
-      </>
+      </div>
     );
   }
 
   return (
-    <>
+    <div className="page-wrap">
       <header className="app-head">
         <div className="brand">
           <Logo size={28} />
@@ -197,7 +197,7 @@ export default function BoardPage() {
           );
         })}
       </div>
-    </>
+    </div>
   );
 }
 
