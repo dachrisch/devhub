@@ -24,15 +24,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
+# Copy prod node_modules first (native modules compiled for Alpine)
+COPY --from=prod-deps /app/node_modules ./node_modules
+# Then copy standalone output on top (server.js, .next/, package.json)
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
-
-# Overlay native modules (better-sqlite3) compiled for the target platform
-COPY --from=prod-deps /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
-COPY --from=prod-deps /app/node_modules/file-uri-to-path ./node_modules/file-uri-to-path
-COPY --from=prod-deps /app/node_modules/node-addon-api ./node_modules/node-addon-api
-COPY --from=prod-deps /app/node_modules/node-gyp-build ./node_modules/node-gyp-build
 
 EXPOSE 3000
 
