@@ -356,6 +356,21 @@ header h1 {
   cursor: not-allowed;
 }
 
+.validate-btn {
+  background: var(--developing);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.validate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .repo {
   display: flex;
   align-items: center;

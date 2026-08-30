@@ -1,5 +1,9 @@
 import { ENV } from './env';
 import type { Issue } from './types';
+import { appendEvent, setIssueState, setResult } from './store';
+import { resolveModels, runDevelop, type OpencodeEvent } from './opencode';
+import { publishIssue } from './sse';
+import { commentOnIssue } from './github';
 
 export function buildValidatePrompt(issue: Issue): string {
   const repoPath = `${ENV.openWorkspaceRoot}/${issue.repo}`;
@@ -55,4 +59,48 @@ export function parseValidationResult(text: string): { ready: boolean; summary: 
   }
   
   return { ready: false, summary: trimmed };
+}
+
+async function mirrorComment(issue: Issue, body: string, token: string): Promise<void> {
+  try {
+    await commentOnIssue(issue.owner, issue.repo, issue.number, body, token);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+export async function startValidation(issue: Issue, token: string): Promise<void> {
+  try {
+    const models = resolveModels();
+    const prompt = buildValidatePrompt(issue);
+    
+    appendEvent(issue.id, 'validation', { status: 'started' });
+    
+    const onEvent = (event: OpencodeEvent) => {
+      appendEvent(issue.id, 'validation-event', event);
+    };
+    
+    const text = await runDevelop(prompt, onEvent, models);
+    const result = parseValidationResult(text);
+    
+    appendEvent(issue.id, 'validation', { 
+      status: 'completed', 
+      ready: result.ready, 
+      summary: result.summary 
+    });
+
+    if (result.ready) {
+      const updated = setIssueState(issue.id, 'backlog');
+      if (updated) publishIssue(updated);
+    } else {
+      const updated = setResult(issue.id, 'refinement', null, result.summary);
+      if (updated) publishIssue(updated);
+    }
+    
+    void mirrorComment(issue, `DevHub validation: ${result.ready ? 'READY' : 'NEEDS_WORK'}\n${result.summary}`, token);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    appendEvent(issue.id, 'validation-error', { message: reason });
+    void mirrorComment(issue, `DevHub validation failed: ${reason}`, token);
+  }
 }

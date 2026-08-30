@@ -4,6 +4,7 @@ import { publishIssue } from '@/lib/sse';
 import { setIssueStateLabels } from '@/lib/github';
 import { canBatchAdvance, getBatchAdvanceTarget } from '@/lib/transitions';
 import { UnauthorizedError, ForbiddenError, requireMember } from '@/lib/auth';
+import { startValidation } from '@/lib/validate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,8 +19,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'github auth failed' }, { status: 401 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { issueIds?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { 
+    issueIds?: unknown;
+    mode?: unknown;
+  };
   const issueIds = Array.isArray(body.issueIds) ? [...new Set(body.issueIds.filter((id): id is number => typeof id === 'number'))] : [];
+  const mode = body.mode === 'validate' ? 'validate' : 'advance';
 
   if (issueIds.length === 0) {
     return NextResponse.json({ error: 'no issue IDs provided' }, { status: 400 });
@@ -29,12 +34,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'batch size limit exceeded (max 50)' }, { status: 400 });
   }
 
-  const results: Array<{ id: number; success: boolean; error?: string }> = [];
+  const results: Array<{ id: number; success: boolean; error?: string; mode?: string }> = [];
 
   for (const issueId of issueIds) {
     const issue = getIssue(issueId);
     if (!issue) {
       results.push({ id: issueId, success: false, error: 'not found' });
+      continue;
+    }
+
+    if (mode === 'validate' && issue.state === 'backlog') {
+      const validating = setIssueState(issue.id, 'refinement');
+      if (validating) {
+        publishIssue(validating);
+        void setIssueStateLabels(issue.owner, issue.repo, issue.number, 'refinement', session.token).catch(() => {});
+        
+        void startValidation(issue, session.token);
+        
+        results.push({ id: issueId, success: true, mode: 'validating' });
+      } else {
+        results.push({ id: issueId, success: false, error: 'failed to start validation' });
+      }
       continue;
     }
 
