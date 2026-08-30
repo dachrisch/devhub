@@ -1,5 +1,5 @@
 import { ENV } from './env';
-import { deleteIssueByGithub, upsertIssue } from './store';
+import { deleteIssueByGithub, getIssueByGithub, setLinkedPrUrl, upsertIssue } from './store';
 import type { IssueState } from './types';
 
 // Labels DevHub keeps in sync with its own issue state. Other labels on the
@@ -97,6 +97,39 @@ export function isBotIssue(issue: GhIssue): boolean {
 
 type FetchFn = typeof fetch;
 
+interface GhSearchIssue {
+  html_url: string;
+  pull_request?: unknown;
+}
+
+async function findLinkedPr(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  token: string,
+  fetchFn: FetchFn
+): Promise<string | null> {
+  const query = `repo:${owner}/${repo} ${issueNumber} is:pr is:open`;
+  const url = `https://api.github.com/search/issues?q=${encodeURIComponent(query)}&sort=updated&per_page=5`;
+  const res = await fetchFn(url, { headers: ghHeaders(token) });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { items?: GhSearchIssue[] };
+  const items = data.items ?? [];
+  const pr = items.find((i) => Boolean(i.pull_request));
+  if (pr) return pr.html_url;
+
+  const mergedQuery = `repo:${owner}/${repo} ${issueNumber} is:pr is:merged`;
+  const mergedUrl = `https://api.github.com/search/issues?q=${encodeURIComponent(mergedQuery)}&sort=updated&per_page=5`;
+  const mergedRes = await fetchFn(mergedUrl, { headers: ghHeaders(token) });
+  if (!mergedRes.ok) return null;
+  const mergedData = (await mergedRes.json()) as { items?: GhSearchIssue[] };
+  const mergedItems = mergedData.items ?? [];
+  const mergedPr = mergedItems.find((i) => Boolean(i.pull_request));
+  return mergedPr ? mergedPr.html_url : null;
+}
+
+const SEARCH_DELAY_MS = 1000;
+
 async function ghGet(url: string, token: string, fetchFn: FetchFn, acc: unknown[] = []): Promise<unknown[]> {
   const sep = url.includes('?') ? '&' : '?';
   const res = await fetchFn(`${url}${sep}per_page=100`, {
@@ -128,7 +161,11 @@ function nextPage(res: Response): string | null {
 export async function isAllowedMember(token: string, fetchFn: FetchFn = fetch): Promise<boolean> {
   const orgs = (await ghGet('https://api.github.com/user/orgs', token, fetchFn)) as Array<{ login: string }>;
   const allowed = ENV.githubAllowedOrg.toLowerCase();
-  return orgs.some((o) => o.login.toLowerCase() === allowed);
+  const result = orgs.some((o) => o.login.toLowerCase() === allowed);
+  if (!result) {
+    console.error('[isAllowedMember] orgs:', orgs.map((o) => o.login), '| allowed:', allowed);
+  }
+  return result;
 }
 
 // Ingests open issues from all repos the authenticated user can access that
@@ -155,6 +192,12 @@ export async function refreshIssues(token: string, fetchFn: FetchFn = fetch): Pr
         body: issue.body,
         htmlUrl: issue.html_url,
       });
+      const stored = getIssueByGithub(repo.owner.login, repo.name, issue.number);
+      if (stored) {
+        const linkedPrUrl = await findLinkedPr(repo.owner.login, repo.name, issue.number, token, fetchFn);
+        setLinkedPrUrl(stored.id, linkedPrUrl);
+        if (linkedPrUrl) await new Promise((r) => setTimeout(r, SEARCH_DELAY_MS));
+      }
       issueCount++;
     }
   }

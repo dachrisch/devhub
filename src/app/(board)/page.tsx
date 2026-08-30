@@ -261,7 +261,7 @@ function Card({ issue }: { issue: Issue }) {
           {issue.owner}/{issue.repo}
         </span>
         <span className="issue-number">#{issue.number}</span>
-        <span className="age">{relTime(issue.createdAt)}</span>
+        <span className="age">{relTime(issue.updatedAt)}</span>
       </div>
       <div className="title">
         <a href={issue.htmlUrl} target="_blank" rel="noreferrer">
@@ -269,6 +269,12 @@ function Card({ issue }: { issue: Issue }) {
         </a>
       </div>
       {issue.body && <div className="excerpt">{excerpt(issue.body)}</div>}
+
+      {issue.linkedPrUrl && issue.state !== 'pr' && (
+        <div className="result">
+          PR: <a href={issue.linkedPrUrl}>{issue.linkedPrUrl}</a>
+        </div>
+      )}
 
       {issue.state === 'pr' && issue.resultPrUrl && (
         <div className="result">
@@ -279,23 +285,18 @@ function Card({ issue }: { issue: Issue }) {
         <div className="result">{issue.resultText}</div>
       )}
 
-      {!developing && (
-        <div className="card-actions">
-          <Link href={`/issues/${issue.id}`} className="recap-link">
-            Recap
-          </Link>
+<div className="card-actions">
+        {!developing && (
           <button className="develop-btn" onClick={openModal}>
             Develop this
           </button>
-        </div>
-      )}
-      {developing && (
-        <div className="card-actions">
-          <Link href={`/issues/${issue.id}`} className="recap-link">
-            Recap (live)
-          </Link>
-        </div>
-      )}
+        )}
+      </div>
+      <div className="recap-row">
+        <Link href={`/issues/${issue.id}`} className="recap-link">
+          {developing ? 'Recap (live)' : 'Recap'}
+        </Link>
+      </div>
       {developing && <div className="result developing">developing… (live via opencode)</div>}
 
       {open && (

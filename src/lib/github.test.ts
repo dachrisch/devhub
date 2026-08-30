@@ -67,15 +67,18 @@ describe('refreshIssues', () => {
           { name: 'bee', full_name: 'bumbleflies/bee', owner: { login: 'bumbleflies' }, topics: ['bumbleflies'] },
         ])();
       }
-      if (url.includes('/dachrisch/matched/issues')) {
+      if (url.includes('/dachrisch/matched/issues') && !url.includes('/search')) {
         return ghResponse([
           { id: 101, number: 1, title: 'real issue', body: 'b', html_url: 'u', pull_request: undefined },
           { id: 102, number: 2, title: 'a PR', body: null, html_url: 'u', pull_request: {} },
           { id: 103, number: 3, title: 'Dependency Dashboard', body: null, html_url: 'u', user: { login: 'renovate[bot]', type: 'Bot' } },
         ])();
       }
-      if (url.includes('/bumbleflies/bee/issues')) {
+      if (url.includes('/bumbleflies/bee/issues') && !url.includes('/search')) {
         return ghResponse([{ id: 201, number: 3, title: 'org issue', body: null, html_url: 'u' }])();
+      }
+      if (url.includes('/search/issues')) {
+        return ghResponse({ total_count: 0, items: [] })();
       }
       return ghResponse([])();
     }) as unknown as typeof fetch;
@@ -88,6 +91,41 @@ describe('refreshIssues', () => {
     expect(store.getIssueByGithub('dachrisch', 'matched', 2)).toBeNull(); // PR skipped
     expect(store.getIssueByGithub('dachrisch', 'matched', 3)).toBeNull(); // bot issue skipped
     expect(store.getIssueByGithub('bumbleflies', 'bee', 3)?.title).toBe('org issue');
+  });
+
+  it('fetches linked PRs for issues', async () => {
+    const fetchFn = (async (url: string) => {
+      if (url.includes('/user/repos')) {
+        return ghResponse([
+          { name: 'repo', full_name: 'test/repo', owner: { login: 'test' }, topics: ['dachrisch'] },
+        ])();
+      }
+      if (url.includes('/test/repo/issues') && !url.includes('/search')) {
+        return ghResponse([
+          { id: 301, number: 5, title: 'issue with PR', body: null, html_url: 'u' },
+          { id: 302, number: 6, title: 'issue without PR', body: null, html_url: 'u' },
+        ])();
+      }
+      if (url.includes('/search/issues')) {
+        const decoded = decodeURIComponent(url);
+        if (decoded.includes('repo:test/repo 5')) {
+          return ghResponse({
+            total_count: 1,
+            items: [{ html_url: 'https://github.com/test/repo/pull/10', pull_request: {} }],
+          })();
+        }
+        return ghResponse({ total_count: 0, items: [] })();
+      }
+      return ghResponse({ total_count: 0, items: [] })();
+    }) as unknown as typeof fetch;
+
+    await refreshIssues('token-abc', fetchFn);
+
+    const issue1 = store.getIssueByGithub('test', 'repo', 5);
+    expect(issue1?.linkedPrUrl).toBe('https://github.com/test/repo/pull/10');
+
+    const issue2 = store.getIssueByGithub('test', 'repo', 6);
+    expect(issue2?.linkedPrUrl).toBeNull();
   });
 
   it('reports no repos when the user cannot access matching org repos', async () => {

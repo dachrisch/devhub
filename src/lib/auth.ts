@@ -69,6 +69,7 @@ export function buildLoginUrl(): { url: string; state: string; stateCookie: stri
 
 interface GithubTokenResponse {
   access_token?: string;
+  scope?: string;
   error?: string;
   error_description?: string;
 }
@@ -92,6 +93,7 @@ export async function exchangeCode(code: string): Promise<string> {
   if (!data.access_token) {
     throw new Error(`GitHub token exchange error: ${data.error_description ?? data.error ?? 'no token'}`);
   }
+  console.log('[exchangeCode] granted scopes:', data.scope);
   return data.access_token;
 }
 

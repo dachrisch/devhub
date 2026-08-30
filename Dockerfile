@@ -25,6 +25,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
+# Pre-create the SQLite data dir so a freshly-mounted named volume inherits
+# node:node ownership (Docker copies this path's ownership into new volumes).
+RUN mkdir -p /data && chown node:node /data
+
 # Copy standalone first (server.js, .next/, package.json)
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static

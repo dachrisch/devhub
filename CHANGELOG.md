@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.1.2](https://github.com/dachrisch/devhub/compare/v1.1.1...v1.1.2) (2026-08-30)
+
+
+### Bug Fixes
+
+* chown /data to node user in Dockerfile ([50b0528](https://github.com/dachrisch/devhub/commit/50b052887a3c39d365bba9f2016057273362c46e))
+* chown /data to node user in Dockerfile ([5a40a66](https://github.com/dachrisch/devhub/commit/5a40a662454532951e61a64dee9434b9c3f4170f))
+
+## [1.1.1](https://github.com/dachrisch/devhub/compare/v1.1.0...v1.1.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* add diagnostic logging to auth callback ([#27](https://github.com/dachrisch/devhub/issues/27)) ([e4762c6](https://github.com/dachrisch/devhub/commit/e4762c61e2d09b0e5792c7a4ccce24ccb3436c14))
+
+## [1.1.0](https://github.com/dachrisch/devhub/compare/v1.0.9...v1.1.0) (2026-08-30)
+
+
+### Features
+
+* Show last status change time and linked PRs on cards ([50e81b5](https://github.com/dachrisch/devhub/commit/50e81b549500de6a89d928dd8bc03bb68d1fb66e))
+
+## [1.0.9](https://github.com/dachrisch/devhub/compare/v1.0.8...v1.0.9) (2026-08-30)
+
+
+### Bug Fixes
+
+* give recap link dedicated placement with wider hit area ([ba29540](https://github.com/dachrisch/devhub/commit/ba2954012898bc69d9eacb5c9de0acc709bfadaf))
+* give recap link dedicated placement with wider hit area ([0612ad0](https://github.com/dachrisch/devhub/commit/0612ad04a24b1b18044996ff4f69c13cf2f3fec9)), closes [#2](https://github.com/dachrisch/devhub/issues/2)
+
 ## [1.0.8](https://github.com/dachrisch/devhub/compare/v1.0.7...v1.0.8) (2026-08-30)
 
 
