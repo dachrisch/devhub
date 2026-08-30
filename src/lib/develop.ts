@@ -92,7 +92,7 @@ export async function startDevelop(
 
 export function canDevelop(issue: Issue): boolean {
   // Exactly one session per issue; never re-run a session that already produced a PR.
-  return issue.state === 'backlog' || issue.state === 'blocked';
+  return issue.state === 'backlog' || issue.state === 'refinement' || issue.state === 'blocked';
 }
 
 export { setSessionId, getIssue };

@@ -16,6 +16,8 @@ const sampleIssue: Issue = {
   resultPrUrl: null,
   resultText: null,
   linkedPrUrl: null,
+  releaseTag: null,
+  releasedAt: null,
   createdAt: '',
   updatedAt: '',
 };

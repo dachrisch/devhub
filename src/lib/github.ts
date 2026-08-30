@@ -1,13 +1,16 @@
 import { ENV } from './env';
-import { deleteIssueByGithub, getIssueByGithub, setLinkedPrUrl, upsertIssue } from './store';
+import { deleteIssueByGithub, getIssueByGithub, getIssues, setLinkedPrUrl, setRollout, upsertIssue } from './store';
+import { publishIssue } from './sse';
 import type { IssueState } from './types';
 
 // Labels DevHub keeps in sync with its own issue state. Other labels on the
 // issue are preserved.
 export const STATE_LABELS: Record<IssueState, string> = {
   backlog: 'devhub:backlog',
+  refinement: 'devhub:refinement',
   developing: 'devhub:developing',
   pr: 'devhub:pr',
+  rollout: 'devhub:rollout',
   blocked: 'devhub:blocked',
 };
 
@@ -97,6 +100,102 @@ export function isBotIssue(issue: GhIssue): boolean {
 
 type FetchFn = typeof fetch;
 
+async function ghGetJson<T>(url: string, token: string, fetchFn: FetchFn): Promise<T> {
+  const res = await fetchFn(url, { headers: ghHeaders(token) });
+  if (!res.ok) {
+    throw new Error(`GitHub request failed (${res.status}): ${url}`);
+  }
+  return (await res.json()) as T;
+}
+
+function prNumberFromUrl(url: string | null): number | null {
+  if (!url) return null;
+  const m = url.match(/\/pull\/(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
+interface GhPull {
+  merged?: boolean;
+  merge_commit_sha?: string | null;
+}
+
+interface GhTag {
+  name: string;
+  commit: { sha: string };
+}
+
+// True when the tag's commit is the merge commit itself or a descendant of it
+// (GitHub compare: `ahead`/`identical` mean base is an ancestor of head).
+async function tagContainsCommit(
+  owner: string,
+  repo: string,
+  mergeSha: string,
+  tag: GhTag,
+  token: string,
+  fetchFn: FetchFn
+): Promise<boolean> {
+  const cmp = await ghGetJson<{ status?: string }>(
+    `https://api.github.com/repos/${owner}/${repo}/compare/${mergeSha}...${tag.commit.sha}`,
+    token,
+    fetchFn
+  );
+  return cmp.status === 'identical' || cmp.status === 'ahead';
+}
+
+// Returns the first release tag whose commit contains the PR's merge commit,
+// or null when the PR is merged but not yet released.
+async function findReleaseTag(
+  owner: string,
+  repo: string,
+  mergeSha: string,
+  token: string,
+  fetchFn: FetchFn
+): Promise<string | null> {
+  const tags = await ghGetJson<GhTag[]>(`https://api.github.com/repos/${owner}/${repo}/tags?per_page=20`, token, fetchFn);
+  for (const tag of tags) {
+    try {
+      if (await tagContainsCommit(owner, repo, mergeSha, tag, token, fetchFn)) return tag.name;
+    } catch {
+      // skip tags the compare endpoint can't resolve
+    }
+  }
+  return null;
+}
+
+// Polls GitHub for the "PR merged + release tag cut" signal and advances
+// `pr` cards to the terminal `rollout` state automatically. Returns the number
+// of cards moved. Runs as part of refresh; failures leave cards in `pr`.
+export async function sweepRollouts(token: string, fetchFn: FetchFn = fetch): Promise<number> {
+  const candidates = getIssues().filter((i) => i.state === 'pr');
+  let rolledOut = 0;
+  for (const issue of candidates) {
+    const prNumber = prNumberFromUrl(issue.resultPrUrl) ?? prNumberFromUrl(issue.linkedPrUrl);
+    if (!prNumber) continue;
+    try {
+      const pr = await ghGetJson<GhPull>(
+        `https://api.github.com/repos/${issue.owner}/${issue.repo}/pulls/${prNumber}`,
+        token,
+        fetchFn
+      );
+      if (!pr.merged || !pr.merge_commit_sha) continue;
+      const releaseTag = await findReleaseTag(issue.owner, issue.repo, pr.merge_commit_sha, token, fetchFn);
+      if (!releaseTag) continue;
+      const updated = setRollout(issue.id, releaseTag);
+      if (!updated) continue;
+      publishIssue(updated);
+      rolledOut++;
+      try {
+        await setIssueStateLabels(issue.owner, issue.repo, issue.number, 'rollout', token, fetchFn);
+      } catch {
+        // label mirroring is best-effort
+      }
+    } catch {
+      // transient API failure: leave the card for the next sweep
+    }
+  }
+  return rolledOut;
+}
+
 interface GhSearchIssue {
   html_url: string;
   pull_request?: unknown;
@@ -169,8 +268,9 @@ export async function isAllowedMember(token: string, fetchFn: FetchFn = fetch): 
 }
 
 // Ingests open issues from all repos the authenticated user can access that
-// match GITHUB_TOPICS. The token comes from the session — never from env.
-export async function refreshIssues(token: string, fetchFn: FetchFn = fetch): Promise<{ repos: number; issues: number }> {
+// match GITHUB_TOPICS, then advances merged+tagged PRs to `rollout`. The token
+// comes from the session — never from env.
+export async function refreshIssues(token: string, fetchFn: FetchFn = fetch): Promise<{ repos: number; issues: number; rolledOut: number }> {
   const repos = (await ghGet('https://api.github.com/user/repos', token, fetchFn)) as GhRepo[];
   const matchingRepos = repos.filter((repo) => repoMatchesTopics(repo.topics, ENV.githubTopics));
 
@@ -202,5 +302,6 @@ export async function refreshIssues(token: string, fetchFn: FetchFn = fetch): Pr
     }
   }
 
-  return { repos: matchingRepos.length, issues: issueCount };
+  const rolledOut = await sweepRollouts(token, fetchFn);
+  return { repos: matchingRepos.length, issues: issueCount, rolledOut };
 }

@@ -29,7 +29,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   if (!canDevelop(issue)) {
     return NextResponse.json(
-      { error: `issue is '${issue.state}'; only backlog/blocked issues can be developed` },
+      { error: `issue is '${issue.state}'; only backlog/refinement/blocked issues can be developed` },
       { status: 409 }
     );
   }

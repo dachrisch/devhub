@@ -7,8 +7,10 @@
   --muted: #8b949e;
   --accent: #58a6ff;
   --backlog: #8b949e;
+  --refinement: #bc8cff;
   --developing: #d29922;
   --pr: #3fb950;
+  --rollout: #39c5cf;
   --blocked: #f85149;
 }
 
@@ -158,13 +160,13 @@ header h1 {
 
 .board {
   display: grid;
-  grid-template-columns: repeat(4, minmax(240px, 1fr));
+  grid-template-columns: repeat(6, minmax(260px, 1fr));
   gap: 16px;
   padding: 24px;
   align-items: start;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: auto;
 }
 
 .column {
@@ -194,14 +196,27 @@ header h1 {
 .dot.backlog {
   background: var(--backlog);
 }
+.dot.refinement {
+  background: var(--refinement);
+}
 .dot.developing {
   background: var(--developing);
 }
 .dot.pr {
   background: var(--pr);
 }
+.dot.rollout {
+  background: var(--rollout);
+}
 .dot.blocked {
   background: var(--blocked);
+}
+
+.column-more {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 0 10px 10px;
+  color: var(--muted);
 }
 
 .card {
@@ -268,6 +283,12 @@ header h1 {
 .card-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+}
+
+.release-tag {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .recap-row {
@@ -614,6 +635,10 @@ button:disabled {
 
 .recap-result.pr {
   border-left-color: var(--pr);
+}
+
+.recap-result.rollout {
+  border-left-color: var(--rollout);
 }
 
 .recap-result.blocked {

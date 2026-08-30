@@ -7,7 +7,10 @@ import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
 
-const COLUMNS: IssueState[] = ['backlog', 'developing', 'pr', 'blocked'];
+const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'rollout', 'blocked'];
+
+// Rolled-out cards accumulate forever; collapse everything but the newest few.
+const ROLLOUT_CAP = 5;
 
 interface ModelOption {
   id: string;
@@ -87,6 +90,7 @@ export default function BoardPage() {
   const [connected, setConnected] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
+  const [rolloutExpanded, setRolloutExpanded] = useState(false);
   const { user, loading, denied, logout } = useAuth();
 
   const signedIn = Boolean(user);
@@ -185,7 +189,12 @@ export default function BoardPage() {
 
       <div className="board">
         {COLUMNS.map((col) => {
-          const items = issues.filter((i) => i.state === col && matchesIssue(i, query));
+          let items = issues.filter((i) => i.state === col && matchesIssue(i, query));
+          if (col === 'rollout') {
+            items = [...items].sort((a, b) => (b.releasedAt ?? '').localeCompare(a.releasedAt ?? ''));
+          }
+          const collapsed = col === 'rollout' && !rolloutExpanded && items.length > ROLLOUT_CAP;
+          const visible = collapsed ? items.slice(0, ROLLOUT_CAP) : items;
           return (
             <section className="column" key={col}>
               <div className="column-head">
@@ -193,10 +202,20 @@ export default function BoardPage() {
                 {col}
                 <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({items.length})</span>
               </div>
-              {items.length === 0 ? (
+              {visible.length === 0 ? (
                 <div className="empty">nothing here</div>
               ) : (
-                items.map((issue) => <Card key={issue.id} issue={issue} />)
+                visible.map((issue) => <Card key={issue.id} issue={issue} />)
+              )}
+              {collapsed && (
+                <button className="column-more" onClick={() => setRolloutExpanded(true)}>
+                  +{items.length - ROLLOUT_CAP} more
+                </button>
+              )}
+              {col === 'rollout' && rolloutExpanded && items.length > ROLLOUT_CAP && (
+                <button className="column-more" onClick={() => setRolloutExpanded(false)}>
+                  Collapse
+                </button>
               )}
             </section>
           );
@@ -251,6 +270,22 @@ function Card({ issue }: { issue: Issue }) {
     }
   }, [issue.id, command, selected]);
 
+  const transition = useCallback(
+    async (target: IssueState) => {
+      setBusy(true);
+      try {
+        await fetch(`/api/issues/${issue.id}/transition`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: target }),
+        });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [issue.id]
+  );
+
   return (
     <div className="card" style={{ borderLeftColor: color }}>
       <div className="repo">
@@ -281,12 +316,27 @@ function Card({ issue }: { issue: Issue }) {
           PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
         </div>
       )}
+      {issue.state === 'rollout' && issue.releaseTag && (
+        <div className="result">
+          Rolled out in <span className="release-tag">{issue.releaseTag}</span>
+        </div>
+      )}
       {issue.state === 'blocked' && issue.resultText && (
         <div className="result">{issue.resultText}</div>
       )}
 
 <div className="card-actions">
-        {!developing && (
+        {issue.state === 'backlog' && (
+          <button className="ghost" onClick={() => transition('refinement')} disabled={busy}>
+            Refine
+          </button>
+        )}
+        {issue.state === 'refinement' && (
+          <button className="ghost" onClick={() => transition('backlog')} disabled={busy}>
+            Back to backlog
+          </button>
+        )}
+        {(issue.state === 'backlog' || issue.state === 'refinement' || issue.state === 'blocked') && (
           <button className="develop-btn" onClick={openModal}>
             Develop this
           </button>

@@ -1,4 +1,17 @@
-export type IssueState = 'backlog' | 'developing' | 'pr' | 'blocked';
+export type IssueState = 'backlog' | 'refinement' | 'developing' | 'pr' | 'rollout' | 'blocked';
+
+export const ISSUE_STATES: readonly IssueState[] = [
+  'backlog',
+  'refinement',
+  'developing',
+  'pr',
+  'rollout',
+  'blocked',
+];
+
+export function isIssueState(value: unknown): value is IssueState {
+  return typeof value === 'string' && (ISSUE_STATES as readonly string[]).includes(value);
+}
 
 export interface IssueRow {
   id: number;
@@ -14,6 +27,8 @@ export interface IssueRow {
   result_pr_url: string | null;
   result_text: string | null;
   linked_pr_url: string | null;
+  release_tag: string | null;
+  released_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -48,6 +63,8 @@ export interface Issue {
   resultPrUrl: string | null;
   resultText: string | null;
   linkedPrUrl: string | null;
+  releaseTag: string | null;
+  releasedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,6 +84,8 @@ export function serializeIssue(row: IssueRow): Issue {
     resultPrUrl: row.result_pr_url,
     resultText: row.result_text,
     linkedPrUrl: row.linked_pr_url,
+    releaseTag: row.release_tag,
+    releasedAt: row.released_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
