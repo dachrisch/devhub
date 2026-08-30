@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.0](https://github.com/dachrisch/devhub/compare/v1.4.0...v1.5.0) (2026-08-30)
+
+
+### Features
+
+* add refinement and rollout pipeline stages ([22c1b70](https://github.com/dachrisch/devhub/commit/22c1b70f427ac4b90395f4b34066fd717865cb9f))
+* add refinement and rollout pipeline stages ([8f9616b](https://github.com/dachrisch/devhub/commit/8f9616befe536b8c479e61fed6d3766eb15f42f0))
+* show released tickets in a slim strip instead of a board column ([e460831](https://github.com/dachrisch/devhub/commit/e460831f7dda5de2b00723684316b6e022bd29be))
+
 ## [1.4.0](https://github.com/dachrisch/devhub/compare/v1.3.0...v1.4.0) (2026-08-30)
 
 
