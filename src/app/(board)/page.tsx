@@ -529,6 +529,28 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
     }
   }, [issue.id, command, selectedModel]);
 
+  const stagedDevelop = useCallback(async () => {
+    setBusy(true);
+    try {
+      const body: { command: string; modelId?: string; providerID?: string; staged?: boolean } = { 
+        command,
+        staged: true 
+      };
+      if (selectedModel) {
+        body.modelId = selectedModel.id;
+        body.providerID = selectedModel.providerID;
+      }
+      await fetch(`/api/issues/${issue.id}/develop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }, [issue.id, command, selectedModel]);
+
   const transition = useCallback(
     async (target: IssueState) => {
       setBusy(true);
@@ -586,6 +608,11 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
       {issue.state === 'blocked' && issue.resultText && (
         <div className="result">{issue.resultText}</div>
       )}
+      {issue.state === 'refinement' && issue.resultText && (
+        <div className="result">
+          <strong>Validation:</strong> {issue.resultText}
+        </div>
+      )}
 
 <div className="card-actions">
         {issue.state === 'backlog' && (
@@ -599,9 +626,17 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
           </button>
         )}
         {(issue.state === 'backlog' || issue.state === 'refinement' || issue.state === 'blocked') && (
-          <button className="develop-btn" onClick={openModal}>
-            Develop this
-          </button>
+          <>
+            <button className="develop-btn" onClick={openModal}>
+              Develop this
+            </button>
+            <button className="validate-btn" onClick={() => {
+              setCommand('');
+              openModal();
+            }}>
+              Validate & Develop
+            </button>
+          </>
         )}
       </div>
       <div className="recap-row">
@@ -644,6 +679,9 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
               </button>
               <button className="develop-btn" onClick={develop} disabled={busy}>
                 {busy ? 'Starting…' : 'Start developing'}
+              </button>
+              <button className="validate-btn" onClick={stagedDevelop} disabled={busy}>
+                {busy ? 'Starting…' : 'Validate & Develop'}
               </button>
             </div>
           </div>

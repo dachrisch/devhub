@@ -9,6 +9,7 @@ import {
 } from './opencode';
 import { commentOnIssue, setIssueStateLabels } from './github';
 import { publishIssue, publishOpencodeEvent } from './sse';
+import { buildValidatePrompt, parseValidationResult } from './validate';
 
 // Best-effort mirror of DevHub state/notes onto the GitHub issue (labels +
 // a comment). Failures here must never break the develop run.
@@ -88,6 +89,65 @@ export async function startDevelop(
     void mirrorLabels(issue, 'blocked', token);
     void mirrorComment(issue, `DevHub could not fulfill this issue: ${reason}`, token);
   }
+}
+
+// Staged develop: validates the issue first, then proceeds to develop if validation passes.
+// Intended to be called fire-and-forget from the API route.
+export async function startStagedDevelop(
+  issue: Issue,
+  command: string,
+  token: string,
+  selectedModel?: OpencodeModel | null
+): Promise<void> {
+  // Phase 1: Validate
+  const validating = setIssueState(issue.id, 'refinement');
+  if (validating) publishIssue(validating);
+  void mirrorLabels(issue, 'refinement', token);
+  void mirrorComment(issue, 'DevHub validating this issue...', token);
+
+  try {
+    const models = resolveModels(selectedModel);
+    const validatePrompt = buildValidatePrompt(issue);
+    
+    appendEvent(issue.id, 'validation', { status: 'started' });
+    
+    const onEvent = (event: OpencodeEvent) => {
+      appendEvent(issue.id, 'validation-event', event);
+    };
+    
+    const validateText = await runDevelop(validatePrompt, onEvent, models);
+    const result = parseValidationResult(validateText);
+    
+    appendEvent(issue.id, 'validation', { 
+      status: 'completed', 
+      ready: result.ready, 
+      summary: result.summary 
+    });
+
+    if (!result.ready) {
+      // Validation failed - stay in refinement with feedback
+      const blocked = setResult(issue.id, 'refinement', null, `Validation: ${result.summary}`);
+      if (blocked) publishIssue(blocked);
+      void mirrorLabels(issue, 'refinement', token);
+      void mirrorComment(issue, `DevHub validation found issues:\n\n${result.summary}`, token);
+      return;
+    }
+
+    // Validation passed - proceed to develop
+    void mirrorComment(issue, `DevHub validation passed: ${result.summary}`, token);
+    
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    appendEvent(issue.id, 'validation-error', { message: reason });
+    const blocked = setResult(issue.id, 'blocked', null, `Validation failed: ${reason}`);
+    if (blocked) publishIssue(blocked);
+    void mirrorLabels(issue, 'blocked', token);
+    void mirrorComment(issue, `DevHub validation failed: ${reason}`, token);
+    return;
+  }
+
+  // Phase 2: Implement (reuse existing develop flow)
+  await startDevelop(issue, command, token, selectedModel);
 }
 
 export function canDevelop(issue: Issue): boolean {
