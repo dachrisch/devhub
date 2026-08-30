@@ -7,10 +7,11 @@ import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
 
-const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'rollout', 'blocked'];
+const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'blocked'];
 
-// Rolled-out cards accumulate forever; collapse everything but the newest few.
-const ROLLOUT_CAP = 5;
+// Released tickets are shown in a slim strip under the header, capped so the
+// strip stays compact.
+const RELEASED_CAP = 5;
 
 interface ModelOption {
   id: string;
@@ -90,7 +91,6 @@ export default function BoardPage() {
   const [connected, setConnected] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
-  const [rolloutExpanded, setRolloutExpanded] = useState(false);
   const { user, loading, denied, logout } = useAuth();
 
   const signedIn = Boolean(user);
@@ -187,14 +187,11 @@ export default function BoardPage() {
         </div>
       </header>
 
+      <RecentlyReleased issues={issues} />
+
       <div className="board">
         {COLUMNS.map((col) => {
-          let items = issues.filter((i) => i.state === col && matchesIssue(i, query));
-          if (col === 'rollout') {
-            items = [...items].sort((a, b) => (b.releasedAt ?? '').localeCompare(a.releasedAt ?? ''));
-          }
-          const collapsed = col === 'rollout' && !rolloutExpanded && items.length > ROLLOUT_CAP;
-          const visible = collapsed ? items.slice(0, ROLLOUT_CAP) : items;
+          const items = issues.filter((i) => i.state === col && matchesIssue(i, query));
           return (
             <section className="column" key={col}>
               <div className="column-head">
@@ -202,25 +199,49 @@ export default function BoardPage() {
                 {col}
                 <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({items.length})</span>
               </div>
-              {visible.length === 0 ? (
+              {items.length === 0 ? (
                 <div className="empty">nothing here</div>
               ) : (
-                visible.map((issue) => <Card key={issue.id} issue={issue} />)
-              )}
-              {collapsed && (
-                <button className="column-more" onClick={() => setRolloutExpanded(true)}>
-                  +{items.length - ROLLOUT_CAP} more
-                </button>
-              )}
-              {col === 'rollout' && rolloutExpanded && items.length > ROLLOUT_CAP && (
-                <button className="column-more" onClick={() => setRolloutExpanded(false)}>
-                  Collapse
-                </button>
+                items.map((issue) => <Card key={issue.id} issue={issue} />)
               )}
             </section>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function RecentlyReleased({ issues }: { issues: Issue[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const rolled = useMemo(
+    () =>
+      issues
+        .filter((i) => i.state === 'rollout')
+        .sort((a, b) => (b.releasedAt ?? '').localeCompare(a.releasedAt ?? '')),
+    [issues]
+  );
+  if (rolled.length === 0) return null;
+  const visible = expanded ? rolled : rolled.slice(0, RELEASED_CAP);
+  return (
+    <div className="released-strip">
+      <span className="released-label">Released</span>
+      <div className="released-list">
+        {visible.map((issue) => (
+          <Link key={issue.id} href={`/issues/${issue.id}`} className="released-item">
+            <span className="released-tag">{issue.releaseTag ?? '?'}</span>
+            <span className="released-title">
+              {issue.owner}/{issue.repo} #{issue.number}: {issue.title}
+            </span>
+            <span className="released-time">{relTime(issue.releasedAt ?? issue.updatedAt)}</span>
+          </Link>
+        ))}
+      </div>
+      {rolled.length > RELEASED_CAP && (
+        <button className="released-toggle" onClick={() => setExpanded((e) => !e)}>
+          {expanded ? 'Collapse' : `+${rolled.length - RELEASED_CAP} more`}
+        </button>
+      )}
     </div>
   );
 }
@@ -314,11 +335,6 @@ function Card({ issue }: { issue: Issue }) {
       {issue.state === 'pr' && issue.resultPrUrl && (
         <div className="result">
           PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
-        </div>
-      )}
-      {issue.state === 'rollout' && issue.releaseTag && (
-        <div className="result">
-          Rolled out in <span className="release-tag">{issue.releaseTag}</span>
         </div>
       )}
       {issue.state === 'blocked' && issue.resultText && (
