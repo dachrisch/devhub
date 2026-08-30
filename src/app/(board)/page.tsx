@@ -121,6 +121,7 @@ export default function BoardPage() {
   // Last-seen state per issue, so live transitions to pr/blocked can be told
   // apart from cards that already were in that state on load.
   const prevStatesRef = useRef<Map<number, IssueState>>(new Map());
+  const batchStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Batch selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -212,6 +213,12 @@ export default function BoardPage() {
     return () => clearTimeout(t);
   }, [refreshError]);
 
+  useEffect(() => {
+    return () => {
+      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
+    };
+  }, []);
+
   const advanceSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
 
@@ -241,13 +248,16 @@ export default function BoardPage() {
       setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
       setRefreshing(false);
-      setTimeout(() => setBatchStatus(null), 3000);
+      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
+      batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
     }
   }, [selectedIds, clearSelection]);
 
   const validateSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
     
+    const total = selectedIds.size;
+    setBatchStatus({ operation: 'validating', total, completed: 0, errors: 0 });
     setRefreshing(true);
     try {
       const res = await fetch('/api/issues/batch-advance', {
@@ -263,19 +273,28 @@ export default function BoardPage() {
         const data = await res.json() as { error?: string };
         throw new Error(data.error || `batch validation failed (HTTP ${res.status})`);
       }
-      
+
+      const result = await res.json() as { results: Array<{ id: number; success: boolean; error?: string }> };
+      const completed = result.results.filter((r) => r.success).length;
+      const errors = result.results.filter((r) => !r.success).length;
+
+      setBatchStatus({ operation: 'validating', total, completed, errors });
       clearSelection();
       setRefreshError(null);
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
       setRefreshing(false);
+      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
+      batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
     }
   }, [selectedIds, clearSelection]);
 
   const developSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
     
+    const total = selectedIds.size;
+    setBatchStatus({ operation: 'developing', total, completed: 0, errors: 0 });
     setRefreshing(true);
     try {
       const res = await fetch('/api/issues/batch-advance', {
@@ -299,6 +318,8 @@ export default function BoardPage() {
       
       const succeeded = data.results?.filter((r) => r.success).length ?? 0;
       const failed = data.results?.filter((r) => !r.success) ?? [];
+
+      setBatchStatus({ operation: 'developing', total, completed: succeeded, errors: failed.length });
       const summary = failed.length > 0
         ? `Develop started for ${succeeded} issue(s), ${failed.length} failed: ${failed.map((f) => `#${f.id} (${f.error})`).join(', ')}`
         : `Develop started for ${succeeded} issue(s)`;
@@ -309,6 +330,8 @@ export default function BoardPage() {
       setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
       setRefreshing(false);
+      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
+      batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
     }
   }, [selectedIds, clearSelection]);
 
