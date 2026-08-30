@@ -45,4 +45,9 @@ describe('batch transitions', () => {
     expect(canBatchAdvance('rollout')).toBe(false);
     expect(canBatchAdvance('blocked')).toBe(false);
   });
+
+  it('returns null for getBatchAdvanceTarget from unsupported states', () => {
+    expect(getBatchAdvanceTarget('developing')).toBeNull();
+    expect(getBatchAdvanceTarget('pr')).toBeNull();
+  });
 });

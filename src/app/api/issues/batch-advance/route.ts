@@ -19,10 +19,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const body = (await req.json().catch(() => ({}))) as { issueIds?: unknown };
-  const issueIds = Array.isArray(body.issueIds) ? body.issueIds.filter((id): id is number => typeof id === 'number') : [];
+  const issueIds = Array.isArray(body.issueIds) ? [...new Set(body.issueIds.filter((id): id is number => typeof id === 'number'))] : [];
 
   if (issueIds.length === 0) {
     return NextResponse.json({ error: 'no issue IDs provided' }, { status: 400 });
+  }
+
+  if (issueIds.length > 50) {
+    return NextResponse.json({ error: 'batch size limit exceeded (max 50)' }, { status: 400 });
   }
 
   const results: Array<{ id: number; success: boolean; error?: string }> = [];
@@ -39,12 +43,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       continue;
     }
 
-    const target = getBatchAdvanceTarget(issue.state);
-    if (!target) {
-      results.push({ id: issueId, success: false, error: 'no target state' });
-      continue;
-    }
-
+    const target = getBatchAdvanceTarget(issue.state)!;
     const updated = setIssueState(issue.id, target);
     if (updated) {
       publishIssue(updated);
