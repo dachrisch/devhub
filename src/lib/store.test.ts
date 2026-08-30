@@ -84,5 +84,13 @@ describe('store', () => {
     const fin = store.getIssue(id);
     expect(fin?.state).toBe('pr');
     expect(fin?.resultPrUrl).toBe('https://github.com/bumbleflies/api/pull/42');
+
+    store.setLinkedPrUrl(id, 'https://github.com/bumbleflies/api/pull/99');
+    const withLinked = store.getIssue(id);
+    expect(withLinked?.linkedPrUrl).toBe('https://github.com/bumbleflies/api/pull/99');
+
+    store.setLinkedPrUrl(id, null);
+    const cleared = store.getIssue(id);
+    expect(cleared?.linkedPrUrl).toBeNull();
   });
 });
