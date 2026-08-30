@@ -244,12 +244,52 @@ header h1 {
   padding-top: 8px;
 }
 
+.board-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 24px 0;
+}
+
 .repo-chips {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 10px 24px 0;
+  min-width: 0;
+}
+
+.toolbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.refresh-btn:hover {
+  border-color: var(--accent);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .repo-chip {
@@ -1127,17 +1167,14 @@ button:disabled {
 
   .search-wrapper {
     position: relative;
-    width: auto;
-    height: 44px;
     display: flex;
     align-items: center;
     gap: 4px;
-    flex: none;
+    flex: 1;
+    min-width: 0;
   }
 
   .search-help {
-    width: 44px;
-    height: 44px;
     flex: none;
   }
 
@@ -1155,13 +1192,13 @@ button:disabled {
     z-index: 60;
   }
 
-  .search.expanded ~ .search-help {
-    display: none;
+  .repo-chips {
+    padding: 0;
+    gap: 6px;
   }
 
-  .repo-chips {
+  .board-toolbar {
     padding: 8px 16px 0;
-    gap: 6px;
   }
 
   .repo-chip {
@@ -1173,51 +1210,11 @@ button:disabled {
     min-height: 30px;
   }
 
-  .search-toggle {
-    width: 44px;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    color: var(--text);
-    cursor: pointer;
-    border-radius: 6px;
-  }
-
-  .search-toggle:hover {
-    background: var(--panel-2);
-  }
-
   .search {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: calc(100vw - 32px);
-    max-width: none;
+    flex: 1;
     min-width: 0;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.15s ease;
-    z-index: 20;
-  }
-
-  .search.expanded {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .search-cancel {
-    position: absolute;
-    right: -60px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--accent);
-    background: transparent;
-    border: none;
-    font-size: 14px;
-    cursor: pointer;
+    max-width: none;
+    height: 44px;
   }
 }
 
