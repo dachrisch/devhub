@@ -137,6 +137,7 @@ export default function BoardPage() {
     });
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used in Task 2
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
   }, []);
