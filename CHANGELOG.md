@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/dachrisch/devhub/compare/v1.2.0...v1.3.0) (2026-08-30)
+
+
+### Features
+
+* list all models in picker and add search ([#41](https://github.com/dachrisch/devhub/issues/41)) ([50663c5](https://github.com/dachrisch/devhub/commit/50663c55bedc81a0fb71acf4b61535bc0568b58b))
+
 ## [1.2.0](https://github.com/dachrisch/devhub/compare/v1.1.2...v1.2.0) (2026-08-30)
 
 
