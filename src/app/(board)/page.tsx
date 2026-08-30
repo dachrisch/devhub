@@ -335,6 +335,35 @@ export default function BoardPage() {
     }
   }, [selectedIds, clearSelection]);
 
+  // Keyboard shortcuts for batch operations
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
+      // Ctrl/Cmd + A to select all visible issues (skip when in a text input)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !isInput) {
+        e.preventDefault();
+        const visibleIssues = issues.filter((i) => matchesIssue(i, query));
+        setSelectedIds(new Set(visibleIssues.map((i) => i.id)));
+      }
+
+      // Escape to clear selection
+      if (e.key === 'Escape') {
+        clearSelection();
+      }
+
+      // Ctrl/Cmd + Enter to advance selected
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && selectedIds.size > 0) {
+        e.preventDefault();
+        advanceSelected();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [issues, query, selectedIds, clearSelection, advanceSelected]);
+
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -489,6 +518,10 @@ export default function BoardPage() {
               >
                 Advance selected ({selectedIds.size})
               </button>
+              <div className="keyboard-hints">
+                <span>Ctrl+Enter to advance</span>
+                <span>Esc to clear</span>
+              </div>
             </>
           )}
         </div>

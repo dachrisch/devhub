@@ -210,6 +210,16 @@ header h1 {
   margin-left: 8px;
 }
 
+.keyboard-hints {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.keyboard-hints span {
+  margin-right: 12px;
+}
+
 .board {
   display: grid;
   grid-template-columns: repeat(5, minmax(260px, 1fr));
