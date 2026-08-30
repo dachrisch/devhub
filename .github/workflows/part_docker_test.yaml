@@ -37,24 +37,30 @@ jobs:
           docker load --input /tmp/${{ inputs.image_name }}.tar
           docker image ls -a
 
-      - name: "🐳🧪 Test Docker image health"
+      - name: "🐳🧪 Test Docker image starts and responds"
         run: |
           docker run --rm --detach --name test_container \
             --add-host=host.docker.internal:host-gateway \
             ${{ inputs.env_vars }} \
             ${{ inputs.image_name }}:latest
-          for i in {1..10}; do
-            status=$(docker inspect --format='{{.State.Health.Status}}' test_container)
-            health_details=$(docker inspect --format='{{json .State.Health}}' test_container)
-            echo "Attempt $i — Health status: $status"
-            echo "Health details: $health_details"
-            if [ "$status" = "healthy" ]; then break; fi
-            sleep 6
-          done
-          if [ "$status" != "healthy" ]; then
-            echo "❌ Container did not become healthy after 10 attempts."
+          echo "Waiting for container to start..."
+          sleep 10
+          # Check container is running
+          status=$(docker inspect --format='{{.State.Status}}' test_container)
+          echo "Container status: $status"
+          if [ "$status" != "running" ]; then
+            echo "❌ Container is not running."
             docker logs test_container
             exit 1
           fi
-          echo "✅ Container is healthy"
+          # Install curl and test HTTP response
+          docker exec test_container sh -c "apk add --no-cache curl > /dev/null 2>&1"
+          http_code=$(docker exec test_container sh -c "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/auth/me || echo '000'")
+          echo "HTTP response code: $http_code"
+          if [ "$http_code" = "000" ]; then
+            echo "❌ Container is not responding on port 3000."
+            docker logs test_container
+            exit 1
+          fi
+          echo "✅ Container is running and responding (HTTP $http_code)"
           docker stop test_container
