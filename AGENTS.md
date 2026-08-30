@@ -42,8 +42,10 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
   row is `backlog`; it never clobbers `developing`/`pr`/`blocked`.
 - `src/lib/github.ts` — `POST /api/issues` (refresh) ingests open issues from `dachrisch` +
   `bumbleflies`, filtered by `GITHUB_TOPICS`, skipping PRs.
-- `src/lib/opencode.ts` — opencode driver. Auth header `X-Api-Key`. Model tiers
-  `mimo-v2.5-free` → `big-pickle` (provider `opencode`) with retry/backoff + failover.
+- `src/lib/opencode.ts` — opencode driver. Auth header `X-Api-Key`. Model picker lists
+  **all** server models (free + paid, e.g. DeepSeek V4 Flash) via `GET .../api/model`;
+  pinned tiers `mimo-v2.5-free` → `deepseek-v4-flash` → `big-pickle` (provider `opencode`)
+  are the fallback/failover chain with retry/backoff.
   Polling `GET .../message` is the completion signal; `GET .../event` SSE is streamed for the
   UI. `buildDevelopPrompt` expects repos already checked out at `WORKSPACE_ROOT/<owner>/<repo>`
   (no cloning). Final assistant message must end in a PR URL or `CANNOT FULFILL: <reason>`.

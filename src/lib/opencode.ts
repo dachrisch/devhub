@@ -47,11 +47,14 @@ export interface OpencodeEvent {
   [key: string]: unknown;
 }
 
-// Measured-good free models (dontforget perf test, 2026-08-21 + rediscovery
+// Known-good models (dontforget perf test, 2026-08-21 + rediscovery
 // 2026-08-30). Tried in order; a persistently unhealthy model fails over to
-// the next on the same provider.
+// the next on the same provider. This list is the last-resort fallback for
+// the model picker (and the develop failover chain); discovery of the full
+// server model list is preferred and includes paid/non-free models too.
 const MODEL_TIERS: OpencodeModel[] = [
   { id: 'mimo-v2.5-free', providerID: 'opencode' },
+  { id: 'deepseek-v4-flash', providerID: 'opencode' },
   { id: 'big-pickle', providerID: 'opencode' },
   { id: 'nemotron-3.5-lightning-free', providerID: 'opencode' },
   { id: 'laguna-s-2.1-free', providerID: 'opencode' },
@@ -95,7 +98,7 @@ export async function discoverModels(): Promise<OpencodeModel[]> {
       });
       if (!res.ok) continue;
       const json = (await res.json()) as unknown;
-      const models = extractFreeModels(json);
+      const models = extractModels(json);
       if (models.length > 0) return models;
     } catch {
       // try next candidate
@@ -104,7 +107,7 @@ export async function discoverModels(): Promise<OpencodeModel[]> {
   return MODEL_TIERS;
 }
 
-// Returns the discovered free models (ordered, deduped), cached for MODELS_TTL_MS
+// Returns the discovered models (ordered, deduped), cached for MODELS_TTL_MS
 // and refreshed from time to time. Falls back to the pinned tiers when
 // discovery fails or returns nothing. Never throws.
 export async function getAvailableModels(): Promise<OpencodeModel[]> {
@@ -128,12 +131,13 @@ export function resolveModels(selected?: OpencodeModel | null): OpencodeModel[] 
   return [selected, ...MODEL_TIERS.filter((m) => modelKey(m) !== key)];
 }
 
-function extractFreeModels(json: unknown): OpencodeModel[] {
+// Pulls every listed model (any provider, free or paid). The picker should
+// offer whatever the server exposes — filtering to free-only hid useful
+// options (e.g. DeepSeek V4 Flash).
+function extractModels(json: unknown): OpencodeModel[] {
   const list = resolveModelList(json);
   if (!list) return [];
-  return list
-    .filter((m) => /free/i.test(`${m.id ?? ''}`) || /free/i.test(`${m.providerID ?? ''}`))
-    .map((m) => ({ id: String(m.id), providerID: String(m.providerID) }));
+  return list.map((m) => ({ id: String(m.id), providerID: String(m.providerID) }));
 }
 
 function resolveModelList(json: unknown): Array<{ id?: string; providerID?: string }> | null {

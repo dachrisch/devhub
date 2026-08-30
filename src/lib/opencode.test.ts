@@ -61,17 +61,19 @@ describe('opencode client', () => {
     expect(prompt).toContain('opencode-contribution');
   });
 
-  it('pins known-good free model tiers', () => {
+  it('pins known-good model tiers including DeepSeek V4 Flash', () => {
     expect(defaultModels()[0]).toEqual({ id: 'mimo-v2.5-free', providerID: 'opencode' });
+    expect(defaultModels()).toContainEqual({ id: 'deepseek-v4-flash', providerID: 'opencode' });
   });
 
-  it('discoverModels returns free models from the models endpoint', async () => {
+  it('discoverModels returns every listed model (free and paid) from the models endpoint', async () => {
     fakeFetch.mockReset();
     fakeFetch.mockImplementation(async (url: string) => {
       if (String(url).endsWith('/api/model')) {
         return jsonRes([
           { id: 'mimo-v2.5-free', providerID: 'opencode' },
           { id: 'gpt-5', providerID: 'opencode' },
+          { id: 'deepseek-v4-flash', providerID: 'opencode' },
           { id: 'mimo-v2.5-free', providerID: 'opencode' },
           { id: 'nemotron-3.5-lightning-free', providerID: 'opencode' },
         ]);
@@ -81,6 +83,8 @@ describe('opencode client', () => {
     const models = await discoverModels();
     expect(models).toEqual([
       { id: 'mimo-v2.5-free', providerID: 'opencode' },
+      { id: 'gpt-5', providerID: 'opencode' },
+      { id: 'deepseek-v4-flash', providerID: 'opencode' },
       { id: 'mimo-v2.5-free', providerID: 'opencode' },
       { id: 'nemotron-3.5-lightning-free', providerID: 'opencode' },
     ]);
@@ -101,6 +105,7 @@ describe('opencode client', () => {
             { id: 'a-free', providerID: 'opencode' },
             { id: 'b-free', providerID: 'opencode' },
             { id: 'a-free', providerID: 'opencode' },
+            { id: 'deepseek-v4-flash', providerID: 'opencode' },
             { id: 'paid-tier', providerID: 'opencode' },
           ],
         });
@@ -111,6 +116,8 @@ describe('opencode client', () => {
     expect(models).toEqual([
       { id: 'a-free', providerID: 'opencode' },
       { id: 'b-free', providerID: 'opencode' },
+      { id: 'deepseek-v4-flash', providerID: 'opencode' },
+      { id: 'paid-tier', providerID: 'opencode' },
     ]);
     const fetchCount = fakeFetch.mock.calls.length;
     await getAvailableModels();
@@ -168,7 +175,7 @@ describe('opencode client', () => {
     fakeFetch.mockImplementation(async (url: string, opts: { method?: string }) => {
       if (opts?.method === 'POST' && String(url).endsWith('/api/session')) {
         createAttempts++;
-        // First model (mimo) always fails; second model (big-pickle) succeeds.
+        // First model (mimo) always fails; second model (deepseek-v4-flash) succeeds.
         if (createAttempts <= 3) {
           return { ok: false, status: 503, json: async () => ({}), text: async () => '' };
         }
