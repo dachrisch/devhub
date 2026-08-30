@@ -26,6 +26,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const user = await fetchUser(token);
 
     if (!(await isAllowedMember(token))) {
+      console.error('[auth/callback] isAllowedMember returned false for user:', user.login);
       return NextResponse.redirect(new URL('/?auth=denied', base), {
         headers: { 'Set-Cookie': sessionClearCookie(STATE_COOKIE) },
       });
@@ -35,7 +36,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL('/', base), {
       headers: { 'Set-Cookie': [cookie, sessionClearCookie(STATE_COOKIE)].join(', ') },
     });
-  } catch {
+  } catch (err) {
+    console.error('[auth/callback] error:', err);
     return NextResponse.redirect(new URL('/?auth=denied', base), {
       headers: { 'Set-Cookie': sessionClearCookie(STATE_COOKIE) },
     });

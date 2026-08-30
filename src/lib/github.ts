@@ -161,7 +161,11 @@ function nextPage(res: Response): string | null {
 export async function isAllowedMember(token: string, fetchFn: FetchFn = fetch): Promise<boolean> {
   const orgs = (await ghGet('https://api.github.com/user/orgs', token, fetchFn)) as Array<{ login: string }>;
   const allowed = ENV.githubAllowedOrg.toLowerCase();
-  return orgs.some((o) => o.login.toLowerCase() === allowed);
+  const result = orgs.some((o) => o.login.toLowerCase() === allowed);
+  if (!result) {
+    console.error('[isAllowedMember] orgs:', orgs.map((o) => o.login), '| allowed:', allowed);
+  }
+  return result;
 }
 
 // Ingests open issues from all repos the authenticated user can access that
