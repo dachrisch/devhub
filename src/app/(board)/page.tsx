@@ -81,6 +81,17 @@ function relTime(iso: string): string {
   return `${secs}s ago`;
 }
 
+// Staleness tier for a card, based on time since last update. Used as a
+// lightweight urgency cue for triaging a crowded backlog.
+function urgencyTier(iso: string): 'fresh' | 'aging' | 'stale' {
+  const then = new Date(iso.replace(' ', 'T') + 'Z').getTime();
+  if (Number.isNaN(then)) return 'fresh';
+  const days = (Date.now() - then) / 86400000;
+  if (days >= 14) return 'stale';
+  if (days >= 4) return 'aging';
+  return 'fresh';
+}
+
 function excerpt(body: string): string {
   const flat = body.replace(/```[\s\S]*?```/g, ' ').replace(/[#>*`_\-]/g, ' ').replace(/\s+/g, ' ').trim();
   return flat.length > 180 ? `${flat.slice(0, 180)}…` : flat;
@@ -113,10 +124,13 @@ export default function BoardPage() {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [repoFilter, setRepoFilter] = useState<string | null>(null);
+  const [sorts, setSorts] = useState<Partial<Record<IssueState, 'newest' | 'oldest'>>>({});
+  const [searchHelp, setSearchHelp] = useState(false);
   const [activeColumn, setActiveColumn] = useState<IssueState>('backlog');
-  const [searchExpanded, setSearchExpanded] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<Map<IssueState, HTMLElement>>(new Map());
+  const helpRef = useRef<HTMLDivElement>(null);
   const { user, loading, denied, logout } = useAuth();
   // Last-seen state per issue, so live transitions to pr/blocked can be told
   // apart from cards that already were in that state on load.
@@ -149,6 +163,12 @@ export default function BoardPage() {
   }, []);
 
   const signedIn = Boolean(user);
+
+  const repos = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of issues) set.add(`${i.owner}/${i.repo}`);
+    return Array.from(set).sort();
+  }, [issues]);
 
   const upsert = useCallback((issue: Issue) => {
     setIssues((prev) => {
@@ -218,6 +238,22 @@ export default function BoardPage() {
       if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!searchHelp) return;
+    const onDown = (e: MouseEvent) => {
+      if (helpRef.current && !helpRef.current.contains(e.target as Node)) setSearchHelp(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSearchHelp(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [searchHelp]);
 
   const advanceSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
@@ -388,33 +424,48 @@ export default function BoardPage() {
   }, []);
 
   const scrollToColumn = useCallback((col: IssueState) => {
+    const board = boardRef.current;
     const el = columnRefs.current.get(col);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+    if (board && el) {
+      const boardRect = board.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      board.scrollTo({
+        left: board.scrollLeft + (elRect.left - boardRect.left),
+        behavior: 'smooth',
+      });
     }
   }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    
+
     const observer = new IntersectionObserver(
       (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            for (const [col, el] of columnRefs.current.entries()) {
-              if (el === entry.target) {
-                setActiveColumn(col);
-                break;
-              }
+        let best: { col: IssueState; ratio: number } | null = null;
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          let col: IssueState | null = null;
+          for (const [c, el] of columnRefs.current.entries()) {
+            if (el === entry.target) {
+              col = c;
+              break;
             }
           }
-        });
+          if (col && (!best || entry.intersectionRatio > best.ratio)) {
+            best = { col, ratio: entry.intersectionRatio };
+          }
+        }
+        if (best) setActiveColumn(best.col);
       },
-      { root: boardRef.current, threshold: 0.5 }
+      // Shrink the board viewport to a center band so a column counts as
+      // active when it crosses the middle of the screen rather than when 50%
+      // of its (potentially much taller) total height is visible. Per-batch
+      // max-ratio selection avoids callbacks clobbering each other mid-swipe.
+      { root: boardRef.current, rootMargin: '-45% 0px -45% 0px', threshold: 0 }
     );
-    
+
     columnRefs.current.forEach((el) => observer.observe(el));
-    
+
     return () => observer.disconnect();
   }, [signedIn]);
 
@@ -439,46 +490,46 @@ export default function BoardPage() {
           <Logo size={28} />
           <span className="brand-name">DevHub</span>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="head-controls">
           <div className="search-wrapper">
-            <button 
-              className="search-toggle" 
-              onClick={() => setSearchExpanded(true)}
-              aria-label="Open search"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M11.5 7a4.499 4.499 0 11-8.998 0A4.499 4.499 0 0111.5 7zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/>
-              </svg>
-            </button>
             <input
-              className={`search${searchExpanded ? ' expanded' : ''}`}
-              placeholder="Search…  e.g. repo:web title:auth or free text"
+              className="search"
+              placeholder="Search…  e.g. repo:devhub title:auth or free text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onBlur={() => {
-                if (!query) setSearchExpanded(false);
-              }}
             />
-            {searchExpanded && (
-              <button 
-                className="search-cancel" 
-                onClick={() => {
-                  setSearchExpanded(false);
-                  setQuery('');
-                }}
+            <div className="search-help" ref={helpRef}>
+              <button
+                className="search-help-btn"
+                onClick={() => setSearchHelp((h) => !h)}
+                aria-label="Search syntax help"
+                aria-expanded={searchHelp}
               >
-                Cancel
+                ?
               </button>
-            )}
+              {searchHelp && (
+                <div className="search-help-menu">
+                  <div className="search-help-title">Search filters</div>
+                  <div className="search-help-item"><code>repo:</code> match repo name</div>
+                  <div className="search-help-item"><code>title:</code> match title</div>
+                  <div className="search-help-item"><code>owner:</code> match owner</div>
+                  <div className="search-help-item"><code>state:</code> match state</div>
+                  <div className="search-help-item"><code>body:</code> match body</div>
+                  <div className="search-help-item"><code>number:</code> match issue #</div>
+                  <div className="search-help-note">Combine filters with plain text. e.g. repo:web auth</div>
+                </div>
+              )}
+            </div>
           </div>
           <span
-            className={`conn-dot ${connected ? 'ok' : 'off'}`}
+            className={`conn-status ${connected ? 'ok' : 'off'}`}
             title={connected ? 'live' : 'connecting…'}
             aria-label={connected ? 'live' : 'connecting…'}
-          />
-          {lastRefreshed && (
-            <span className="last-refreshed">Last refreshed {fmtTime(lastRefreshed)}</span>
-          )}
+            role="status"
+          >
+            <span className="conn-dot" />
+            {connected ? 'live' : 'connecting…'}
+          </span>
           {user && (
             <>
               <Avatar login={user.login} avatarUrl={user.avatarUrl} />
@@ -547,9 +598,52 @@ export default function BoardPage() {
 
       <RecentlyReleased issues={issues} />
 
+      <div className="board-toolbar">
+        {repos.length > 1 && (
+          <div className="repo-chips" role="group" aria-label="Filter by repo">
+            <button
+              className={`repo-chip${repoFilter === null ? ' active' : ''}`}
+              onClick={() => setRepoFilter(null)}
+            >
+              All
+            </button>
+            {repos.map((r) => {
+              const color = repoColor(r);
+              return (
+                <button
+                  key={r}
+                  className={`repo-chip${repoFilter === r ? ' active' : ''}`}
+                  onClick={() => setRepoFilter(repoFilter === r ? null : r)}
+                  style={{ '--chip-color': color } as React.CSSProperties}
+                >
+                  <span className="repo-chip-dot" />
+                  {r}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div className="toolbar-actions">
+          {lastRefreshed && (
+            <span className="last-refreshed">Last refreshed {fmtTime(lastRefreshed)}</span>
+          )}
+          <button className="refresh-btn" onClick={refresh} disabled={refreshing} aria-label="Refresh issues">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={refreshing ? 'spin' : ''}>
+              <path d="M8 2.5a5.487 5.487 0 00-4.131 1.869l1.204 1.204A.25.25 0 014.896 6H1.25A.25.25 0 011 5.75V2.104a.25.25 0 01.427-.177l1.38 1.38A7.001 7.001 0 0114.95 7.16a.75.75 0 01-1.49.178A5.501 5.501 0 008 2.5zM1.705 8.005a.75.75 0 01.834.656 5.501 5.501 0 009.592 2.97l-1.204-1.204a.25.25 0 01.177-.427h3.646a.25.25 0 01.25.25v3.646a.25.25 0 01-.427.177l-1.38-1.38A7.001 7.001 0 011.05 8.84a.75.75 0 01.656-.834z"/>
+            </svg>
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
       <div className="board" ref={boardRef}>
         {COLUMNS.map((col) => {
-          const items = issues.filter((i) => i.state === col && matchesIssue(i, query));
+          const items = issues
+            .filter((i) => i.state === col && matchesIssue(i, query) && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter))
+            .sort((a, b) => {
+              const dir = sorts[col] === 'oldest' ? 1 : -1;
+              return a.updatedAt.localeCompare(b.updatedAt) * dir;
+            });
           return (
             <section 
               className="column" 
@@ -562,6 +656,16 @@ export default function BoardPage() {
                 <span className={`dot ${col}`} />
                 {col}
                 <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({items.length})</span>
+                <button
+                  className="sort-toggle"
+                  onClick={() =>
+                    setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
+                  }
+                  title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                  aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                >
+                  {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
+                </button>
               </div>
               {items.length === 0 ? (
                 <div className="empty">nothing here</div>
@@ -746,7 +850,7 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
             {issue.owner}/{issue.repo}
           </span>
           <span className="issue-number">#{issue.number}</span>
-          <span className="age">{relTime(issue.updatedAt)}</span>
+          <span className={`age ${urgencyTier(issue.updatedAt)}`}>{relTime(issue.updatedAt)}</span>
         </div>
       </div>
       <div className="title">

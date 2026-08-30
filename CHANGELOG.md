@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.9.2](https://github.com/dachrisch/devhub/compare/v1.9.1...v1.9.2) (2026-08-30)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @types/better-sqlite3 to v9 ([#62](https://github.com/dachrisch/devhub/issues/62)) ([c940da0](https://github.com/dachrisch/devhub/commit/c940da07c3d385b1de8e995ffa3c910e6779ebaf))
+
+## [1.9.1](https://github.com/dachrisch/devhub/compare/v1.9.0...v1.9.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* mobile board layout — overflow, header collision, active-tab tracking ([#60](https://github.com/dachrisch/devhub/issues/60)) ([24ca38c](https://github.com/dachrisch/devhub/commit/24ca38c2411ea85988ce05ed1d02ace3ad2f8f7a))
+
+## [1.9.0](https://github.com/dachrisch/devhub/compare/v1.8.0...v1.9.0) (2026-08-30)
+
+
+### Features
+
+* always-visible board search and refresh in the quick-filter toolbar ([c115170](https://github.com/dachrisch/devhub/commit/c1151700403ec60119c1095f57fbe0426d0228dc))
+* always-visible board search and refresh in the quick-filter toolbar ([1ecbf47](https://github.com/dachrisch/devhub/commit/1ecbf47f8cbc26975ad421c517ca03ebe24e3ae3))
+
+## [1.8.0](https://github.com/dachrisch/devhub/compare/v1.7.0...v1.8.0) (2026-08-30)
+
+
+### Features
+
+* board filtering, sorting, search help, urgency cues, and live status pill ([cfae5f6](https://github.com/dachrisch/devhub/commit/cfae5f643b40ccf75a690757352e42254c8fc09b))
+* board filtering, sorting, search help, urgency cues, live status ([e58d588](https://github.com/dachrisch/devhub/commit/e58d5882158d216c0535ff40fc486abbe738d343))
+
 ## [1.7.0](https://github.com/dachrisch/devhub/compare/v1.6.0...v1.7.0) (2026-08-30)
 
 
