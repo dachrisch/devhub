@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.0](https://github.com/dachrisch/devhub/compare/v1.8.0...v1.9.0) (2026-08-30)
+
+
+### Features
+
+* always-visible board search and refresh in the quick-filter toolbar ([c115170](https://github.com/dachrisch/devhub/commit/c1151700403ec60119c1095f57fbe0426d0228dc))
+* always-visible board search and refresh in the quick-filter toolbar ([1ecbf47](https://github.com/dachrisch/devhub/commit/1ecbf47f8cbc26975ad421c517ca03ebe24e3ae3))
+
 ## [1.8.0](https://github.com/dachrisch/devhub/compare/v1.7.0...v1.8.0) (2026-08-30)
 
 
