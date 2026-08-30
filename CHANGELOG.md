@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.6](https://github.com/dachrisch/devhub/compare/v1.0.5...v1.0.6) (2026-08-30)
+
+
+### Bug Fixes
+
+* correct Dockerfile layering order ([383c9e1](https://github.com/dachrisch/devhub/commit/383c9e19e744a458e0ccbf59e33d6abe4c3cb9db))
+* install curl in Docker image, retry health check in CI ([ba1112d](https://github.com/dachrisch/devhub/commit/ba1112dab62a68e7267a19f5d7d5f38b56a5341d))
+* remove HEALTHCHECK from Dockerfile, update CI test workflow ([f7117f7](https://github.com/dachrisch/devhub/commit/f7117f7206671ce13ea5c8a5f00c0250ee9285d8))
+* use wget for Docker health check instead of node -e fetch ([9e67b89](https://github.com/dachrisch/devhub/commit/9e67b894593f05fc4aba2b056dd10518a957a29a))
+
 ## [1.0.5](https://github.com/dachrisch/devhub/compare/v1.0.4...v1.0.5) (2026-08-30)
 
 
