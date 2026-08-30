@@ -7,8 +7,9 @@ import {
   type OpencodeEvent,
   type OpencodeModel,
 } from './opencode';
-import { commentOnIssue, setIssueStateLabels } from './github';
+import { setIssueStateLabels } from './github';
 import { publishIssue, publishOpencodeEvent } from './sse';
+import { mirrorComment } from './utils';
 import { buildValidatePrompt, parseValidationResult } from './validate';
 
 // Best-effort mirror of DevHub state/notes onto the GitHub issue (labels +
@@ -16,14 +17,6 @@ import { buildValidatePrompt, parseValidationResult } from './validate';
 async function mirrorLabels(issue: Issue, state: Issue['state'], token: string): Promise<void> {
   try {
     await setIssueStateLabels(issue.owner, issue.repo, issue.number, state, token);
-  } catch {
-    /* non-fatal */
-  }
-}
-
-async function mirrorComment(issue: Issue, body: string, token: string): Promise<void> {
-  try {
-    await commentOnIssue(issue.owner, issue.repo, issue.number, body, token);
   } catch {
     /* non-fatal */
   }

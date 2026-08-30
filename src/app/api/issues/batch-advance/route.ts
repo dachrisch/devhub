@@ -43,7 +43,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       continue;
     }
 
-    if (mode === 'validate' && issue.state === 'backlog') {
+    if (mode === 'validate') {
+      if (issue.state !== 'backlog') {
+        results.push({ id: issueId, success: false, error: 'validate only supports backlog issues', mode: 'validate' });
+        continue;
+      }
       const validating = setIssueState(issue.id, 'refinement');
       if (validating) {
         publishIssue(validating);

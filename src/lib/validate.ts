@@ -3,7 +3,8 @@ import type { Issue } from './types';
 import { appendEvent, setIssueState, setResult } from './store';
 import { resolveModels, runDevelop, type OpencodeEvent } from './opencode';
 import { publishIssue } from './sse';
-import { commentOnIssue } from './github';
+import { mirrorComment } from './utils';
+import { startDevelop } from './develop';
 
 export function buildValidatePrompt(issue: Issue): string {
   const repoPath = `${ENV.openWorkspaceRoot}/${issue.repo}`;
@@ -61,15 +62,12 @@ export function parseValidationResult(text: string): { ready: boolean; summary: 
   return { ready: false, summary: trimmed };
 }
 
-async function mirrorComment(issue: Issue, body: string, token: string): Promise<void> {
-  try {
-    await commentOnIssue(issue.owner, issue.repo, issue.number, body, token);
-  } catch {
-    /* non-fatal */
-  }
-}
-
 export async function startValidation(issue: Issue, token: string): Promise<void> {
+  if (issue.state !== 'backlog' && issue.state !== 'refinement') {
+    appendEvent(issue.id, 'validation', { status: 'skipped', reason: `issue in '${issue.state}' state` });
+    return;
+  }
+
   try {
     const models = resolveModels();
     const prompt = buildValidatePrompt(issue);
@@ -92,6 +90,7 @@ export async function startValidation(issue: Issue, token: string): Promise<void
     if (result.ready) {
       const updated = setIssueState(issue.id, 'backlog');
       if (updated) publishIssue(updated);
+      void startDevelop(issue, '', token);
     } else {
       const updated = setResult(issue.id, 'refinement', null, result.summary);
       if (updated) publishIssue(updated);
