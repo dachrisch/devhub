@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/dachrisch/devhub/compare/v1.9.2...v1.10.0) (2026-08-30)
+
+
+### Features
+
+* batch & staged dispatch automation ([#66](https://github.com/dachrisch/devhub/issues/66)) ([acebb19](https://github.com/dachrisch/devhub/commit/acebb196b67b575fae2471b64e9e751db8f04298))
+
 ## [1.9.2](https://github.com/dachrisch/devhub/compare/v1.9.1...v1.9.2) (2026-08-30)
 
 
