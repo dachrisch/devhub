@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/dachrisch/devhub/compare/v1.0.3...v1.0.4) (2026-08-30)
+
+
+### Bug Fixes
+
+* simplify Dockerfile node_modules layering ([d5c60fd](https://github.com/dachrisch/devhub/commit/d5c60fddf539abbcb56cf196137e6025d56f71cb))
+
 ## [1.0.3](https://github.com/dachrisch/devhub/compare/v1.0.2...v1.0.3) (2026-08-30)
 
 
