@@ -1,6 +1,25 @@
 import { appendEvent, getIssue, setIssueState, setResult, setSessionId, type Issue } from './store';
 import { buildDevelopPrompt, defaultModels, extractPrUrl, runDevelop, type OpencodeEvent } from './opencode';
+import { commentOnIssue, setIssueStateLabels } from './github';
 import { publishIssue, publishOpencodeEvent } from './sse';
+
+// Best-effort mirror of DevHub state/notes onto the GitHub issue (labels +
+// a comment). Failures here must never break the develop run.
+async function mirrorLabels(issue: Issue, state: Issue['state']): Promise<void> {
+  try {
+    await setIssueStateLabels(issue.owner, issue.repo, issue.number, state);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+async function mirrorComment(issue: Issue, body: string): Promise<void> {
+  try {
+    await commentOnIssue(issue.owner, issue.repo, issue.number, body);
+  } catch {
+    /* non-fatal */
+  }
+}
 
 // Kicks off (and runs to completion) a "develop this" session for an issue.
 // Intended to be called fire-and-forget from the API route: it owns all
@@ -8,6 +27,8 @@ import { publishIssue, publishOpencodeEvent } from './sse';
 export async function startDevelop(issue: Issue, command: string): Promise<void> {
   const developing = setIssueState(issue.id, 'developing');
   if (developing) publishIssue(developing);
+  void mirrorLabels(issue, 'developing');
+  void mirrorComment(issue, 'DevHub started developing this issue.');
 
   try {
     const prompt = buildDevelopPrompt(issue, command);
@@ -26,11 +47,23 @@ export async function startDevelop(issue: Issue, command: string): Promise<void>
       ? setResult(issue.id, 'pr', prUrl, text)
       : setResult(issue.id, 'blocked', null, text);
     if (updated) publishIssue(updated);
+    if (prUrl) {
+      void mirrorLabels(issue, 'pr');
+      void mirrorComment(issue, `DevHub opened a pull request: ${prUrl}`);
+    } else {
+      void mirrorLabels(issue, 'blocked');
+      void mirrorComment(
+        issue,
+        `DevHub finished but did not open a PR.\n\n${text.slice(0, 4000)}`
+      );
+    }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     appendEvent(issue.id, 'error', { message: reason });
     const blocked = setResult(issue.id, 'blocked', null, `CANNOT FULFILL: ${reason}`);
     if (blocked) publishIssue(blocked);
+    void mirrorLabels(issue, 'blocked');
+    void mirrorComment(issue, `DevHub could not fulfill this issue: ${reason}`);
   }
 }
 

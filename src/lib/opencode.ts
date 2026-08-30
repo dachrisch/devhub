@@ -18,6 +18,20 @@ const POLL_TIMEOUT_MS = 120_000;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1000;
 
+// code.lehel.xyz fronts opencode with Basic auth (user `opencode`, password =
+// the server password). Local opencode servers may instead use an `X-Api-Key`.
+// Prefer Basic when a password is configured, otherwise fall back to the key.
+function authHeaders(): Record<string, string> {
+  if (ENV.opencodeBasicPassword) {
+    const basic = Buffer.from(`${ENV.opencodeBasicUser}:${ENV.opencodeBasicPassword}`).toString('base64');
+    return { Authorization: `Basic ${basic}` };
+  }
+  if (ENV.opencodeApiKey) {
+    return { 'X-Api-Key': ENV.opencodeApiKey };
+  }
+  return {};
+}
+
 export interface OpencodeModel {
   id: string;
   providerID: string;
@@ -52,7 +66,7 @@ export async function discoverModels(): Promise<OpencodeModel[]> {
   for (const url of candidates) {
     try {
       const res = await undiciFetch(url, {
-        headers: { 'X-Api-Key': ENV.opencodeApiKey },
+        headers: { ...authHeaders() },
         dispatcher: insecureDispatcher,
       });
       if (!res.ok) continue;
@@ -87,7 +101,7 @@ function resolveModelList(json: unknown): Array<{ id?: string; providerID?: stri
 export async function createSession(model: OpencodeModel): Promise<string> {
   const res = await undiciFetch(`${ENV.opencodeBaseUrl}/api/session`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Api-Key': ENV.opencodeApiKey },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ model }),
     dispatcher: insecureDispatcher,
   });
@@ -101,7 +115,7 @@ export async function createSession(model: OpencodeModel): Promise<string> {
 export async function sendPrompt(sessionId: string, text: string): Promise<void> {
   const res = await undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/prompt`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Api-Key': ENV.opencodeApiKey },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ prompt: { text } }),
     dispatcher: insecureDispatcher,
   });
@@ -117,6 +131,24 @@ interface OpencodeMessage {
   error?: { message: string };
 }
 
+function messageText(msg: OpencodeMessage | undefined): string {
+  if (!msg?.content) return '';
+  return msg.content
+    .map((p) => p.text ?? '')
+    .join('\n')
+    .trim();
+}
+
+function lastAssistantText(messages: OpencodeMessage[]): string {
+  for (const m of messages) {
+    if (m.type === 'assistant') {
+      const t = messageText(m);
+      if (t) return t;
+    }
+  }
+  return '';
+}
+
 // Polls GET /api/session/:id/message until the newest assistant message has a
 // `finish` set. Returns the assistant text. Used as the authoritative
 // completion signal (the /event SSE runs concurrently for live UI updates).
@@ -124,7 +156,7 @@ export async function pollForFinish(sessionId: string): Promise<{ text: string; 
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const res = await undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/message`, {
-      headers: { 'X-Api-Key': ENV.opencodeApiKey },
+      headers: { ...authHeaders() },
       dispatcher: insecureDispatcher,
     });
     if (!res.ok) {
@@ -136,11 +168,13 @@ export async function pollForFinish(sessionId: string): Promise<{ text: string; 
       if (latest.finish === 'error') {
         throw new Error(`opencode generation failed: ${latest.error?.message ?? 'unknown error'}`);
       }
-      const textPart = latest.content?.find((p) => p.type === 'text' && p.text);
-      if (!textPart?.text) {
+      // Conclusions may live in `reasoning` blocks, not only `text`, so gather
+      // all content text and fall back to the most recent assistant answer.
+      const text = messageText(latest) || lastAssistantText(data.data);
+      if (!text) {
         throw new Error('opencode reply had no text content');
       }
-      return { text: textPart.text, finish: latest.finish };
+      return { text, finish: latest.finish };
     }
     await sleep(POLL_INTERVAL_MS);
   }
@@ -154,30 +188,34 @@ export async function streamEvents(
   onEvent: (event: OpencodeEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
-  const res = await undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/event`, {
-    headers: { 'X-Api-Key': ENV.opencodeApiKey, Accept: 'text/event-stream' },
-    dispatcher: insecureDispatcher,
-    signal,
-  });
-  if (!res.ok) {
-    throw new Error(`opencode event stream failed: ${res.status}`);
-  }
-  const reader = res.body?.getReader();
-  if (!reader) return;
-  const decoder = new TextDecoder();
-  let buf = '';
-  while (true) {
-    if (signal?.aborted) break;
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buf.indexOf('\n\n')) !== -1) {
-      const raw = buf.slice(0, idx);
-      buf = buf.slice(idx + 2);
-      const event = parseSseBlock(raw);
-      if (event) onEvent(event);
+  try {
+    const res = await undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/event`, {
+      headers: { ...authHeaders(), Accept: 'text/event-stream' },
+      dispatcher: insecureDispatcher,
+      signal,
+    });
+    if (!res.ok) return;
+    const reader = res.body?.getReader();
+    if (!reader) return;
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      if (signal?.aborted) break;
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const event = parseSseBlock(raw);
+        if (event) onEvent(event);
+      }
     }
+  } catch {
+    // SSE is best-effort live UI; the /message poll is authoritative for
+    // completion. Aborts/network errors during teardown are expected.
+    return;
   }
 }
 

@@ -91,6 +91,10 @@ export function getIssueByGithub(owner: string, repo: string, number: number): I
   return row ? serializeIssue(row) : null;
 }
 
+export function deleteIssueByGithub(owner: string, repo: string, number: number): void {
+  getDb().prepare('DELETE FROM issues WHERE owner = ? AND repo = ? AND number = ?').run(owner, repo, number);
+}
+
 export function setIssueState(id: number, state: IssueState): Issue | null {
   getDb()
     .prepare(`UPDATE issues SET state = ?, updated_at = datetime('now') WHERE id = ?`)
