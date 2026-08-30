@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/dachrisch/devhub/compare/v1.0.2...v1.0.3) (2026-08-30)
+
+
+### Bug Fixes
+
+* regenerate package-lock.json from clean install ([7caf3e4](https://github.com/dachrisch/devhub/commit/7caf3e45e064bbcdcf32887322e51f65bf5f5ca6))
+
 ## [1.0.2](https://github.com/dachrisch/devhub/compare/v1.0.1...v1.0.2) (2026-08-30)
 
 
