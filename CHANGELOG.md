@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.9](https://github.com/dachrisch/devhub/compare/v1.0.8...v1.0.9) (2026-08-30)
+
+
+### Bug Fixes
+
+* give recap link dedicated placement with wider hit area ([ba29540](https://github.com/dachrisch/devhub/commit/ba2954012898bc69d9eacb5c9de0acc709bfadaf))
+* give recap link dedicated placement with wider hit area ([0612ad0](https://github.com/dachrisch/devhub/commit/0612ad04a24b1b18044996ff4f69c13cf2f3fec9)), closes [#2](https://github.com/dachrisch/devhub/issues/2)
+
 ## [1.0.8](https://github.com/dachrisch/devhub/compare/v1.0.7...v1.0.8) (2026-08-30)
 
 
