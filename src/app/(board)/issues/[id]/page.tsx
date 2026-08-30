@@ -13,6 +13,14 @@ interface OpencodeEventMsg {
   event: Record<string, unknown>;
 }
 
+function modelLabel(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return '';
+  const p = payload as { id?: unknown; providerID?: unknown };
+  const id = typeof p.id === 'string' ? p.id : '';
+  const provider = typeof p.providerID === 'string' ? p.providerID : '';
+  return provider ? `${id} (${provider})` : id;
+}
+
 export default function RecapPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
@@ -87,6 +95,7 @@ export default function RecapPage() {
   // identical opencode events so the recap reads as a digest.
   const feed = condense(events.filter((e) => (e.kind === 'opencode' ? !isNoise(e.payload) : true)));
   const latest = feed.find((e) => e.kind === 'opencode');
+  const modelEvent = events.find((e) => e.kind === 'model');
 
   return (
     <div className="recap-wrap">
@@ -115,6 +124,7 @@ export default function RecapPage() {
       {issue.state === 'developing' && (
         <div className="recap-live">
           <span className="pulse" /> {latest ? activityLine(latest.payload) : 'Starting agent…'}
+          {modelEvent && <div className="recap-model">Model: {modelLabel(modelEvent.payload)}</div>}
           {latest && eventSnippet(latest.payload) && (
             <div className="recap-snippet">{eventSnippet(latest.payload)}</div>
           )}
@@ -124,6 +134,7 @@ export default function RecapPage() {
       {done && (
         <div className={`recap-result ${issue.state}`}>
           <h3>{issue.state === 'pr' ? 'Done — pull request opened' : 'Blocked'}</h3>
+          {modelEvent && <p className="recap-model">Model: {modelLabel(modelEvent.payload)}</p>}
           {issue.resultPrUrl && (
             <p>
               PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
@@ -138,12 +149,14 @@ export default function RecapPage() {
         {feed.length === 0 && <p className="muted">No meaningful activity yet.</p>}
         {feed.map((e, idx) => (
           <div className="recap-event" key={`${e.ts}-${idx}`}>
-            <span className="recap-event-type">{e.kind === 'opencode' ? activityLine(e.payload) : e.kind}</span>
+            <span className="recap-event-type">{e.kind === 'opencode' ? activityLine(e.payload) : e.kind === 'model' ? 'Model' : e.kind}</span>
             <span className="recap-event-time">{e.ts}</span>
             <div className="recap-event-payload">
               {e.kind === 'opencode'
                 ? eventSnippet(e.payload) || activityLine(e.payload)
-                : JSON.stringify(e.payload).slice(0, 200)}
+                : e.kind === 'model'
+                  ? modelLabel(e.payload)
+                  : JSON.stringify(e.payload).slice(0, 200)}
             </div>
           </div>
         ))}

@@ -52,6 +52,10 @@ function migrate(database: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       expires_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 }
 
@@ -219,4 +223,42 @@ function serializeAuthSession(row: AuthSessionRow): AuthSession {
     createdAt: row.created_at,
     expiresAt: row.expires_at,
   };
+}
+
+export function getSetting(key: string): string | null {
+  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+  getDb()
+    .prepare(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    )
+    .run(key, value);
+}
+
+export interface ModelPreference {
+  id: string;
+  providerID: string;
+}
+
+const DEFAULT_MODEL_KEY = 'default_model';
+
+// The operator's remembered global default model (null = no override).
+export function getDefaultModel(): ModelPreference | null {
+  const raw = getSetting(DEFAULT_MODEL_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as ModelPreference;
+    if (parsed && typeof parsed.id === 'string' && typeof parsed.providerID === 'string') return parsed;
+  } catch {
+    /* ignore malformed */
+  }
+  return null;
+}
+
+export function setDefaultModel(model: ModelPreference | null): void {
+  setSetting(DEFAULT_MODEL_KEY, model ? JSON.stringify(model) : '');
 }

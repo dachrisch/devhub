@@ -93,4 +93,12 @@ describe('store', () => {
     const cleared = store.getIssue(id);
     expect(cleared?.linkedPrUrl).toBeNull();
   });
+
+  it('persists the global default model in settings', () => {
+    expect(store.getDefaultModel()).toBeNull();
+    store.setDefaultModel({ id: 'mimo-v2.5-free', providerID: 'opencode' });
+    expect(store.getDefaultModel()).toEqual({ id: 'mimo-v2.5-free', providerID: 'opencode' });
+    store.setDefaultModel(null);
+    expect(store.getDefaultModel()).toBeNull();
+  });
 });

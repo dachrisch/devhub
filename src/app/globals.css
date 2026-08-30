@@ -398,6 +398,12 @@ button:disabled {
   border-color: var(--accent);
 }
 
+.modal-select {
+  min-height: 0;
+  height: 38px;
+  margin-bottom: 14px;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -477,6 +483,12 @@ button:disabled {
 .recap-snippet {
   color: var(--muted);
   font-size: 12.5px;
+}
+
+.recap-model {
+  color: var(--accent);
+  font-size: 12.5px;
+  margin: 6px 0 0;
 }
 
 .recap-result {
