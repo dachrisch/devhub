@@ -330,6 +330,32 @@ header h1 {
   border-color: var(--accent);
 }
 
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.card-checkbox {
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.advance-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.advance-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .repo {
   display: flex;
   align-items: center;

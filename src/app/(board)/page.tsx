@@ -122,6 +122,25 @@ export default function BoardPage() {
   // apart from cards that already were in that state on load.
   const prevStatesRef = useRef<Map<number, IssueState>>(new Map());
 
+  // Batch selection state
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const toggleSelection = useCallback((issueId: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(issueId)) {
+        next.delete(issueId);
+      } else {
+        next.add(issueId);
+      }
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
   const signedIn = Boolean(user);
 
   const upsert = useCallback((issue: Issue) => {
@@ -318,6 +337,18 @@ export default function BoardPage() {
               <path d="M8 2.5a5.487 5.487 0 00-4.131 1.869l1.204 1.204A.25.25 0 014.896 6H1.25A.25.25 0 011 5.75V2.104a.25.25 0 01.427-.177l1.38 1.38A7.001 7.001 0 0114.95 7.16a.75.75 0 01-1.49.178A5.501 5.501 0 008 2.5zM1.705 8.005a.75.75 0 01.834.656 5.501 5.501 0 009.592 2.97l-1.204-1.204a.25.25 0 01.177-.427h3.646a.25.25 0 01.25.25v3.646a.25.25 0 01-.427.177l-1.38-1.38A7.001 7.001 0 011.05 8.84a.75.75 0 01.656-.834z"/>
             </svg>
           </button>
+          {selectedIds.size > 0 && (
+            <button
+              className="advance-btn"
+              onClick={() => {
+                // Will be implemented in Task 2
+                console.log('Advance selected:', Array.from(selectedIds));
+              }}
+              disabled={refreshing}
+            >
+              Advance selected ({selectedIds.size})
+            </button>
+          )}
         </div>
       </header>
 
@@ -351,7 +382,14 @@ export default function BoardPage() {
               {items.length === 0 ? (
                 <div className="empty">nothing here</div>
               ) : (
-                items.map((issue) => <Card key={issue.id} issue={issue} />)
+                items.map((issue) => (
+                  <Card
+                    key={issue.id}
+                    issue={issue}
+                    selected={selectedIds.has(issue.id)}
+                    onToggleSelection={toggleSelection}
+                  />
+                ))
               )}
             </section>
           );
@@ -418,12 +456,18 @@ function RecentlyReleased({ issues }: { issues: Issue[] }) {
   );
 }
 
-function Card({ issue }: { issue: Issue }) {
+interface CardProps {
+  issue: Issue;
+  selected: boolean;
+  onToggleSelection: (issueId: number) => void;
+}
+
+function Card({ issue, selected, onToggleSelection }: CardProps) {
   const [command, setCommand] = useState('');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [selected, setSelected] = useState<ModelOption | null>(null);
+  const [selectedModel, setSelectedModel] = useState<ModelOption | null>(null);
   const color = repoColor(`${issue.owner}/${issue.repo}`);
   const developing = issue.state === 'developing';
 
@@ -433,7 +477,7 @@ function Card({ issue }: { issue: Issue }) {
       if (!res.ok) return;
       const data = (await res.json()) as { models: ModelOption[]; default: ModelOption | null };
       setModels(data.models ?? []);
-      setSelected(data.default ?? null);
+      setSelectedModel(data.default ?? null);
     } catch {
       /* non-fatal: fall back to no override */
     }
@@ -448,9 +492,9 @@ function Card({ issue }: { issue: Issue }) {
     setBusy(true);
     try {
       const body: { command: string; modelId?: string; providerID?: string } = { command };
-      if (selected) {
-        body.modelId = selected.id;
-        body.providerID = selected.providerID;
+      if (selectedModel) {
+        body.modelId = selectedModel.id;
+        body.providerID = selectedModel.providerID;
       }
       await fetch(`/api/issues/${issue.id}/develop`, {
         method: 'POST',
@@ -461,7 +505,7 @@ function Card({ issue }: { issue: Issue }) {
     } finally {
       setBusy(false);
     }
-  }, [issue.id, command, selected]);
+  }, [issue.id, command, selectedModel]);
 
   const transition = useCallback(
     async (target: IssueState) => {
@@ -481,15 +525,23 @@ function Card({ issue }: { issue: Issue }) {
 
   return (
     <div className="card" style={{ borderLeftColor: color }}>
-      <div className="repo">
-        <span
-          className="repo-pill"
-          style={{ color, borderColor: color, background: `${color}22` }}
-        >
-          {issue.owner}/{issue.repo}
-        </span>
-        <span className="issue-number">#{issue.number}</span>
-        <span className="age">{relTime(issue.updatedAt)}</span>
+      <div className="card-header">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelection(issue.id)}
+          className="card-checkbox"
+        />
+        <div className="repo">
+          <span
+            className="repo-pill"
+            style={{ color, borderColor: color, background: `${color}22` }}
+          >
+            {issue.owner}/{issue.repo}
+          </span>
+          <span className="issue-number">#{issue.number}</span>
+          <span className="age">{relTime(issue.updatedAt)}</span>
+        </div>
       </div>
       <div className="title">
         <a href={issue.htmlUrl} target="_blank" rel="noreferrer">
@@ -563,7 +615,7 @@ function Card({ issue }: { issue: Issue }) {
             <label className="modal-label" htmlFor="devhub-model">
               Model (optional — default = pinned tiers)
             </label>
-            <ModelPicker models={models} value={selected} onChange={setSelected} />
+            <ModelPicker models={models} value={selectedModel} onChange={setSelectedModel} />
             <div className="modal-actions">
               <button className="ghost" onClick={() => setOpen(false)} disabled={busy}>
                 Cancel
