@@ -247,33 +247,48 @@ export default function BoardPage() {
   }, []);
 
   const scrollToColumn = useCallback((col: IssueState) => {
+    const board = boardRef.current;
     const el = columnRefs.current.get(col);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+    if (board && el) {
+      const boardRect = board.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      board.scrollTo({
+        left: board.scrollLeft + (elRect.left - boardRect.left),
+        behavior: 'smooth',
+      });
     }
   }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    
+
     const observer = new IntersectionObserver(
       (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            for (const [col, el] of columnRefs.current.entries()) {
-              if (el === entry.target) {
-                setActiveColumn(col);
-                break;
-              }
+        let best: { col: IssueState; ratio: number } | null = null;
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          let col: IssueState | null = null;
+          for (const [c, el] of columnRefs.current.entries()) {
+            if (el === entry.target) {
+              col = c;
+              break;
             }
           }
-        });
+          if (col && (!best || entry.intersectionRatio > best.ratio)) {
+            best = { col, ratio: entry.intersectionRatio };
+          }
+        }
+        if (best) setActiveColumn(best.col);
       },
-      { root: boardRef.current, threshold: 0.5 }
+      // Shrink the board viewport to a center band so a column counts as
+      // active when it crosses the middle of the screen rather than when 50%
+      // of its (potentially much taller) total height is visible. Per-batch
+      // max-ratio selection avoids callbacks clobbering each other mid-swipe.
+      { root: boardRef.current, rootMargin: '-45% 0px -45% 0px', threshold: 0 }
     );
-    
+
     columnRefs.current.forEach((el) => observer.observe(el));
-    
+
     return () => observer.disconnect();
   }, [signedIn]);
 
@@ -298,11 +313,11 @@ export default function BoardPage() {
           <Logo size={28} />
           <span className="brand-name">DevHub</span>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="head-controls">
           <div className="search-wrapper">
             <input
               className="search"
-              placeholder="Search…  e.g. repo:web title:auth or free text"
+              placeholder="Search…  e.g. repo:devhub title:auth or free text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />

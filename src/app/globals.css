@@ -61,6 +61,14 @@ header h1 {
   justify-content: space-between;
 }
 
+.head-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -1066,13 +1074,24 @@ button:disabled {
 /* Mobile breakpoint */
 @media (max-width: 768px) {
   .page-wrap {
-    overflow: visible;
+    overflow: hidden;
   }
 
   header {
     flex-wrap: wrap;
     gap: 8px;
     padding: 12px 16px;
+  }
+
+  .app-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .head-controls {
+    gap: 10px;
+    width: 100%;
   }
 
   .brand-name {
@@ -1151,11 +1170,23 @@ button:disabled {
 
   .column {
     min-width: 100%;
+    max-width: 100%;
     scroll-snap-align: start;
     flex-shrink: 0;
     background: transparent;
     border: none;
     border-radius: 0;
+  }
+
+  .column-head,
+  .card,
+  .empty {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .repo-pill {
+    overflow-wrap: anywhere;
   }
 
   .column-head {
@@ -1193,8 +1224,22 @@ button:disabled {
   }
 
   .repo-chips {
-    padding: 0;
+    padding: 0 0 4px;
     gap: 6px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    max-width: 100%;
+  }
+
+  .repo-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .repo-chip {
+    flex: none;
+    white-space: nowrap;
   }
 
   .board-toolbar {
@@ -1242,15 +1287,27 @@ button:disabled {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 3px;
     min-height: 44px;
+    min-width: 0;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 9px;
     text-transform: capitalize;
     background: transparent;
     border: none;
     cursor: pointer;
+    padding: 0 2px;
     transition: color 0.15s ease;
+  }
+
+  .bottom-nav-tab > span {
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
+  .bottom-nav-tab .dot {
+    width: 6px;
+    height: 6px;
   }
 
   .bottom-nav-tab:hover {
@@ -1264,8 +1321,8 @@ button:disabled {
   .bottom-nav-badge {
     background: var(--border);
     border-radius: 10px;
-    padding: 1px 6px;
-    font-size: 10px;
+    padding: 1px 5px;
+    font-size: 9px;
     font-weight: 600;
   }
 
