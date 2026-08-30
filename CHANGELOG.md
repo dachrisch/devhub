@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/dachrisch/devhub/compare/v1.6.0...v1.7.0) (2026-08-30)
+
+
+### Features
+
+* add mobile responsive layout ([060a1c3](https://github.com/dachrisch/devhub/commit/060a1c316ef90f7e0c4fa9fe567f05caed7a509c))
+
 ## [1.6.0](https://github.com/dachrisch/devhub/compare/v1.5.0...v1.6.0) (2026-08-30)
 
 
