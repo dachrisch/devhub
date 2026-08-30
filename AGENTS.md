@@ -65,6 +65,13 @@ token is server-side only. `src/lib/auth.ts` owns cookies + membership checks; t
 `POST /api/issues` and `POST /api/issues/[id]/develop` additionally re-check org membership.
 GitHub API calls in `src/lib/github.ts` take the token as an argument — never read env PATs.
 
+OAuth app setup: Create a GitHub OAuth App at
+https://github.com/settings/applications/new with callback
+`http://localhost:3000/api/auth/callback`. After creating, ensure the app's Account
+permissions grant **Read** access to Organization membership — otherwise the `read:org`
+scope won't be granted and org checks fail silently (`/?auth=denied`). If login returns
+`auth=denied`, unauthorize and re-authorize the app, approving all requested scopes.
+
 ## Not yet verified live (from the plan)
 
 Auto-approve behavior on `code.lehel.xyz` and whether opencode can see `WORKSPACE_ROOT`
