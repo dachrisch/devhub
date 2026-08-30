@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.0](https://github.com/dachrisch/devhub/compare/v1.3.0...v1.4.0) (2026-08-30)
+
+
+### Features
+
+* include new app logo ([91ee7b2](https://github.com/dachrisch/devhub/commit/91ee7b2cd32e570ad1b242c64e29c81f0acefed9))
+* include new app logo ([119fdd4](https://github.com/dachrisch/devhub/commit/119fdd4889307ac08162c20e4ed68b389798eba1))
+* single logo asset for favicon and header ([7caff02](https://github.com/dachrisch/devhub/commit/7caff025750024a975a2b3e555a19fc22362e75b))
+
 ## [1.3.0](https://github.com/dachrisch/devhub/compare/v1.2.0...v1.3.0) (2026-08-30)
 
 
