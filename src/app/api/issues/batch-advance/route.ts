@@ -5,7 +5,7 @@ import { setIssueStateLabels } from '@/lib/github';
 import { canBatchAdvance, getBatchAdvanceTarget } from '@/lib/transitions';
 import { UnauthorizedError, ForbiddenError, requireMember } from '@/lib/auth';
 import { startValidation } from '@/lib/validate';
-import { startDevelop } from '@/lib/develop';
+import { canDevelop, startDevelop } from '@/lib/develop';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,11 +23,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const body = (await req.json().catch(() => ({}))) as { 
     issueIds?: unknown;
     mode?: unknown;
-    command?: unknown;
   };
   const issueIds = Array.isArray(body.issueIds) ? [...new Set(body.issueIds.filter((id): id is number => typeof id === 'number'))] : [];
   const mode = body.mode === 'develop' ? 'develop' : body.mode === 'validate' ? 'validate' : 'advance';
-  const command = typeof body.command === 'string' ? body.command : '';
 
   if (issueIds.length === 0) {
     return NextResponse.json({ error: 'no issue IDs provided' }, { status: 400 });
@@ -46,18 +44,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       continue;
     }
 
-    if (mode === 'develop' && (issue.state === 'backlog' || issue.state === 'refinement')) {
-      const developing = setIssueState(issue.id, 'developing');
-      if (developing) {
-        publishIssue(developing);
-        void setIssueStateLabels(issue.owner, issue.repo, issue.number, 'developing', session.token).catch(() => {});
-        
-        void startDevelop(issue, command, session.token);
-        
-        results.push({ id: issueId, success: true, mode: 'developing' });
-      } else {
-        results.push({ id: issueId, success: false, error: 'failed to start development' });
-      }
+    if (mode === 'develop' && canDevelop(issue)) {
+      void startDevelop(issue, '', session.token);
+      results.push({ id: issueId, success: true, mode: 'developing' });
       continue;
     }
 

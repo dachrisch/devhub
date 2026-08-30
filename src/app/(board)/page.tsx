@@ -273,13 +273,24 @@ export default function BoardPage() {
         }),
       });
       
+      const data = await res.json() as { 
+        ok?: boolean;
+        error?: string;
+        results?: Array<{ id: number; success: boolean; error?: string; mode?: string }>;
+      };
+
       if (!res.ok) {
-        const data = await res.json() as { error?: string };
         throw new Error(data.error || `batch develop failed (HTTP ${res.status})`);
       }
       
+      const succeeded = data.results?.filter((r) => r.success).length ?? 0;
+      const failed = data.results?.filter((r) => !r.success) ?? [];
+      const summary = failed.length > 0
+        ? `Develop started for ${succeeded} issue(s), ${failed.length} failed: ${failed.map((f) => `#${f.id} (${f.error})`).join(', ')}`
+        : `Develop started for ${succeeded} issue(s)`;
+      
+      setRefreshError(failed.length > 0 ? summary : null);
       clearSelection();
-      setRefreshError(null);
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
