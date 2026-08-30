@@ -1,14 +1,13 @@
-import Image from 'next/image';
-
 export function Logo({ size = 32 }: { size?: number }) {
   return (
-    <Image
-      src="/devhub-logo.png"
+    // eslint-disable-next-line @next/next/no-img-element -- local static asset; matches Avatar convention
+    <img
+      src="/logo.png"
       alt="DevHub logo"
       width={size}
       height={size}
-      loading="lazy"
-      fill
+      className="logo"
+      style={{ borderRadius: size * 0.14 }}
     />
   );
 }
