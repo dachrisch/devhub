@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.7](https://github.com/dachrisch/devhub/compare/v1.0.6...v1.0.7) (2026-08-30)
+
+
+### Bug Fixes
+
+* use PUBLIC_BASE_URL for OAuth redirects ([54d96a8](https://github.com/dachrisch/devhub/commit/54d96a82958b0aa27dbc4000199990bd75dd4751))
+* use PUBLIC_BASE_URL for OAuth redirects instead of req.url ([472efc8](https://github.com/dachrisch/devhub/commit/472efc801cc75e9f13bd12603ee19e61679f4155))
+
 ## [1.0.6](https://github.com/dachrisch/devhub/compare/v1.0.5...v1.0.6) (2026-08-30)
 
 
