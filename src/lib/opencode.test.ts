@@ -13,7 +13,8 @@ vi.mock('undici', () => {
 const { runDevelop, extractPrUrl, buildDevelopPrompt, defaultModels } = await import('./opencode.js');
 
 function jsonRes(body: unknown, ok = true) {
-  return { ok, json: async () => body };
+  const text = JSON.stringify(body);
+  return { ok, json: async () => body, text: async () => text };
 }
 
 function emptyStreamRes() {
@@ -49,11 +50,14 @@ describe('opencode client', () => {
 
   it('builds a self-contained develop prompt with repo path and termination rule', () => {
     const prompt = buildDevelopPrompt(sampleIssue as never, 'use vitest');
-    expect(prompt).toContain('/home/cda/dev/dachrisch/widget');
+    expect(prompt).toContain('/root/dev/widget');
+    expect(prompt).toContain('.worktrees/3');
+    expect(prompt).toContain('devhub/issue-5');
     expect(prompt).toContain('Issue #5');
     expect(prompt).toContain('use vitest');
     expect(prompt).toContain('CANNOT FULFILL:');
     expect(prompt).toContain('github.com/dachrisch/widget/pull');
+    expect(prompt).toContain('opencode-contribution');
   });
 
   it('pins known-good free model tiers', () => {
@@ -104,7 +108,7 @@ describe('opencode client', () => {
         createAttempts++;
         // First model (mimo) always fails; second model (big-pickle) succeeds.
         if (createAttempts <= 3) {
-          return { ok: false, status: 503, json: async () => ({}) };
+          return { ok: false, status: 503, json: async () => ({}), text: async () => '' };
         }
         return jsonRes({ data: { id: 'ses_2' } });
       }

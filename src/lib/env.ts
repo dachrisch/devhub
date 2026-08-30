@@ -7,6 +7,7 @@ export interface DevhubEnv {
   bumblefliesGhToken: string;
   githubTopics: string[];
   workspaceRoot: string;
+  openWorkspaceRoot: string;
   dbPath: string;
 }
 
@@ -22,5 +23,6 @@ export const ENV: DevhubEnv = {
     .map((t) => t.trim())
     .filter(Boolean),
   workspaceRoot: process.env.WORKSPACE_ROOT ?? '/home/cda/dev',
+  openWorkspaceRoot: process.env.OPENCODE_WORKSPACE_ROOT ?? '/root/dev',
   dbPath: process.env.DEVHUB_DB ?? './devhub.db',
 };

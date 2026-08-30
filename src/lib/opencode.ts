@@ -43,11 +43,14 @@ export interface OpencodeEvent {
   [key: string]: unknown;
 }
 
-// Measured-good free models (dontforget perf test, 2026-08-21). Tried in order;
-// a persistently unhealthy model fails over to the next on the same provider.
+// Measured-good free models (dontforget perf test, 2026-08-21 + rediscovery
+// 2026-08-30). Tried in order; a persistently unhealthy model fails over to
+// the next on the same provider.
 const MODEL_TIERS: OpencodeModel[] = [
   { id: 'mimo-v2.5-free', providerID: 'opencode' },
   { id: 'big-pickle', providerID: 'opencode' },
+  { id: 'nemotron-3.5-lightning-free', providerID: 'opencode' },
+  { id: 'laguna-s-2.1-free', providerID: 'opencode' },
 ];
 
 export function defaultModels(): OpencodeModel[] {
@@ -105,10 +108,11 @@ export async function createSession(model: OpencodeModel): Promise<string> {
     body: JSON.stringify({ model }),
     dispatcher: insecureDispatcher,
   });
+  const body = await res.text();
   if (!res.ok) {
-    throw new Error(`opencode session create failed: ${res.status}`);
+    throw new Error(`opencode session create failed: ${res.status}: ${body.slice(0, 200)}`);
   }
-  const data = (await res.json()) as { data: { id: string } };
+  const data = JSON.parse(body) as { data: { id: string } };
   return data.data.id;
 }
 
@@ -150,8 +154,9 @@ function lastAssistantText(messages: OpencodeMessage[]): string {
 }
 
 // Polls GET /api/session/:id/message until the newest assistant message has a
-// `finish` set. Returns the assistant text. Used as the authoritative
-// completion signal (the /event SSE runs concurrently for live UI updates).
+// `finish` set to a terminal state (stop/error). Returns the assistant text.
+// Used as the authoritative completion signal (the /event SSE runs concurrently
+// for live UI updates).
 export async function pollForFinish(sessionId: string): Promise<{ text: string; finish: string }> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -165,6 +170,12 @@ export async function pollForFinish(sessionId: string): Promise<{ text: string; 
     const data = (await res.json()) as { data: OpencodeMessage[] };
     const latest = data.data[0];
     if (latest?.type === 'assistant' && latest.finish) {
+      // Only treat terminal finishes as done; tool-calls means the agent
+      // is still working (it issued tool calls and will continue).
+      if (latest.finish === 'tool-calls') {
+        await sleep(POLL_INTERVAL_MS);
+        continue;
+      }
       if (latest.finish === 'error') {
         throw new Error(`opencode generation failed: ${latest.error?.message ?? 'unknown error'}`);
       }
@@ -272,36 +283,83 @@ export async function runDevelop(
 }
 
 export function buildDevelopPrompt(issue: Issue, command: string): string {
-  const repoPath = `${ENV.workspaceRoot}/${issue.owner}/${issue.repo}`;
+  const repoPath = `${ENV.openWorkspaceRoot}/${issue.repo}`;
+  const worktreePath = `${repoPath}/.worktrees/${issue.id}`;
+  const branch = `devhub/issue-${issue.number}`;
+  const orgHint = issue.owner === 'bumbleflies' ? 'the bumbleflies org' : 'dachrisch';
+
   const parts = [
     `You are implementing a GitHub issue on a personal dev command board (DevHub).`,
+    `You have access to opencode skills — use the opencode-contribution skill for code changes, testing, and PR workflow.`,
     ``,
-    `Repository checkout (already provisioned — do NOT clone): ${repoPath}`,
+    `## Repository`,
+    `Checkout (already provisioned — do NOT clone): ${repoPath}`,
     `Owner: ${issue.owner}   Repo: ${issue.repo}   Issue #${issue.number}`,
     `Issue URL: ${issue.htmlUrl}`,
     ``,
-    `Issue title: ${issue.title}`,
+    `## Issue`,
+    `Title: ${issue.title}`,
     ``,
-    `Issue body:`,
+    `Body:`,
     issue.body?.trim() ? issue.body.trim() : '(no description)',
     ``,
   ];
+
   if (command.trim()) {
-    parts.push(`Additional instructions from the operator:`, command.trim(), '');
+    parts.push(`## Additional instructions from the operator`, command.trim(), '');
   }
+
   parts.push(
-    `Steps:`,
-    `1. Read the issue and the repo's contributing/test setup (package.json scripts, README, CI).`,
-    `2. Use opencode dev skills as appropriate: using-git-worktrees, test-driven-development, writing-plans.`,
-    `3. Implement the change in the checkout at ${repoPath}. Prefer a git worktree branch named like devhub/issue-${issue.number}.`,
-    `4. Run the repo's lint and tests. Fix until they pass.`,
-    `5. Open a Pull Request with the GitHub CLI using the env PAT for ${issue.owner === 'bumbleflies' ? 'the bumbleflies org' : 'dachrisch'}: \`gh pr create\`. Set the PR body to reference this issue.`,
+    `## Steps`,
     ``,
-    `CRITICAL: End your final message with EXACTLY ONE of:`,
-    `  - the full PR URL (e.g. https://github.com/${issue.owner}/${issue.repo}/pull/123), or`,
-    `  - the line "CANNOT FULFILL: <reason>" if you cannot complete the work.`,
+    `### 1. Create an isolated worktree`,
+    `\`\`\`bash`,
+    `cd ${repoPath}`,
+    `git fetch origin`,
+    `git worktree add .worktrees/${issue.id} -b ${branch}`,
+    `\`\`\``,
+    ``,
+    `### 2. Work only inside the worktree`,
+    `\`\`\`bash`,
+    `cd ${worktreePath}`,
+    `\`\`\``,
+    `All file edits, commits, and command execution happen here.`,
+    ``,
+    `### 3. Understand the project`,
+    `- Read CONTRIBUTING.md, README.md, package.json (or equivalent) for project conventions.`,
+    `- Check recent commits: \`git log --oneline -10\``,
+    `- Identify lint, test, and build commands.`,
+    ``,
+    `### 4. Implement the change`,
+    `- Make focused, minimal changes that address the issue.`,
+    `- Follow existing code style and conventions.`,
+    `- Commit with descriptive messages using the project's convention.`,
+    ``,
+    `### 5. Verify`,
+    `- Run lint and tests. Fix until they pass.`,
+    `- Do not submit a PR with failing checks.`,
+    ``,
+    `### 6. Open a Pull Request`,
+    `\`\`\`bash`,
+    `gh pr create --base master --head ${branch} \\`,
+    `  --title "<type>: <short description>" \\`,
+    `  --body "Fixes #${issue.number}"`,
+    `\`\`\``,
+    `Use the GitHub PAT from the environment for ${orgHint}.`,
+    ``,
+    `### 7. Clean up the worktree`,
+    `\`\`\`bash`,
+    `cd ${repoPath}`,
+    `git worktree remove .worktrees/${issue.id}`,
+    `\`\`\``,
+    ``,
+    `## CRITICAL: Final message format`,
+    `End your final message with EXACTLY ONE of:`,
+    `- the full PR URL (e.g. https://github.com/${issue.owner}/${issue.repo}/pull/123), or`,
+    `- the line "CANNOT FULFILL: <reason>" if you cannot complete the work.`,
     `Never end without one of these two.`
   );
+
   return parts.join('\n');
 }
 
