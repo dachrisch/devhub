@@ -4,6 +4,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'DevHub',
   description: 'Personal development command board',
+  icons: { icon: '/logo.png' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
