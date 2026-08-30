@@ -9,6 +9,11 @@ import { Logo } from '@/components/logo';
 
 const COLUMNS: IssueState[] = ['backlog', 'developing', 'pr', 'blocked'];
 
+interface ModelOption {
+  id: string;
+  providerID: string;
+}
+
 const REPO_COLORS = [
   '#58a6ff',
   '#3fb950',
@@ -205,22 +210,46 @@ function Card({ issue }: { issue: Issue }) {
   const [command, setCommand] = useState('');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [selected, setSelected] = useState<ModelOption | null>(null);
   const color = repoColor(`${issue.owner}/${issue.repo}`);
   const developing = issue.state === 'developing';
+
+  const loadModels = useCallback(async () => {
+    try {
+      const res = await fetch('/api/models');
+      if (!res.ok) return;
+      const data = (await res.json()) as { models: ModelOption[]; default: ModelOption | null };
+      setModels(data.models ?? []);
+      setSelected(data.default ?? null);
+    } catch {
+      /* non-fatal: fall back to no override */
+    }
+  }, []);
+
+  const openModal = useCallback(() => {
+    setOpen(true);
+    void loadModels();
+  }, [loadModels]);
 
   const develop = useCallback(async () => {
     setBusy(true);
     try {
+      const body: { command: string; modelId?: string; providerID?: string } = { command };
+      if (selected) {
+        body.modelId = selected.id;
+        body.providerID = selected.providerID;
+      }
       await fetch(`/api/issues/${issue.id}/develop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command }),
+        body: JSON.stringify(body),
       });
       setOpen(false);
     } finally {
       setBusy(false);
     }
-  }, [issue.id, command]);
+  }, [issue.id, command, selected]);
 
   return (
     <div className="card" style={{ borderLeftColor: color }}>
@@ -255,7 +284,7 @@ function Card({ issue }: { issue: Issue }) {
           <Link href={`/issues/${issue.id}`} className="recap-link">
             Recap
           </Link>
-          <button className="develop-btn" onClick={() => setOpen(true)}>
+          <button className="develop-btn" onClick={openModal}>
             Develop this
           </button>
         </div>
@@ -292,6 +321,25 @@ function Card({ issue }: { issue: Issue }) {
               onChange={(e) => setCommand(e.target.value)}
               autoFocus
             />
+            <label className="modal-label" htmlFor="devhub-model">
+              Model (optional — default = pinned free tiers)
+            </label>
+            <select
+              id="devhub-model"
+              className="modal-input modal-select"
+              value={selected ? `${selected.providerID}:${selected.id}` : ''}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSelected(v ? (models.find((m) => `${m.providerID}:${m.id}` === v) ?? null) : null);
+              }}
+            >
+              <option value="">Default (no override)</option>
+              {models.map((m) => (
+                <option key={`${m.providerID}:${m.id}`} value={`${m.providerID}:${m.id}`}>
+                  {m.id} ({m.providerID})
+                </option>
+              ))}
+            </select>
             <div className="modal-actions">
               <button className="ghost" onClick={() => setOpen(false)} disabled={busy}>
                 Cancel

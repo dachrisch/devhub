@@ -1,5 +1,12 @@
-import { appendEvent, getIssue, setIssueState, setResult, setSessionId, type Issue } from './store';
-import { buildDevelopPrompt, defaultModels, extractPrUrl, runDevelop, type OpencodeEvent } from './opencode';
+import { appendEvent, getIssue, setDefaultModel, setIssueState, setResult, setSessionId, type Issue } from './store';
+import {
+  buildDevelopPrompt,
+  extractPrUrl,
+  resolveModels,
+  runDevelop,
+  type OpencodeEvent,
+  type OpencodeModel,
+} from './opencode';
 import { commentOnIssue, setIssueStateLabels } from './github';
 import { publishIssue, publishOpencodeEvent } from './sse';
 
@@ -25,11 +32,25 @@ async function mirrorComment(issue: Issue, body: string, token: string): Promise
 // Intended to be called fire-and-forget from the API route: it owns all
 // server-side state transitions and broadcasts them over SSE. `token` is the
 // operator's GitHub OAuth token used for state mirroring on the issue.
-export async function startDevelop(issue: Issue, command: string, token: string): Promise<void> {
+// `selectedModel` (optional) heads the model list for this run; when provided it
+// is also remembered as the operator's global default for the next run.
+export async function startDevelop(
+  issue: Issue,
+  command: string,
+  token: string,
+  selectedModel?: OpencodeModel | null
+): Promise<void> {
   const developing = setIssueState(issue.id, 'developing');
   if (developing) publishIssue(developing);
   void mirrorLabels(issue, 'developing', token);
   void mirrorComment(issue, 'DevHub started developing this issue.', token);
+
+  const models = resolveModels(selectedModel);
+  if (selectedModel?.id) {
+    setDefaultModel({ id: selectedModel.id, providerID: selectedModel.providerID });
+  }
+  const head = models[0];
+  appendEvent(issue.id, 'model', { id: head.id, providerID: head.providerID });
 
   try {
     const prompt = buildDevelopPrompt(issue, command);
@@ -37,7 +58,7 @@ export async function startDevelop(issue: Issue, command: string, token: string)
       appendEvent(issue.id, 'opencode', event);
       publishOpencodeEvent(issue.id, event);
     };
-    const text = await runDevelop(prompt, onEvent, defaultModels(), (sessionId) => {
+    const text = await runDevelop(prompt, onEvent, models, (sessionId) => {
       setSessionId(issue.id, sessionId);
       const withSession = getIssue(issue.id);
       if (withSession) publishIssue(withSession);

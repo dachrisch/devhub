@@ -37,6 +37,10 @@ export interface OpencodeModel {
   providerID: string;
 }
 
+export function modelKey(model: OpencodeModel): string {
+  return `${model.providerID}:${model.id}`;
+}
+
 export interface OpencodeEvent {
   type?: string;
   kind?: string;
@@ -57,9 +61,26 @@ export function defaultModels(): OpencodeModel[] {
   return MODEL_TIERS;
 }
 
-// Best-effort model discovery at startup. If the listing endpoint path differs
-// or is unavailable, fall back to the pinned known-good tiers (open item #3 in
-// the plan). Never throws.
+const MODELS_TTL_MS = 10 * 60 * 1000; // re-discover so new models show up without a restart
+
+let cachedModels: OpencodeModel[] | null = null;
+let cachedAtMs = 0;
+
+function dedupeModels(models: OpencodeModel[]): OpencodeModel[] {
+  const seen = new Set<string>();
+  const out: OpencodeModel[] = [];
+  for (const m of models) {
+    const key = modelKey(m);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
+  }
+  return out;
+}
+
+// Best-effort model discovery. If the listing endpoint path differs or is
+// unavailable, fall back to the pinned known-good tiers (open item #3 in the
+// plan). Never throws.
 export async function discoverModels(): Promise<OpencodeModel[]> {
   const candidates = [
     `${ENV.opencodeBaseUrl}/api/model`,
@@ -81,6 +102,30 @@ export async function discoverModels(): Promise<OpencodeModel[]> {
     }
   }
   return MODEL_TIERS;
+}
+
+// Returns the discovered free models (ordered, deduped), cached for MODELS_TTL_MS
+// and refreshed from time to time. Falls back to the pinned tiers when
+// discovery fails or returns nothing. Never throws.
+export async function getAvailableModels(): Promise<OpencodeModel[]> {
+  if (cachedModels && Date.now() - cachedAtMs < MODELS_TTL_MS) return cachedModels;
+  try {
+    const discovered = dedupeModels(await discoverModels());
+    cachedModels = discovered.length > 0 ? discovered : MODEL_TIERS;
+  } catch {
+    cachedModels = MODEL_TIERS;
+  }
+  cachedAtMs = Date.now();
+  return cachedModels;
+}
+
+// Builds the model list for a develop run. A user-selected model heads the list
+// with the pinned tiers as failover candidates behind it; when omitted the
+// default tiers are used unchanged. Never throws.
+export function resolveModels(selected?: OpencodeModel | null): OpencodeModel[] {
+  if (!selected?.id) return MODEL_TIERS;
+  const key = modelKey(selected);
+  return [selected, ...MODEL_TIERS.filter((m) => modelKey(m) !== key)];
 }
 
 function extractFreeModels(json: unknown): OpencodeModel[] {

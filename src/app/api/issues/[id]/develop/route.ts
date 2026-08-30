@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getIssue } from '@/lib/store';
 import { canDevelop, startDevelop } from '@/lib/develop';
 import { UnauthorizedError, ForbiddenError, requireMember } from '@/lib/auth';
+import type { OpencodeModel } from '@/lib/opencode';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,11 +34,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     );
   }
 
-  const body = (await req.json().catch(() => ({}))) as { command?: unknown };
+  const body = (await req.json().catch(() => ({}))) as {
+    command?: unknown;
+    modelId?: unknown;
+    providerID?: unknown;
+  };
   const command = typeof body.command === 'string' ? body.command : '';
+  const modelId = typeof body.modelId === 'string' && body.modelId ? body.modelId : null;
+  const providerID = typeof body.providerID === 'string' && body.providerID ? body.providerID : null;
+  const selectedModel: OpencodeModel | null = modelId ? { id: modelId, providerID: providerID ?? 'opencode' } : null;
 
   // Fire-and-forget: the route returns immediately; progress streams via SSE.
-  void startDevelop(issue, command, session.token);
+  void startDevelop(issue, command, session.token, selectedModel);
 
   return NextResponse.json({ ok: true, state: 'developing' }, { status: 202 });
 }

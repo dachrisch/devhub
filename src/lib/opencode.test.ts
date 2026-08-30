@@ -10,7 +10,8 @@ vi.mock('undici', () => {
   };
 });
 
-const { runDevelop, extractPrUrl, buildDevelopPrompt, defaultModels } = await import('./opencode.js');
+const { runDevelop, extractPrUrl, buildDevelopPrompt, defaultModels, discoverModels, getAvailableModels, resolveModels } =
+  await import('./opencode.js');
 
 function jsonRes(body: unknown, ok = true) {
   const text = JSON.stringify(body);
@@ -62,6 +63,67 @@ describe('opencode client', () => {
 
   it('pins known-good free model tiers', () => {
     expect(defaultModels()[0]).toEqual({ id: 'mimo-v2.5-free', providerID: 'opencode' });
+  });
+
+  it('discoverModels returns free models from the models endpoint', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/api/model')) {
+        return jsonRes([
+          { id: 'mimo-v2.5-free', providerID: 'opencode' },
+          { id: 'gpt-5', providerID: 'opencode' },
+          { id: 'mimo-v2.5-free', providerID: 'opencode' },
+          { id: 'nemotron-3.5-lightning-free', providerID: 'opencode' },
+        ]);
+      }
+      return jsonRes({}, false);
+    });
+    const models = await discoverModels();
+    expect(models).toEqual([
+      { id: 'mimo-v2.5-free', providerID: 'opencode' },
+      { id: 'mimo-v2.5-free', providerID: 'opencode' },
+      { id: 'nemotron-3.5-lightning-free', providerID: 'opencode' },
+    ]);
+  });
+
+  it('discoverModels falls back to pinned tiers when the endpoint is unavailable', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async () => jsonRes({}, false));
+    expect(await discoverModels()).toEqual(defaultModels());
+  });
+
+  it('getAvailableModels dedupes discovered models and serves them from cache', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/api/model')) {
+        return jsonRes({
+          data: [
+            { id: 'a-free', providerID: 'opencode' },
+            { id: 'b-free', providerID: 'opencode' },
+            { id: 'a-free', providerID: 'opencode' },
+            { id: 'paid-tier', providerID: 'opencode' },
+          ],
+        });
+      }
+      return jsonRes({}, false);
+    });
+    const models = await getAvailableModels();
+    expect(models).toEqual([
+      { id: 'a-free', providerID: 'opencode' },
+      { id: 'b-free', providerID: 'opencode' },
+    ]);
+    const fetchCount = fakeFetch.mock.calls.length;
+    await getAvailableModels();
+    expect(fakeFetch.mock.calls.length).toBe(fetchCount);
+  });
+
+  it('resolveModels heads the list with the selected model and keeps tiers as failover', () => {
+    const picked = resolveModels({ id: 'laguna-s-2.1-free', providerID: 'opencode' });
+    expect(picked[0]).toEqual({ id: 'laguna-s-2.1-free', providerID: 'opencode' });
+    expect(picked).toHaveLength(defaultModels().length);
+    expect(picked).toContainEqual({ id: 'mimo-v2.5-free', providerID: 'opencode' });
+    expect(resolveModels(null)).toEqual(defaultModels());
+    expect(resolveModels(undefined)).toEqual(defaultModels());
   });
 
   it('runDevelop creates a session, sends the prompt, and returns the final text', async () => {
