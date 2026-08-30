@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/dachrisch/devhub/compare/v1.0.0...v1.0.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* correct Dockerfile native module overlay and add public dir ([0080f71](https://github.com/dachrisch/devhub/commit/0080f71faf2cdb8f716ca61a155f2efacf90fb2a))
+
 ## 1.0.0 (2026-08-30)
 
 
