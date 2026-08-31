@@ -1015,13 +1015,18 @@ function ModelPicker({
   }, [open]);
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    const t = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(t);
+  }, [open]);
+
+  const toggle = () => {
+    if (!open) {
       setQuery('');
       setHighlight(0);
-      const t = requestAnimationFrame(() => inputRef.current?.focus());
-      return () => cancelAnimationFrame(t);
     }
-  }, [open]);
+    setOpen(!open);
+  };
 
   const select = (choice: ModelChoice) => {
     onChange(choice.model);
@@ -1050,7 +1055,7 @@ function ModelPicker({
         id="devhub-model"
         type="button"
         className="model-picker-toggle"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         aria-haspopup="listbox"
         aria-expanded={open}
       >

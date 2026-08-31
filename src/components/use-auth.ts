@@ -11,7 +11,11 @@ export interface MeUser {
 // query (callback rejected a non-member) so the UI can show the right screen.
 export function useAuth() {
   const [user, setUser] = useState<MeUser | null | undefined>(undefined);
-  const [denied, setDenied] = useState(false);
+  const [denied] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('auth') === 'denied'
+  );
 
   const reload = useCallback(async () => {
     try {
@@ -24,8 +28,11 @@ export function useAuth() {
   }, []);
 
   useEffect(() => {
+    // Fetching the session on mount is the canonical data-loading pattern;
+    // setState happens asynchronously after the fetch resolves. The rule
+    // react-hooks/set-state-in-effect false-positives on this.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void reload();
-    setDenied(new URLSearchParams(window.location.search).has('auth') && new URLSearchParams(window.location.search).get('auth') === 'denied');
   }, [reload]);
 
   const logout = useCallback(async () => {
