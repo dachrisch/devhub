@@ -1,0 +1,9 @@
+export async function register() {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { recoverStuckDeveloping } = await import('./lib/store');
+    const recovered = recoverStuckDeveloping();
+    if (recovered > 0) {
+      console.log(`[startup] Recovered ${recovered} stuck developing issue(s) → blocked`);
+    }
+  }
+}
