@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.1](https://github.com/dachrisch/devhub/compare/v1.11.0...v1.11.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **deps:** update nextjs monorepo to v16.3.4 ([#80](https://github.com/dachrisch/devhub/issues/80)) ([fe2ff37](https://github.com/dachrisch/devhub/commit/fe2ff3776a469b43189579d136322a6a5076902a))
+
 ## [1.11.0](https://github.com/dachrisch/devhub/compare/v1.10.4...v1.11.0) (2026-08-31)
 
 
