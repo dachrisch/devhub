@@ -162,3 +162,30 @@ describe('store', () => {
     expect(issue.releasedAt).toBeNull();
   });
 });
+
+describe('actions', () => {
+  it('appends and retrieves actions', () => {
+    const action = store.appendAction('Launch a new API', 'launch', { name: 'blog-api' });
+    expect(action.id).toBeGreaterThan(0);
+    expect(action.input).toBe('Launch a new API');
+    expect(action.action).toBe('launch');
+    expect(action.status).toBe('pending');
+
+    store.setActionStatus(action.id, 'running');
+    const updated = store.getAction(action.id);
+    expect(updated?.status).toBe('running');
+
+    store.setActionStatus(action.id, 'success', 'Deployed', 5000);
+    const done = store.getAction(action.id);
+    expect(done?.status).toBe('success');
+    expect(done?.result).toBe('Deployed');
+    expect(done?.durationMs).toBe(5000);
+  });
+
+  it('lists recent actions', () => {
+    store.appendAction('action-a', 'launch', {});
+    store.appendAction('action-b', 'fix', {});
+    const list = store.getActions(5);
+    expect(list.length).toBeGreaterThanOrEqual(2);
+  });
+});

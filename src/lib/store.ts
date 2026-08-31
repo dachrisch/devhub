@@ -56,6 +56,19 @@ function migrate(database: Database.Database): void {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      input TEXT NOT NULL,
+      action TEXT NOT NULL DEFAULT 'unknown',
+      params TEXT NOT NULL DEFAULT '{}',
+      skill_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      result TEXT,
+      session_ids TEXT NOT NULL DEFAULT '[]',
+      duration_ms INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // One-time migration: rollout metadata for the terminal "released" state.
@@ -276,6 +289,20 @@ export function setSetting(key: string, value: string): void {
     .run(key, value);
 }
 
+export interface ActionRow {
+  id: number;
+  input: string;
+  action: string;
+  params: string;
+  skillId: string | null;
+  status: string;
+  result: string | null;
+  sessionIds: string;
+  durationMs: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ModelPreference {
   id: string;
   providerID: string;
@@ -298,4 +325,65 @@ export function getDefaultModel(): ModelPreference | null {
 
 export function setDefaultModel(model: ModelPreference | null): void {
   setSetting(DEFAULT_MODEL_KEY, model ? JSON.stringify(model) : '');
+}
+
+export function appendAction(input: string, action: string, params: Record<string, unknown>): ActionRow {
+  const info = getDb()
+    .prepare(`INSERT INTO actions (input, action, params) VALUES (?, ?, ?)`)
+    .run(input, action, JSON.stringify(params));
+  return getAction(Number(info.lastInsertRowid))!;
+}
+
+export function getAction(id: number): ActionRow | null {
+  const row = getDb().prepare('SELECT * FROM actions WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    id: row.id as number,
+    input: row.input as string,
+    action: row.action as string,
+    params: row.params as string,
+    skillId: row.skill_id as string | null,
+    status: row.status as string,
+    result: row.result as string | null,
+    sessionIds: row.session_ids as string,
+    durationMs: row.duration_ms as number | null,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+export function setActionStatus(id: number, status: string, result?: string, durationMs?: number): void {
+  const sets = ['status = ?', `updated_at = datetime('now')`];
+  const args: (string | number)[] = [status];
+  if (result !== undefined) { sets.push('result = ?'); args.push(result); }
+  if (durationMs !== undefined) { sets.push('duration_ms = ?'); args.push(durationMs); }
+  args.push(id);
+  getDb().prepare(`UPDATE actions SET ${sets.join(', ')} WHERE id = ?`).run(...args);
+}
+
+export function appendSessionId(actionId: number, sessionId: string): void {
+  const row = getDb().prepare('SELECT session_ids FROM actions WHERE id = ?').get(actionId) as Record<string, unknown> | undefined;
+  if (!row) return;
+  const ids = JSON.parse(row.session_ids as string) as string[];
+  ids.push(sessionId);
+  getDb().prepare(`UPDATE actions SET session_ids = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(ids), actionId);
+}
+
+export function getActions(limit = 20): ActionRow[] {
+  const rows = getDb()
+    .prepare('SELECT * FROM actions ORDER BY created_at DESC LIMIT ?')
+    .all(limit) as Record<string, unknown>[];
+  return rows.map((r) => ({
+    id: r.id as number,
+    input: r.input as string,
+    action: r.action as string,
+    params: r.params as string,
+    skillId: r.skill_id as string | null,
+    status: r.status as string,
+    result: r.result as string | null,
+    sessionIds: r.session_ids as string,
+    durationMs: r.duration_ms as number | null,
+    createdAt: r.created_at as string,
+    updatedAt: r.updated_at as string,
+  }));
 }
