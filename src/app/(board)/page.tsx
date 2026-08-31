@@ -85,6 +85,10 @@ export default function BoardPage() {
     errors: number;
   } | null>(null);
 
+  // Cockpit input bar
+  const [actionInput, setActionInput] = useState('');
+  const [actionHistory, setActionHistory] = useState<{id: number; input: string; status: string}[]>([]);
+
   const toggleSelection = useCallback((issueId: number) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -177,6 +181,22 @@ export default function BoardPage() {
       if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
     };
   }, []);
+
+  const submitAction = useCallback(async () => {
+    if (!actionInput.trim()) return;
+    try {
+      const res = await fetch('/api/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: actionInput }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setActionHistory((prev) => [{ id: data.actionId, input: actionInput, status: 'pending' }, ...prev]);
+        setActionInput('');
+      }
+    } catch { /* ignore */ }
+  }, [actionInput]);
 
   useEffect(() => {
     if (!searchHelp) return;
@@ -549,6 +569,33 @@ export default function BoardPage() {
           )}
         </div>
       )}
+
+      <div style={{ padding: '0 16px 12px' }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            value={actionInput}
+            onChange={(e) => setActionInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && submitAction()}
+            placeholder='Tell me what you want... (e.g. "Launch a new API", "Fix issue #42")'
+            style={{
+              flex: 1, padding: '10px 14px', borderRadius: 8,
+              border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--text)', fontSize: 14, outline: 'none',
+            }}
+          />
+          <button
+            onClick={submitAction}
+            style={{
+              padding: '10px 20px', borderRadius: 8, border: 'none',
+              background: 'var(--accent)', color: '#fff', fontWeight: 600,
+              cursor: 'pointer', fontSize: 14,
+            }}
+          >
+            Go
+          </button>
+        </div>
+      </div>
 
       <RecentlyReleased issues={issues} />
 
