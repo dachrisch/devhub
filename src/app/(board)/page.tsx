@@ -85,6 +85,10 @@ export default function BoardPage() {
     errors: number;
   } | null>(null);
 
+  // Cockpit input bar
+  const [actionInput, setActionInput] = useState('');
+  const [actionHistory, setActionHistory] = useState<{id: number; input: string; status: string}[]>([]);
+
   const toggleSelection = useCallback((issueId: number) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -177,6 +181,22 @@ export default function BoardPage() {
       if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
     };
   }, []);
+
+  const submitAction = useCallback(async () => {
+    if (!actionInput.trim()) return;
+    try {
+      const res = await fetch('/api/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: actionInput }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setActionHistory((prev) => [{ id: data.actionId, input: actionInput, status: 'pending' }, ...prev]);
+        setActionInput('');
+      }
+    } catch { /* ignore */ }
+  }, [actionInput]);
 
   useEffect(() => {
     if (!searchHelp) return;
@@ -362,21 +382,11 @@ export default function BoardPage() {
     }
   }, []);
 
-  const scrollToColumn = useCallback((col: IssueState) => {
-    const board = boardRef.current;
-    const el = columnRefs.current.get(col);
-    if (board && el) {
-      const boardRect = board.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      board.scrollTo({
-        left: board.scrollLeft + (elRect.left - boardRect.left),
-        behavior: 'smooth',
-      });
-    }
-  }, []);
-
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    // Tab state on mobile is driven directly by the status strip (only one
+    // column is ever rendered), so the scroll-position sync below is only
+    // needed on desktop where all five columns share the screen.
+    if (typeof window === 'undefined' || isMobile) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -406,7 +416,7 @@ export default function BoardPage() {
     columnRefs.current.forEach((el) => observer.observe(el));
 
     return () => observer.disconnect();
-  }, [signedIn]);
+  }, [signedIn, isMobile]);
 
   if (!signedIn) {
     return (
@@ -495,11 +505,6 @@ export default function BoardPage() {
               </button>
             </>
           )}
-          <button className="header-icon-btn" onClick={refresh} disabled={refreshing} aria-label="Refresh issues">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={refreshing ? 'spin' : ''}>
-              <path d="M8 2.5a5.487 5.487 0 00-4.131 1.869l1.204 1.204A.25.25 0 014.896 6H1.25A.25.25 0 011 5.75V2.104a.25.25 0 01.427-.177l1.38 1.38A7.001 7.001 0 0114.95 7.16a.75.75 0 01-1.49.178A5.501 5.501 0 008 2.5zM1.705 8.005a.75.75 0 01.834.656 5.501 5.501 0 009.592 2.97l-1.204-1.204a.25.25 0 01.177-.427h3.646a.25.25 0 01.25.25v3.646a.25.25 0 01-.427.177l-1.38-1.38A7.001 7.001 0 011.05 8.84a.75.75 0 01.656-.834z"/>
-            </svg>
-          </button>
           {selectedIds.size > 0 && (
             <>
               <button
@@ -550,6 +555,33 @@ export default function BoardPage() {
         </div>
       )}
 
+      <div style={{ padding: '0 16px 12px' }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            value={actionInput}
+            onChange={(e) => setActionInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && submitAction()}
+            placeholder='Tell me what you want... (e.g. "Launch a new API", "Fix issue #42")'
+            style={{
+              flex: 1, padding: '10px 14px', borderRadius: 8,
+              border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--text)', fontSize: 14, outline: 'none',
+            }}
+          />
+          <button
+            onClick={submitAction}
+            style={{
+              padding: '10px 20px', borderRadius: 8, border: 'none',
+              background: 'var(--accent)', color: '#fff', fontWeight: 600,
+              cursor: 'pointer', fontSize: 14,
+            }}
+          >
+            Go
+          </button>
+        </div>
+      </div>
+
       <RecentlyReleased issues={issues} />
 
       <div className="board-toolbar">
@@ -597,15 +629,14 @@ export default function BoardPage() {
             COLUMNS.map((c) => [c, issues.filter((i) => i.state === c).length])
           ) as Record<IssueState, number>}
           active={activeColumn}
-          onSelect={(col) => {
-            setActiveColumn(col);
-            scrollToColumn(col);
-          }}
+          onSelect={setActiveColumn}
         />
       )}
 
       <div className="board" ref={boardRef}>
-        {COLUMNS.map((col) => {
+        {/* Mobile renders a single column (the active tab); desktop shows all
+            five columns side by side with scroll-sync to the status strip. */}
+        {(isMobile ? [activeColumn] : COLUMNS).map((col) => {
           const items = issues
             .filter((i) => i.state === col && matchesIssue(i, query) && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter))
             .sort((a, b) => {
@@ -780,9 +811,9 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
         </div>
       </div>
       <div className="title">
-        <a href={issue.htmlUrl} target="_blank" rel="noreferrer">
+        <Link href={`/issues/${issue.id}`} className="title-link">
           {issue.title}
-        </a>
+        </Link>
       </div>
       {issue.body && <div className="excerpt">{excerpt(issue.body)}</div>}
 

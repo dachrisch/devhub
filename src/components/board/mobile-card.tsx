@@ -27,10 +27,10 @@ export function MobileCard({ issue, color, busy, onPrimaryAction, onOpenActions 
         <span className="mobile-card-age">{relTime(issue.updatedAt)}</span>
       </div>
       <div className="mobile-card-body">
-        <a className="mobile-card-title" href={issue.htmlUrl} target="_blank" rel="noreferrer">
-          {issue.title}
-        </a>
-        {issue.body && <div className="mobile-card-excerpt">{excerpt(issue.body)}</div>}
+        <Link href={`/issues/${issue.id}`} className="mobile-card-body-link">
+          <span className="mobile-card-title">{issue.title}</span>
+          {issue.body && <div className="mobile-card-excerpt">{excerpt(issue.body)}</div>}
+        </Link>
         {developing && (
           <div className="mobile-card-status">
             <span className="mobile-card-status-dot" />
