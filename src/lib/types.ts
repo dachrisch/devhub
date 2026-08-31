@@ -13,6 +13,11 @@ export function isIssueState(value: unknown): value is IssueState {
   return typeof value === 'string' && (ISSUE_STATES as readonly string[]).includes(value);
 }
 
+export interface ModelOption {
+  id: string;
+  providerID: string;
+}
+
 export interface IssueRow {
   id: number;
   github_issue_id: number;

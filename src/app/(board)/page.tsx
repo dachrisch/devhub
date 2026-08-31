@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import type { Issue, IssueState } from '@/lib/types';
+import type { Issue, IssueState, ModelOption } from '@/lib/types';
+import { excerpt, matchesIssue, relTime, repoColor } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
@@ -13,74 +14,6 @@ const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'blo
 // strip stays compact.
 const RELEASED_CAP = 5;
 
-interface ModelOption {
-  id: string;
-  providerID: string;
-}
-
-const REPO_COLORS = [
-  '#58a6ff',
-  '#3fb950',
-  '#d29922',
-  '#f85149',
-  '#bc8cff',
-  '#39c5cf',
-  '#ff7b72',
-  '#a5d6ff',
-  '#7ee787',
-  '#ffa657',
-];
-
-function repoColor(key: string): string {
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  return REPO_COLORS[h % REPO_COLORS.length];
-}
-
-const FIELD_FILTERS: Record<string, (i: Issue, v: string) => boolean> = {
-  title: (i, v) => i.title.toLowerCase().includes(v),
-  repo: (i, v) => i.repo.toLowerCase().includes(v),
-  owner: (i, v) => i.owner.toLowerCase().includes(v),
-  state: (i, v) => i.state.toLowerCase().includes(v),
-  body: (i, v) => (i.body ?? '').toLowerCase().includes(v),
-  number: (i, v) => String(i.number).includes(v),
-};
-
-function matchesIssue(issue: Issue, query: string): boolean {
-  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const global: string[] = [];
-  for (const token of tokens) {
-    const m = token.match(/^([a-z]+):(.*)$/);
-    if (m && FIELD_FILTERS[m[1]]) {
-      if (!FIELD_FILTERS[m[1]](issue, m[2])) return false;
-    } else {
-      global.push(token);
-    }
-  }
-  if (global.length === 0) return true;
-  const haystack = [issue.owner, issue.repo, `#${issue.number}`, issue.title, issue.body ?? '']
-    .join(' ')
-    .toLowerCase();
-  return global.every((term) => haystack.includes(term));
-}
-
-function relTime(iso: string): string {
-  const then = new Date(iso.replace(' ', 'T') + 'Z').getTime();
-  if (Number.isNaN(then)) return '';
-  const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  const units: [number, string][] = [
-    [31536000, 'y'],
-    [2592000, 'mo'],
-    [86400, 'd'],
-    [3600, 'h'],
-    [60, 'm'],
-  ];
-  for (const [secsInUnit, label] of units) {
-    if (secs >= secsInUnit) return `${Math.floor(secs / secsInUnit)}${label} ago`;
-  }
-  return `${secs}s ago`;
-}
-
 // Staleness tier for a card, based on time since last update. Used as a
 // lightweight urgency cue for triaging a crowded backlog.
 function urgencyTier(iso: string): 'fresh' | 'aging' | 'stale' {
@@ -90,11 +23,6 @@ function urgencyTier(iso: string): 'fresh' | 'aging' | 'stale' {
   if (days >= 14) return 'stale';
   if (days >= 4) return 'aging';
   return 'fresh';
-}
-
-function excerpt(body: string): string {
-  const flat = body.replace(/```[\s\S]*?```/g, ' ').replace(/[#>*`_\-]/g, ' ').replace(/\s+/g, ' ').trim();
-  return flat.length > 180 ? `${flat.slice(0, 180)}…` : flat;
 }
 
 function fmtTime(d: Date): string {
