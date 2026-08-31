@@ -5,5 +5,9 @@ export async function register() {
     if (recovered > 0) {
       console.log(`[startup] Recovered ${recovered} stuck developing issue(s) → blocked`);
     }
+
+    // Register cockpit skills
+    await import('./lib/skills/fix');
+    await import('./lib/skills/launch');
   }
 }
