@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.13.1](https://github.com/dachrisch/devhub/compare/v1.13.0...v1.13.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* mobile accessibility — tabs pattern, main landmark, checkbox targets, contrast ([68df455](https://github.com/dachrisch/devhub/commit/68df4558ede4deb0392a287d207f1129f62b57ef))
+* mobile accessibility — tabs pattern, main landmark, checkbox targets, contrast ([#72](https://github.com/dachrisch/devhub/issues/72)) ([614ae8b](https://github.com/dachrisch/devhub/commit/614ae8ba79458e475b29d65e0dc63f03d9278435))
+
 ## [1.13.0](https://github.com/dachrisch/devhub/compare/v1.12.0...v1.13.0) (2026-08-31)
 
 
