@@ -1,6 +1,7 @@
 import { registerSkill } from './index';
 import type { SkillContext, SkillResult } from './types';
-import { getIssue, appendEvent, setSessionId, setResult, storeKnowledge } from '../store';
+import { getIssue, appendEvent, setSessionId, setResult } from '../store';
+import { remember } from '../knowledge';
 import { buildDevelopPrompt, extractPrUrl, runDevelop, type OpencodeEvent } from '../opencode';
 import { publishIssue, publishOpencodeEvent } from '../sse';
 import { mirrorComment } from '../utils';
@@ -49,7 +50,7 @@ registerSkill(
         try { await setIssueStateLabels(issue.owner, issue.repo, issue.number, 'pr', ctx.token); } catch {}
         void mirrorComment(issue, `DevHub opened a pull request: ${prUrl}`, ctx.token);
 
-        storeKnowledge('fix',
+        remember('fix',
           `Fixed issue #${issue.number} in ${issue.repo}: ${prUrl}`,
           { issueId: issue.id, owner: issue.owner, repo: issue.repo, number: issue.number, prUrl },
           ctx.actionId
@@ -61,7 +62,7 @@ registerSkill(
         const updated = getIssue(issue.id);
         if (updated) publishIssue(updated);
 
-        storeKnowledge('fix',
+        remember('fix',
           `Attempted issue #${issue.number} in ${issue.repo}: blocked`,
           { issueId: issue.id, owner: issue.owner, repo: issue.repo, number: issue.number },
           ctx.actionId

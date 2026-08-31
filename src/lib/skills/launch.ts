@@ -1,6 +1,7 @@
 import { registerSkill } from './index';
 import type { SkillContext, SkillResult } from './types';
-import { storeKnowledge, upsertService } from '../store';
+import { upsertService } from '../store';
+import { remember } from '../knowledge';
 import { runDevelop } from '../opencode';
 
 const SCAFFOLD_PROMPT = `You are scaffolding a new service called "{name}".
@@ -146,7 +147,7 @@ registerSkill(
       config: { framework, database },
     });
 
-    storeKnowledge('launch',
+    remember('launch',
       `Launched ${name} (${framework}) on ${host}`,
       { name, framework, database, host, steps: ['scaffold', 'infra', 'deploy'] },
       ctx.actionId

@@ -69,15 +69,6 @@ function migrate(database: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
-    CREATE TABLE IF NOT EXISTS knowledge (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      domain TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      details TEXT NOT NULL DEFAULT '{}',
-      source_action_id INTEGER,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY(source_action_id) REFERENCES actions(id)
-    );
     CREATE TABLE IF NOT EXISTS services (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -407,41 +398,6 @@ export function getActions(limit = 20): ActionRow[] {
     durationMs: r.duration_ms as number | null,
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
-  }));
-}
-
-export interface KnowledgeRow {
-  id: number;
-  domain: string;
-  summary: string;
-  details: string;
-  sourceActionId: number | null;
-  createdAt: string;
-}
-
-export function storeKnowledge(domain: string, summary: string, details: Record<string, unknown>, sourceActionId?: number): KnowledgeRow {
-  const info = getDb()
-    .prepare(`INSERT INTO knowledge (domain, summary, details, source_action_id) VALUES (?, ?, ?, ?)`)
-    .run(domain, summary, JSON.stringify(details), sourceActionId ?? null);
-  const row = getDb().prepare('SELECT * FROM knowledge WHERE id = ?').get(info.lastInsertRowid) as Record<string, unknown>;
-  return {
-    id: row.id as number, domain: row.domain as string, summary: row.summary as string,
-    details: row.details as string, sourceActionId: row.source_action_id as number | null,
-    createdAt: row.created_at as string,
-  };
-}
-
-export function searchKnowledge(query: string, domain?: string, limit = 5): KnowledgeRow[] {
-  let sql = 'SELECT * FROM knowledge WHERE (summary LIKE ? OR details LIKE ?)';
-  const args: string[] = [`%${query}%`, `%${query}%`];
-  if (domain) { sql += ' AND domain = ?'; args.push(domain); }
-  sql += ' ORDER BY created_at DESC LIMIT ?';
-  args.push(String(limit));
-  const rows = getDb().prepare(sql).all(...args) as Record<string, unknown>[];
-  return rows.map((r) => ({
-    id: r.id as number, domain: r.domain as string, summary: r.summary as string,
-    details: r.details as string, sourceActionId: r.source_action_id as number | null,
-    createdAt: r.created_at as string,
   }));
 }
 
