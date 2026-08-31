@@ -78,6 +78,19 @@ function migrate(database: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY(source_action_id) REFERENCES actions(id)
     );
+    CREATE TABLE IF NOT EXISTS services (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      repo_owner TEXT,
+      repo_name TEXT,
+      deploy_host TEXT,
+      deploy_dir TEXT,
+      domain TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      last_deploy_at TEXT,
+      config TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // One-time migration: rollout metadata for the terminal "released" state.
@@ -430,4 +443,55 @@ export function searchKnowledge(query: string, domain?: string, limit = 5): Know
     details: r.details as string, sourceActionId: r.source_action_id as number | null,
     createdAt: r.created_at as string,
   }));
+}
+
+export interface ServiceRow {
+  id: number; name: string; repoOwner: string | null; repoName: string | null;
+  deployHost: string | null; deployDir: string | null; domain: string | null;
+  status: string; lastDeployAt: string | null; config: string; createdAt: string;
+}
+
+export function getServices(): ServiceRow[] {
+  const rows = getDb().prepare('SELECT * FROM services ORDER BY name').all() as Record<string, unknown>[];
+  return rows.map((r) => ({
+    id: r.id as number, name: r.name as string,
+    repoOwner: r.repo_owner as string | null, repoName: r.repo_name as string | null,
+    deployHost: r.deploy_host as string | null, deployDir: r.deploy_dir as string | null,
+    domain: r.domain as string | null, status: r.status as string,
+    lastDeployAt: r.last_deploy_at as string | null,
+    config: r.config as string, createdAt: r.created_at as string,
+  }));
+}
+
+export function getServiceByName(name: string): ServiceRow | null {
+  const row = getDb().prepare('SELECT * FROM services WHERE name = ?').get(name) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    id: row.id as number, name: row.name as string,
+    repoOwner: row.repo_owner as string | null, repoName: row.repo_name as string | null,
+    deployHost: row.deploy_host as string | null, deployDir: row.deploy_dir as string | null,
+    domain: row.domain as string | null, status: row.status as string,
+    lastDeployAt: row.last_deploy_at as string | null,
+    config: row.config as string, createdAt: row.created_at as string,
+  };
+}
+
+export function upsertService(input: { name: string; repoOwner?: string; repoName?: string;
+  deployHost?: string; deployDir?: string; domain?: string; config?: Record<string, unknown> }): ServiceRow {
+  getDb().prepare(`INSERT INTO services (name, repo_owner, repo_name, deploy_host, deploy_dir, domain, config)
+    VALUES (@name, @repoOwner, @repoName, @deployHost, @deployDir, @domain, @config)
+    ON CONFLICT(name) DO UPDATE SET
+      repo_owner = excluded.repo_owner, repo_name = excluded.repo_name,
+      deploy_host = excluded.deploy_host, deploy_dir = excluded.deploy_dir,
+      domain = excluded.domain, config = excluded.config
+  `).run({
+    name: input.name,
+    repoOwner: input.repoOwner ?? null,
+    repoName: input.repoName ?? null,
+    deployHost: input.deployHost ?? null,
+    deployDir: input.deployDir ?? null,
+    domain: input.domain ?? null,
+    config: JSON.stringify(input.config ?? {}),
+  });
+  return getServiceByName(input.name)!;
 }
