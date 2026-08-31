@@ -23,20 +23,23 @@ export function CardActionsSheet({ issue, onClose, onSelect }: CardActionsSheetP
           </div>
           <div className="card-sheet-title">{issue.title}</div>
         </div>
-        {actions.map((action) =>
+        {actions.map((action, i) =>
           action.id === 'recap' ? (
-            <Link key={action.id} href={`/issues/${issue.id}`} className="card-sheet-row" role="menuitem" onClick={onClose}>
+            <Link
+              key={action.id}
+              href={`/issues/${issue.id}`}
+              className={`card-sheet-row${i === 0 ? ' card-sheet-row-first' : ''}`}
+              role="menuitem"
+              onClick={onClose}
+            >
               {action.label}
             </Link>
           ) : (
             <button
               key={action.id}
-              className="card-sheet-row"
+              className={`card-sheet-row${i === 0 ? ' card-sheet-row-first' : ''}`}
               role="menuitem"
-              onClick={() => {
-                onSelect(action.id);
-                onClose();
-              }}
+              onClick={() => onSelect(action.id)}
             >
               {action.label}
             </button>

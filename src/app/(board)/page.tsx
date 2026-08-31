@@ -845,7 +845,6 @@ function CardActionsSheetWithActions({
     busy,
     modalOpen,
     openModal,
-    closeModal,
     command,
     setCommand,
     models,
@@ -860,7 +859,7 @@ function CardActionsSheetWithActions({
     switch (id) {
       case 'develop-validated':
         openModal();
-        break;
+        return;
       case 'to-refinement':
         void transition('refinement');
         break;
@@ -874,28 +873,35 @@ function CardActionsSheetWithActions({
         window.open(issue.htmlUrl, '_blank', 'noopener,noreferrer');
         break;
       case 'recap':
-        // Recap navigates via its own Link in the sheet row — see below.
-        break;
+        // Recap navigates via its own Link in the sheet row — the sheet's
+        // row onClick already closed it. Nothing to do here.
+        return;
     }
+    onClose();
   };
 
-  return (
-    <>
-      <CardActionsSheet issue={issue} onClose={onClose} onSelect={handleSelect} />
-      {modalOpen && (
-        <DevelopModal
-          issue={issue}
-          command={command}
-          onCommandChange={setCommand}
-          models={models}
-          selectedModel={selectedModel}
-          onSelectedModelChange={setSelectedModel}
-          busy={busy}
-          onCancel={closeModal}
-          onDevelop={develop}
-          onStagedDevelop={stagedDevelop}
-        />
-      )}
-    </>
-  );
+  if (modalOpen) {
+    return (
+      <DevelopModal
+        issue={issue}
+        command={command}
+        onCommandChange={setCommand}
+        models={models}
+        selectedModel={selectedModel}
+        onSelectedModelChange={setSelectedModel}
+        busy={busy}
+        onCancel={onClose}
+        onDevelop={() => {
+          void develop();
+          onClose();
+        }}
+        onStagedDevelop={() => {
+          void stagedDevelop();
+          onClose();
+        }}
+      />
+    );
+  }
+
+  return <CardActionsSheet issue={issue} onClose={onClose} onSelect={handleSelect} />;
 }
