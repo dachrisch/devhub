@@ -8,7 +8,7 @@ describe('skills', () => {
   });
 
   it('getByAction returns null for unknown action', () => {
-    const skill = getByAction('nonexistent_action_xyz');
+    const skill = getByAction('write');
     expect(skill).toBeNull();
   });
 });
