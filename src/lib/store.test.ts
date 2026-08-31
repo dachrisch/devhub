@@ -121,6 +121,32 @@ describe('store', () => {
     expect(rolled?.releasedAt).toBeTruthy();
   });
 
+  it('recovers issues stuck in developing state', () => {
+    store.upsertIssue({
+      githubIssueId: 20,
+      owner: 'dachrisch',
+      repo: 'servyy-container',
+      number: 91,
+      title: 'Stuck issue',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/servyy-container/issues/91',
+    });
+    const id = store.getIssueByGithub('dachrisch', 'servyy-container', 91)!.id;
+    store.setIssueState(id, 'developing');
+    store.setSessionId(id, 'ses_old_session');
+
+    const recovered = store.recoverStuckDeveloping();
+    expect(recovered).toBe(1);
+
+    const issue = store.getIssue(id);
+    expect(issue?.state).toBe('blocked');
+    expect(issue?.sessionId).toBeNull();
+    expect(issue?.resultText).toContain('recovered');
+
+    const events = store.getEvents(id);
+    expect(events.some(e => e.kind === 'recovery')).toBe(true);
+  });
+
   it('exposes the migration-added rollout columns on every issue', () => {
     store.upsertIssue({
       githubIssueId: 14,
