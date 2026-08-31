@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Issue, IssueState } from '@/lib/types';
-import { excerpt, matchesIssue, relTime, repoColor } from '@/lib/board-ui';
+import { countRepos, excerpt, matchesIssue, relTime, repoColor } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
@@ -12,6 +12,7 @@ import { DevelopModal } from '@/components/board/develop-modal';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
 import { MobileCard } from '@/components/board/mobile-card';
 import { CardActionsSheet } from '@/components/board/card-actions-sheet';
+import { MobileStatusStrip } from '@/components/board/mobile-status-strip';
 import type { CardActionId } from '@/lib/board-ui';
 
 const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'blocked'];
@@ -572,6 +573,20 @@ export default function BoardPage() {
         </div>
       </div>
 
+      {isMobile && (
+        <MobileStatusStrip
+          columns={COLUMNS}
+          counts={Object.fromEntries(
+            COLUMNS.map((c) => [c, issues.filter((i) => i.state === c).length])
+          ) as Record<IssueState, number>}
+          active={activeColumn}
+          onSelect={(col) => {
+            setActiveColumn(col);
+            scrollToColumn(col);
+          }}
+        />
+      )}
+
       <div className="board" ref={boardRef}>
         {COLUMNS.map((col) => {
           const items = issues
@@ -588,21 +603,39 @@ export default function BoardPage() {
                 if (el) columnRefs.current.set(col, el);
               }}
             >
-              <div className="column-head">
-                <span className={`dot ${col}`} />
-                {col}
-                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({items.length})</span>
-                <button
-                  className="sort-toggle"
-                  onClick={() =>
-                    setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
-                  }
-                  title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                  aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                >
-                  {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
-                </button>
-              </div>
+              {isMobile ? (
+                <div className="column-meta">
+                  <span>
+                    {items.length} issues · {countRepos(items)} repos
+                  </span>
+                  <button
+                    className="sort-toggle"
+                    onClick={() =>
+                      setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
+                    }
+                    title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                    aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                  >
+                    {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
+                  </button>
+                </div>
+              ) : (
+                <div className="column-head">
+                  <span className={`dot ${col}`} />
+                  {col}
+                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({items.length})</span>
+                  <button
+                    className="sort-toggle"
+                    onClick={() =>
+                      setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
+                    }
+                    title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                    aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                  >
+                    {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
+                  </button>
+                </div>
+              )}
               {items.length === 0 ? (
                 <div className="empty">nothing here</div>
               ) : (
@@ -627,29 +660,6 @@ export default function BoardPage() {
           );
         })}
       </div>
-
-      <nav className="bottom-nav" role="tablist" aria-label="Board columns">
-        {COLUMNS.map((col) => {
-          const count = issues.filter((i) => i.state === col).length;
-          return (
-            <button
-              key={col}
-              className={`bottom-nav-tab${activeColumn === col ? ' active' : ''}`}
-              onClick={() => {
-                setActiveColumn(col);
-                scrollToColumn(col);
-              }}
-              role="tab"
-              aria-selected={activeColumn === col}
-              aria-label={`${col} column, ${count} items`}
-            >
-              <span className={`dot ${col}`} />
-              <span>{col}</span>
-              <span className="bottom-nav-badge">{count}</span>
-            </button>
-          );
-        })}
-      </nav>
 
       {openActionsFor && isMobile && (
         <CardActionsSheetWithActions
