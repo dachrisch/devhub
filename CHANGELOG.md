@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.0](https://github.com/dachrisch/devhub/compare/v1.12.0...v1.13.0) (2026-08-31)
+
+
+### Features
+
+* DevHub Cockpit — design and implementation plan ([#83](https://github.com/dachrisch/devhub/issues/83)) ([6701a89](https://github.com/dachrisch/devhub/commit/6701a8909a2130353fe023c1ae2b82cf42418e3e))
+
 ## [1.12.0](https://github.com/dachrisch/devhub/compare/v1.11.1...v1.12.0) (2026-08-31)
 
 
