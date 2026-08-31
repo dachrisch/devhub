@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/dachrisch/devhub/compare/v1.10.4...v1.11.0) (2026-08-31)
+
+
+### Features
+
+* recover stuck developing issues on startup ([#78](https://github.com/dachrisch/devhub/issues/78)) ([c6241a5](https://github.com/dachrisch/devhub/commit/c6241a52a280c3cfa4ceee44ecf9634fbd41069a))
+
 ## [1.10.4](https://github.com/dachrisch/devhub/compare/v1.10.3...v1.10.4) (2026-08-31)
 
 
