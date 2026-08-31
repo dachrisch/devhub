@@ -133,13 +133,18 @@ describe('store', () => {
     });
     const id = store.getIssueByGithub('dachrisch', 'servyy-container', 91)!.id;
     store.setIssueState(id, 'developing');
+    store.setSessionId(id, 'ses_old_session');
 
     const recovered = store.recoverStuckDeveloping();
     expect(recovered).toBe(1);
 
     const issue = store.getIssue(id);
     expect(issue?.state).toBe('blocked');
+    expect(issue?.sessionId).toBeNull();
     expect(issue?.resultText).toContain('recovered');
+
+    const events = store.getEvents(id);
+    expect(events.some(e => e.kind === 'recovery')).toBe(true);
   });
 
   it('exposes the migration-added rollout columns on every issue', () => {

@@ -126,13 +126,20 @@ export function setIssueState(id: number, state: IssueState): Issue | null {
 }
 
 export function recoverStuckDeveloping(): number {
-  const result = getDb()
-    .prepare(
-      `UPDATE issues SET state = 'blocked', result_text = 'recovered from stuck developing state (server restart interrupted the develop run).', updated_at = datetime('now')
-       WHERE state = 'developing'`
-    )
-    .run();
-  return result.changes;
+  const db = getDb();
+  const stuck = db.prepare('SELECT id FROM issues WHERE state = ?').all('developing') as { id: number }[];
+  if (stuck.length === 0) return 0;
+
+  db.prepare(
+    `UPDATE issues SET state = 'blocked', session_id = NULL, result_text = 'recovered from stuck developing state (server restart interrupted the develop run).', updated_at = datetime('now')
+     WHERE state = 'developing'`
+  ).run();
+
+  for (const { id } of stuck) {
+    appendEvent(id, 'recovery', { reason: 'server restart interrupted develop run' });
+  }
+
+  return stuck.length;
 }
 
 export function setSessionId(id: number, sessionId: string): void {
