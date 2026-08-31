@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.4](https://github.com/dachrisch/devhub/compare/v1.10.3...v1.10.4) (2026-08-31)
+
+
+### Bug Fixes
+
+* **deps:** update dependency undici to v8.10.1 ([#76](https://github.com/dachrisch/devhub/issues/76)) ([82309c8](https://github.com/dachrisch/devhub/commit/82309c81f93a6e6b88b23810b36bba0357463d8e))
+
 ## [1.10.3](https://github.com/dachrisch/devhub/compare/v1.10.2...v1.10.3) (2026-08-31)
 
 
