@@ -18,8 +18,14 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
 - **Relative imports must be extensionless** (`import { x } from './store'`). A `./store.js`
   specifier compiles under `tsc` and resolves in vitest, but **fails the Next/webpack
   build** (`Module not found`). Use the `@/lib/...` alias or extensionless paths only.
-- **TypeScript is pinned to `^5` on purpose.** Next 15 rejects TS 7's native compiler; do
-  not bump it.
+- **TypeScript is pinned to `^5` on purpose.** `typescript-eslint` (used by the
+  `eslint-config-next` typescript flat config) declares a peer range of
+  `typescript >=4.8.4 <6.1.0`, so TS 7 cannot be adopted without breaking lint. Do not
+  bump it.
+- **eslint is pinned to `^9` on purpose.** `eslint-config-next@16` bundles
+  `eslint-plugin-react@7.37.5`, which only supports eslint `^3 … ^9.7` and crashes at
+  runtime under eslint 10 (`contextOrFilename.getFilename is not a function`). Revisit
+  once eslint-plugin-react supports eslint 10.
 - **`better-sqlite3` is a native module** — needs a C toolchain (`make`/`g++`) to
   `npm install`. It is listed in `serverExternalPackages` in `next.config.mjs`; never remove
   that or the server build breaks.
