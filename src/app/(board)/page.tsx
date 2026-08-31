@@ -13,6 +13,7 @@ import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query'
 import { MobileCard } from '@/components/board/mobile-card';
 import { CardActionsSheet } from '@/components/board/card-actions-sheet';
 import { MobileStatusStrip } from '@/components/board/mobile-status-strip';
+import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
 import type { CardActionId } from '@/lib/board-ui';
 
 const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'blocked'];
@@ -64,6 +65,7 @@ export default function BoardPage() {
   const [searchHelp, setSearchHelp] = useState(false);
   const [activeColumn, setActiveColumn] = useState<IssueState>('backlog');
   const [openActionsFor, setOpenActionsFor] = useState<Issue | null>(null);
+  const [searchSheetOpen, setSearchSheetOpen] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<Map<IssueState, HTMLElement>>(new Map());
   const helpRef = useRef<HTMLDivElement>(null);
@@ -429,34 +431,49 @@ export default function BoardPage() {
         </div>
         <div className="head-controls">
           <div className="search-wrapper">
-            <input
-              className="search"
-              placeholder="Search…  e.g. repo:devhub title:auth or free text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <div className="search-help" ref={helpRef}>
+            {isMobile ? (
               <button
-                className="search-help-btn"
-                onClick={() => setSearchHelp((h) => !h)}
-                aria-label="Search syntax help"
-                aria-expanded={searchHelp}
+                className="search-mobile-trigger"
+                onClick={() => setSearchSheetOpen(true)}
+                aria-label="Search issues"
               >
-                ?
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M10.68 11.74a6 6 0 01-7.922-8.982 6 6 0 018.982 7.922l3.04 3.04a.749.749 0 01-1.06 1.06zM11.5 7a4.5 4.5 0 10-9 0 4.5 4.5 0 009 0z" />
+                </svg>
+                <span>{query || 'Search issues'}</span>
               </button>
-              {searchHelp && (
-                <div className="search-help-menu">
-                  <div className="search-help-title">Search filters</div>
-                  <div className="search-help-item"><code>repo:</code> match repo name</div>
-                  <div className="search-help-item"><code>title:</code> match title</div>
-                  <div className="search-help-item"><code>owner:</code> match owner</div>
-                  <div className="search-help-item"><code>state:</code> match state</div>
-                  <div className="search-help-item"><code>body:</code> match body</div>
-                  <div className="search-help-item"><code>number:</code> match issue #</div>
-                  <div className="search-help-note">Combine filters with plain text. e.g. repo:web auth</div>
+            ) : (
+              <>
+                <input
+                  className="search"
+                  placeholder="Search…  e.g. repo:devhub title:auth or free text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+                <div className="search-help" ref={helpRef}>
+                  <button
+                    className="search-help-btn"
+                    onClick={() => setSearchHelp((h) => !h)}
+                    aria-label="Search syntax help"
+                    aria-expanded={searchHelp}
+                  >
+                    ?
+                  </button>
+                  {searchHelp && (
+                    <div className="search-help-menu">
+                      <div className="search-help-title">Search filters</div>
+                      <div className="search-help-item"><code>repo:</code> match repo name</div>
+                      <div className="search-help-item"><code>title:</code> match title</div>
+                      <div className="search-help-item"><code>owner:</code> match owner</div>
+                      <div className="search-help-item"><code>state:</code> match state</div>
+                      <div className="search-help-item"><code>body:</code> match body</div>
+                      <div className="search-help-item"><code>number:</code> match issue #</div>
+                      <div className="search-help-note">Combine filters with plain text. e.g. repo:web auth</div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
           <span
             className={`conn-status ${connected ? 'ok' : 'off'}`}
@@ -666,6 +683,18 @@ export default function BoardPage() {
           issue={openActionsFor}
           onClose={() => setOpenActionsFor(null)}
           onToggleSelection={toggleSelection}
+        />
+      )}
+
+      {searchSheetOpen && isMobile && (
+        <MobileSearchSheet
+          query={query}
+          onQueryChange={setQuery}
+          repos={repos}
+          repoFilter={repoFilter}
+          onRepoFilterChange={setRepoFilter}
+          issues={issues}
+          onClose={() => setSearchSheetOpen(false)}
         />
       )}
     </div>
