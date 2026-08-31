@@ -11,3 +11,4 @@ devhub.db-shm
 .DS_Store
 test-results
 coverage
+.superpowers
