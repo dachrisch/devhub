@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/dachrisch/devhub/compare/v1.10.0...v1.10.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **deps:** update dependency node to v24 ([#69](https://github.com/dachrisch/devhub/issues/69)) ([6f8937a](https://github.com/dachrisch/devhub/commit/6f8937a93c1a4e60ac483d3933eac3de60563133))
+
 ## [1.10.0](https://github.com/dachrisch/devhub/compare/v1.9.2...v1.10.0) (2026-08-30)
 
 
