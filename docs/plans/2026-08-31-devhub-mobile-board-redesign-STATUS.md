@@ -1,6 +1,6 @@
 # DevHub Mobile Board Redesign — Status
 
-**Date**: 2026-08-31
+**Date**: 2026-08-31 (updated after Task 5-7 completion)
 **Branch**: `feat/mobile-board-redesign`
 **Spec**: `docs/plans/2026-08-31-devhub-mobile-board-redesign-design.md`
 **Plan**: `docs/plans/2026-08-31-devhub-mobile-board-redesign-plan.md`
@@ -8,11 +8,14 @@
 per task, in-session), working directly on `master` at the user's explicit
 choice (no isolated worktree).
 
-Execution was stopped mid-fix-loop by explicit user request ("stop here,
-push everything we have to a draft PR"), triggered by a dispatched fix
-subagent hitting the session's monthly spend limit (HTTP 429) partway
-through Task 3+4's Critical-finding fix. **This PR is not mergeable as-is —
-see "Known bug, not yet fixed" below.**
+The original run was stopped mid-fix-loop by explicit user request ("stop
+here, push everything we have to a draft PR"), triggered by a dispatched
+fix subagent hitting the session's monthly spend limit (HTTP 429) partway
+through Task 3+4's Critical-finding fix. Work resumed in a follow-up
+session on `feat/mobile-board-redesign`: the Critical + Minor bugs were
+fixed, Tasks 5-7 were completed, and the whole branch was reviewed.
+**The one remaining gap is browser-based manual verification, which this
+headless environment could not run — see "Remaining verification" below.**
 
 ## Done
 
@@ -46,101 +49,120 @@ tinted header strip, title/excerpt, developing-status pill, split footer),
 (`isMobile` branch in the card list, `MobileCardWithActions` +
 `CardActionsSheetWithActions` wrapper components, `openActionsFor` state).
 
-**Task review found 1 Critical + 1 Minor. Neither is fixed yet.**
+**Task review found 1 Critical + 1 Minor. Both are now fixed** (commit
+`4399743`, resumed session) — see below.
 
-## Known bug, not yet fixed (Critical)
+## Known bug — fixed (was Critical)
 
-**"Develop (with validation)" never opens the modal on mobile.**
+**"Develop (with validation)" never opened the modal on mobile.**
 
-`src/components/board/card-actions-sheet.tsx`'s row `onClick` currently
-does `onSelect(action.id); onClose();` synchronously for every action. In
+`src/components/board/card-actions-sheet.tsx`'s row `onClick` originally
+did `onSelect(action.id); onClose();` synchronously for every action. In
 `src/app/(board)/page.tsx`, `CardActionsSheetWithActions`'s
-`handleSelect('develop-validated')` calls `openModal()` (local
-`modalOpen = true`), and the row's own handler then immediately also calls
+`handleSelect('develop-validated')` called `openModal()` (local
+`modalOpen = true`), and the row's own handler then immediately also called
 the passed-down `onClose` — which is `() => setOpenActionsFor(null)` in
 `BoardPage`. `BoardPage` renders `CardActionsSheetWithActions` itself gated
 on `openActionsFor && isMobile`, so clearing `openActionsFor` unmounts
 `CardActionsSheetWithActions` in the same batched render — the render
 where `modalOpen` would show `DevelopModal` never commits with the
 component still mounted. **Net effect: tapping "Develop (with validation)"
-on mobile silently does nothing.** This is one of the two explicitly
-required mobile develop flows in the plan's own Task 4 manual-verification
-checklist.
+on mobile silently did nothing.**
 
-This pattern came from the plan document's own Task 4 code (not an
+The pattern came from the plan document's own Task 4 code (not an
 implementer deviation) — logged as a ruling in the SDD ledger
 (`.superpowers/sdd/2026-08-31-devhub-mobile-board-redesign-plan/progress.md`,
-git-ignored, not in this PR) before a fix was dispatched.
+git-ignored, not in this PR).
 
-### The fix (designed, not yet applied — do this first)
+### The fix (applied in commit `4399743`)
 
-1. **`src/components/board/card-actions-sheet.tsx`**: stop auto-closing on
-   select. Change the button row's `onClick` from
-   `onClick={() => { onSelect(action.id); onClose(); }}` to just
-   `onClick={() => onSelect(action.id)}`. Leave the `recap` row's
-   `<Link ... onClick={onClose}>` as-is (normal navigate-and-dismiss,
-   unaffected).
-2. **`src/app/(board)/page.tsx`'s `CardActionsSheetWithActions`**: make it
-   decide per-action whether to call the outer `onClose`:
-   - `'develop-validated'` → `openModal();` only. Do **not** call
-     `onClose()` — the component must stay mounted so `modalOpen` persists.
+1. **`src/components/board/card-actions-sheet.tsx`**: the button row's
+   `onClick` is now just `onSelect(action.id)` — the sheet no longer
+   auto-closes on select. The `recap` row's `<Link ... onClick={onClose}>`
+   is unchanged (normal navigate-and-dismiss).
+2. **`src/app/(board)/page.tsx`'s `CardActionsSheetWithActions`** now owns
+   closing per action:
+   - `'develop-validated'` → `openModal(); return;` only. Does **not** call
+     `onClose()` — the component stays mounted so `modalOpen` persists.
    - `'to-refinement'` / `'to-backlog'` / `'select-batch'` / `'open-github'`
-     → keep the existing effect, and now explicitly call `onClose()` right
-     after (the sheet no longer does this for them).
-   - Render becomes mutually exclusive: `{!modalOpen && <CardActionsSheet
-     issue={issue} onClose={onClose} onSelect={handleSelect} />}` /
-     `{modalOpen && <DevelopModal ... />}` instead of always rendering the
-     sheet and conditionally overlaying the modal.
-   - `DevelopModal`'s three exit callbacks on this dispatcher become
-     `onCancel={onClose}`, `onDevelop={() => { void develop(); onClose(); }}`,
-     `onStagedDevelop={() => { void stagedDevelop(); onClose(); }}` — each
-     fully unmounts the dispatcher via the outer `onClose`, matching the
-     "dispatch, then optimistically close" pattern the other sheet actions
-     already use.
-   - This also resolves a secondary z-index concern the reviewer flagged
-     (`.card-sheet-backdrop` at `z-index: 200` vs. `.modal-overlay` at
-     `z-index: ~50`) for free: the sheet is no longer in the DOM at all
-     while the modal is open, so nothing stacks incorrectly.
-3. Verify: `npm run typecheck && npm test && npm run build` (skip
-   `npm run lint` — see below), then manually trace or browser-test the
-   click → state → render sequence.
+     → dispatch, then `onClose()`.
+   - Render is mutually exclusive: `if (modalOpen)` renders `DevelopModal`
+     (with `onCancel={onClose}`,
+     `onDevelop={() => { void develop(); onClose(); }}`,
+     `onStagedDevelop={() => { void stagedDevelop(); onClose(); }}`),
+     otherwise the sheet. The sheet is no longer in the DOM while the modal
+     is open, which also removes the z-index stacking concern
+     (`.card-sheet-backdrop` 200 vs `.modal-overlay` ~50) for free.
+3. Verified: `npm run typecheck && npm run lint && npm test && npm run build`
+   all PASS.
 
-## Known bug, not yet fixed (Minor, deferred)
+## Known bug — fixed (was Minor)
 
-`.card-sheet-row:first-of-type`'s CSS (in the Task 4 CSS block, already
-in `globals.css` on this branch) suppresses the top border independently
-per HTML tag (`<button>` vs. the one `<a>` for `recap`), not per visual
-position. Result: exactly one row in the sheet is missing its top divider,
-in **every** reachable board state (`backlog`/`refinement`/`developing`/
-`pr`/`blocked`) — not just the 2 states the implementer's self-review
-initially estimated; the task reviewer traced all five and confirmed it's
-5-for-5. Purely cosmetic (a single missing 1px border), no functional or
-layout impact. Deferred to the final whole-branch review's minor-findings
-triage per the SDD process (`superpowers:subagent-driven-development`) —
-not blocking, but worth fixing alongside the Critical bug above since
-they're in the same file.
+`.card-sheet-row:first-of-type`'s CSS suppressed the top border
+independently per HTML tag (`<button>` vs. the `<a>` recap row), not per
+visual position — exactly one row missed its divider in every board state.
+Fixed by dropping `:first-of-type` and applying an explicit
+`card-sheet-row-first` class to the first mapped row (same commit), and
+the divider now renders for all but the first row in every state.
 
 ## Not started
 
+**All originally-pending tasks are now complete in the resumed session:**
+
 - **Task 5** — sticky top status strip (`MobileStatusStrip`), replacing the
-  existing fixed bottom-nav; per-column meta row (`{N} issues · {M} repos`
-  + sort toggle) replacing the desktop-style column-head on mobile.
+  fixed bottom-nav; per-column meta row (`{N} issues · {M} repos` + sort
+  toggle) replacing the desktop-style column-head on mobile. Commit
+  `72c439b`. Also dropped the bottom-nav's now-dead 56px `.board`
+  padding-bottom (16px) and removed the `.bottom-nav*` CSS block.
 - **Task 6** — full-screen search sheet (`MobileSearchSheet`), replacing
-  the small `.search-help` popover on mobile.
-- **Task 7** — end-to-end manual verification across every issue state at
-  `<768px`, desktop regression pass, `README.md` project-layout doc update.
-- The final whole-branch code review (dispatched only after all 7 tasks are
-  done, per the SDD process) has not run.
+  the `.search-help` popover on mobile. Commit `933827c`.
+- **Task 7** — docs done: `README.md` project-layout row added
+  (commit `474c2ef`). `npm run typecheck && npm run lint && npm test &&
+  npm run build` all PASS. Browser-based manual verification was **not**
+  run (headless environment) — see "Remaining verification" below.
+- The final whole-branch review ran in-session against the full
+  `d2d79d8..HEAD` diff: all 4 new components, the `page.tsx` rewiring, the
+  `useMediaQuery` rewrite, and the shared hook/modal/extracted-logic layers
+  were re-read and traced through each issue state; no new findings.
+
+## Remaining verification (manual, needs a browser)
+
+The one open item before merge is a real-browser pass at a <768px viewport
+(and a desktop regression pass), since this environment has no browser
+tooling. Concretely:
+
+- Below 768px, for an issue in each of `backlog`, `refinement`,
+  `developing`, `pr`, `blocked`:
+  - card renders (tinted strip, title/excerpt, correct primary footer
+    button per `primaryCardAction()`);
+  - the actions sheet lists exactly the rows `cardActions()` specifies;
+  - **"Develop (with validation)" opens the modal** (this PR's former
+    Critical bug) and Cancel/Start/Validate-and-Develop each exit cleanly;
+  - "Move to refinement"/"Move to backlog"/"Select for batch"/"Open on
+    GitHub" dispatch and close the sheet;
+  - status strip counts match the cards per column and tapping a tab
+    scrolls the board;
+  - the header search opens the full-screen sheet and live-filters.
+- Desktop (≥768px) regression: cards, batch selection, keyboard
+  shortcuts, model picker, and the search input + "?" popover are
+  pixel-for-pixel unchanged.
+- `useMediaQuery` was rewritten from a `useState`+`useEffect` pair to
+  `useSyncExternalStore` (to satisfy the `react-hooks/set-state-in-effect`
+  lint rule, which is live now that the eslint-config-next install issue
+  below is resolved). The hydration path is the same as before
+  (server renders `false`, client updates after mount), but worth a quick
+  confirm that the board doesn't flash at a mobile width.
 
 ## Environment notes for whoever picks this up
 
-- **`npm run lint` fails on `master` independent of any of this work** —
-  the installed `eslint-config-next@15.5.24` package has no `exports` map
-  in its `package.json`, so Node ESM can't resolve the
-  `eslint-config-next/core-web-vitals` subpath `eslint.config.mjs` imports.
-  Verified present before any commit in this branch. Out of scope for this
-  feature; `npm run typecheck && npm test && npm run build` are the working
-  gates until someone fixes the dependency install separately.
+- **`npm run lint` now passes (0 errors) on this branch.** The original
+  run failed repo-wide because the installed `eslint-config-next@15.5.24`
+  had no `exports` map (Node ESM couldn't resolve the
+  `eslint-config-next/core-web-vitals` subpath); the dependency install
+  has since been fixed externally, and the only remaining lint output is a
+  pre-existing warning in `src/components/use-auth.ts`, untouched by this
+  PR. `npm run typecheck && npm run lint && npm test && npm run build`
+  are all green.
 - **This checkout (`/home/cda/dev/devhub`) is shared, not an isolated
   worktree** (the user explicitly chose to work in place). While this
   branch's work was in progress, unrelated files appeared in the working
@@ -161,11 +183,10 @@ they're in the same file.
 
 ## Resuming this work
 
-1. Fix the Critical bug above first (design is fully specified — it's a
-   ~20-line change across the two files named).
-2. Fix the Minor CSS divider issue in the same pass if convenient.
-3. Continue with Tasks 5, 6, 7 from `docs/plans/2026-08-31-devhub-mobile-board-redesign-plan.md`.
-4. Run the final whole-branch review before merging (per
-   `superpowers:subagent-driven-development`'s process — dispatch on the
-   most capable available model, pointing it at this status doc's
-   known-issues list).
+1. Run the remaining browser verification listed under "Remaining
+   verification" above (a <768px pass across all issue states + desktop
+   regression), then merge.
+2. The `npm run lint` note below is now historical: the eslint-config-next
+   `exports` install issue was resolved externally, and `npm run lint`
+   passes (0 errors) on this branch — the sole remaining warning is
+   pre-existing in `src/components/use-auth.ts` and untouched by this PR.
