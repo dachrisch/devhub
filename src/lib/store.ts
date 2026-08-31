@@ -125,6 +125,16 @@ export function setIssueState(id: number, state: IssueState): Issue | null {
   return getIssue(id);
 }
 
+export function recoverStuckDeveloping(): number {
+  const result = getDb()
+    .prepare(
+      `UPDATE issues SET state = 'blocked', result_text = 'recovered from stuck developing state (server restart interrupted the develop run).', updated_at = datetime('now')
+       WHERE state = 'developing'`
+    )
+    .run();
+  return result.changes;
+}
+
 export function setSessionId(id: number, sessionId: string): void {
   getDb().prepare(`UPDATE issues SET session_id = ?, updated_at = datetime('now') WHERE id = ?`).run(sessionId, id);
 }
