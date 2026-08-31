@@ -104,6 +104,9 @@ src/app/api/auth/...                                            OAuth routes
 src/app/api/...                                                route handlers
 src/app/(board)/page.tsx                                       board UI
 src/components/{logo,auth-ui,use-auth}.tsx                     UI components
+src/components/board/{mobile-card,card-actions-sheet,          mobile board UI (<768px) + shared
+  mobile-status-strip,mobile-search-sheet,use-card-actions,     develop/transition logic
+  use-media-query,develop-modal}.tsx
 docs/plans/2026-08-30-devhub-design.md                         design plan
 docs/plans/2026-08-30-github-oauth-login.md                     auth plan
 ```

@@ -3,83 +3,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Issue, IssueState } from '@/lib/types';
+import { countRepos, excerpt, matchesIssue, relTime, repoColor } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
+import { useCardActions } from '@/components/board/use-card-actions';
+import { DevelopModal } from '@/components/board/develop-modal';
+import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
+import { MobileCard } from '@/components/board/mobile-card';
+import { CardActionsSheet } from '@/components/board/card-actions-sheet';
+import { MobileStatusStrip } from '@/components/board/mobile-status-strip';
+import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
+import type { CardActionId } from '@/lib/board-ui';
 
 const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'blocked'];
 
 // Released tickets are shown in a slim strip under the header, capped so the
 // strip stays compact.
 const RELEASED_CAP = 5;
-
-interface ModelOption {
-  id: string;
-  providerID: string;
-}
-
-const REPO_COLORS = [
-  '#58a6ff',
-  '#3fb950',
-  '#d29922',
-  '#f85149',
-  '#bc8cff',
-  '#39c5cf',
-  '#ff7b72',
-  '#a5d6ff',
-  '#7ee787',
-  '#ffa657',
-];
-
-function repoColor(key: string): string {
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  return REPO_COLORS[h % REPO_COLORS.length];
-}
-
-const FIELD_FILTERS: Record<string, (i: Issue, v: string) => boolean> = {
-  title: (i, v) => i.title.toLowerCase().includes(v),
-  repo: (i, v) => i.repo.toLowerCase().includes(v),
-  owner: (i, v) => i.owner.toLowerCase().includes(v),
-  state: (i, v) => i.state.toLowerCase().includes(v),
-  body: (i, v) => (i.body ?? '').toLowerCase().includes(v),
-  number: (i, v) => String(i.number).includes(v),
-};
-
-function matchesIssue(issue: Issue, query: string): boolean {
-  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const global: string[] = [];
-  for (const token of tokens) {
-    const m = token.match(/^([a-z]+):(.*)$/);
-    if (m && FIELD_FILTERS[m[1]]) {
-      if (!FIELD_FILTERS[m[1]](issue, m[2])) return false;
-    } else {
-      global.push(token);
-    }
-  }
-  if (global.length === 0) return true;
-  const haystack = [issue.owner, issue.repo, `#${issue.number}`, issue.title, issue.body ?? '']
-    .join(' ')
-    .toLowerCase();
-  return global.every((term) => haystack.includes(term));
-}
-
-function relTime(iso: string): string {
-  const then = new Date(iso.replace(' ', 'T') + 'Z').getTime();
-  if (Number.isNaN(then)) return '';
-  const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  const units: [number, string][] = [
-    [31536000, 'y'],
-    [2592000, 'mo'],
-    [86400, 'd'],
-    [3600, 'h'],
-    [60, 'm'],
-  ];
-  for (const [secsInUnit, label] of units) {
-    if (secs >= secsInUnit) return `${Math.floor(secs / secsInUnit)}${label} ago`;
-  }
-  return `${secs}s ago`;
-}
 
 // Staleness tier for a card, based on time since last update. Used as a
 // lightweight urgency cue for triaging a crowded backlog.
@@ -90,11 +31,6 @@ function urgencyTier(iso: string): 'fresh' | 'aging' | 'stale' {
   if (days >= 14) return 'stale';
   if (days >= 4) return 'aging';
   return 'fresh';
-}
-
-function excerpt(body: string): string {
-  const flat = body.replace(/```[\s\S]*?```/g, ' ').replace(/[#>*`_\-]/g, ' ').replace(/\s+/g, ' ').trim();
-  return flat.length > 180 ? `${flat.slice(0, 180)}…` : flat;
 }
 
 function fmtTime(d: Date): string {
@@ -128,10 +64,13 @@ export default function BoardPage() {
   const [sorts, setSorts] = useState<Partial<Record<IssueState, 'newest' | 'oldest'>>>({});
   const [searchHelp, setSearchHelp] = useState(false);
   const [activeColumn, setActiveColumn] = useState<IssueState>('backlog');
+  const [openActionsFor, setOpenActionsFor] = useState<Issue | null>(null);
+  const [searchSheetOpen, setSearchSheetOpen] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<Map<IssueState, HTMLElement>>(new Map());
   const helpRef = useRef<HTMLDivElement>(null);
   const { user, loading, denied, logout } = useAuth();
+  const isMobile = useMediaQuery(MOBILE_QUERY);
   // Last-seen state per issue, so live transitions to pr/blocked can be told
   // apart from cards that already were in that state on load.
   const prevStatesRef = useRef<Map<number, IssueState>>(new Map());
@@ -492,34 +431,49 @@ export default function BoardPage() {
         </div>
         <div className="head-controls">
           <div className="search-wrapper">
-            <input
-              className="search"
-              placeholder="Search…  e.g. repo:devhub title:auth or free text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <div className="search-help" ref={helpRef}>
+            {isMobile ? (
               <button
-                className="search-help-btn"
-                onClick={() => setSearchHelp((h) => !h)}
-                aria-label="Search syntax help"
-                aria-expanded={searchHelp}
+                className="search-mobile-trigger"
+                onClick={() => setSearchSheetOpen(true)}
+                aria-label="Search issues"
               >
-                ?
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M10.68 11.74a6 6 0 01-7.922-8.982 6 6 0 018.982 7.922l3.04 3.04a.749.749 0 01-1.06 1.06zM11.5 7a4.5 4.5 0 10-9 0 4.5 4.5 0 009 0z" />
+                </svg>
+                <span>{query || 'Search issues'}</span>
               </button>
-              {searchHelp && (
-                <div className="search-help-menu">
-                  <div className="search-help-title">Search filters</div>
-                  <div className="search-help-item"><code>repo:</code> match repo name</div>
-                  <div className="search-help-item"><code>title:</code> match title</div>
-                  <div className="search-help-item"><code>owner:</code> match owner</div>
-                  <div className="search-help-item"><code>state:</code> match state</div>
-                  <div className="search-help-item"><code>body:</code> match body</div>
-                  <div className="search-help-item"><code>number:</code> match issue #</div>
-                  <div className="search-help-note">Combine filters with plain text. e.g. repo:web auth</div>
+            ) : (
+              <>
+                <input
+                  className="search"
+                  placeholder="Search…  e.g. repo:devhub title:auth or free text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+                <div className="search-help" ref={helpRef}>
+                  <button
+                    className="search-help-btn"
+                    onClick={() => setSearchHelp((h) => !h)}
+                    aria-label="Search syntax help"
+                    aria-expanded={searchHelp}
+                  >
+                    ?
+                  </button>
+                  {searchHelp && (
+                    <div className="search-help-menu">
+                      <div className="search-help-title">Search filters</div>
+                      <div className="search-help-item"><code>repo:</code> match repo name</div>
+                      <div className="search-help-item"><code>title:</code> match title</div>
+                      <div className="search-help-item"><code>owner:</code> match owner</div>
+                      <div className="search-help-item"><code>state:</code> match state</div>
+                      <div className="search-help-item"><code>body:</code> match body</div>
+                      <div className="search-help-item"><code>number:</code> match issue #</div>
+                      <div className="search-help-note">Combine filters with plain text. e.g. repo:web auth</div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
           <span
             className={`conn-status ${connected ? 'ok' : 'off'}`}
@@ -636,6 +590,20 @@ export default function BoardPage() {
         </div>
       </div>
 
+      {isMobile && (
+        <MobileStatusStrip
+          columns={COLUMNS}
+          counts={Object.fromEntries(
+            COLUMNS.map((c) => [c, issues.filter((i) => i.state === c).length])
+          ) as Record<IssueState, number>}
+          active={activeColumn}
+          onSelect={(col) => {
+            setActiveColumn(col);
+            scrollToColumn(col);
+          }}
+        />
+      )}
+
       <div className="board" ref={boardRef}>
         {COLUMNS.map((col) => {
           const items = issues
@@ -652,60 +620,83 @@ export default function BoardPage() {
                 if (el) columnRefs.current.set(col, el);
               }}
             >
-              <div className="column-head">
-                <span className={`dot ${col}`} />
-                {col}
-                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({items.length})</span>
-                <button
-                  className="sort-toggle"
-                  onClick={() =>
-                    setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
-                  }
-                  title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                  aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                >
-                  {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
-                </button>
-              </div>
+              {isMobile ? (
+                <div className="column-meta">
+                  <span>
+                    {items.length} issues · {countRepos(items)} repos
+                  </span>
+                  <button
+                    className="sort-toggle"
+                    onClick={() =>
+                      setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
+                    }
+                    title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                    aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                  >
+                    {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
+                  </button>
+                </div>
+              ) : (
+                <div className="column-head">
+                  <span className={`dot ${col}`} />
+                  {col}
+                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({items.length})</span>
+                  <button
+                    className="sort-toggle"
+                    onClick={() =>
+                      setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
+                    }
+                    title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                    aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                  >
+                    {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
+                  </button>
+                </div>
+              )}
               {items.length === 0 ? (
                 <div className="empty">nothing here</div>
               ) : (
-                items.map((issue) => (
-                  <Card
-                    key={issue.id}
-                    issue={issue}
-                    selected={selectedIds.has(issue.id)}
-                    onToggleSelection={toggleSelection}
-                  />
-                ))
+                items.map((issue) =>
+                  isMobile ? (
+                    <MobileCardWithActions
+                      key={issue.id}
+                      issue={issue}
+                      onOpenActions={() => setOpenActionsFor(issue)}
+                    />
+                  ) : (
+                    <Card
+                      key={issue.id}
+                      issue={issue}
+                      selected={selectedIds.has(issue.id)}
+                      onToggleSelection={toggleSelection}
+                    />
+                  )
+                )
               )}
             </section>
           );
         })}
       </div>
 
-      <nav className="bottom-nav" role="tablist" aria-label="Board columns">
-        {COLUMNS.map((col) => {
-          const count = issues.filter((i) => i.state === col).length;
-          return (
-            <button
-              key={col}
-              className={`bottom-nav-tab${activeColumn === col ? ' active' : ''}`}
-              onClick={() => {
-                setActiveColumn(col);
-                scrollToColumn(col);
-              }}
-              role="tab"
-              aria-selected={activeColumn === col}
-              aria-label={`${col} column, ${count} items`}
-            >
-              <span className={`dot ${col}`} />
-              <span>{col}</span>
-              <span className="bottom-nav-badge">{count}</span>
-            </button>
-          );
-        })}
-      </nav>
+      {openActionsFor && isMobile && (
+        <CardActionsSheetWithActions
+          issue={openActionsFor}
+          onClose={() => setOpenActionsFor(null)}
+          onToggleSelection={toggleSelection}
+        />
+      )}
+
+      {searchSheetOpen && isMobile && (
+        <MobileSearchSheet
+          query={query}
+          onQueryChange={setQuery}
+          repos={repos}
+          repoFilter={repoFilter}
+          onRepoFilterChange={setRepoFilter}
+          issues={issues}
+          onClose={() => setSearchSheetOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -751,87 +742,22 @@ interface CardProps {
 }
 
 function Card({ issue, selected, onToggleSelection }: CardProps) {
-  const [command, setCommand] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [models, setModels] = useState<ModelOption[]>([]);
-  const [selectedModel, setSelectedModel] = useState<ModelOption | null>(null);
   const color = repoColor(`${issue.owner}/${issue.repo}`);
   const developing = issue.state === 'developing';
-
-  const loadModels = useCallback(async () => {
-    try {
-      const res = await fetch('/api/models');
-      if (!res.ok) return;
-      const data = (await res.json()) as { models: ModelOption[]; default: ModelOption | null };
-      setModels(data.models ?? []);
-      setSelectedModel(data.default ?? null);
-    } catch {
-      /* non-fatal: fall back to no override */
-    }
-  }, []);
-
-  const openModal = useCallback(() => {
-    setOpen(true);
-    void loadModels();
-  }, [loadModels]);
-
-  const develop = useCallback(async () => {
-    setBusy(true);
-    try {
-      const body: { command: string; modelId?: string; providerID?: string } = { command };
-      if (selectedModel) {
-        body.modelId = selectedModel.id;
-        body.providerID = selectedModel.providerID;
-      }
-      await fetch(`/api/issues/${issue.id}/develop`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      setOpen(false);
-    } finally {
-      setBusy(false);
-    }
-  }, [issue.id, command, selectedModel]);
-
-  const stagedDevelop = useCallback(async () => {
-    setBusy(true);
-    try {
-      const body: { command: string; modelId?: string; providerID?: string; staged?: boolean } = { 
-        command,
-        staged: true 
-      };
-      if (selectedModel) {
-        body.modelId = selectedModel.id;
-        body.providerID = selectedModel.providerID;
-      }
-      await fetch(`/api/issues/${issue.id}/develop`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      setOpen(false);
-    } finally {
-      setBusy(false);
-    }
-  }, [issue.id, command, selectedModel]);
-
-  const transition = useCallback(
-    async (target: IssueState) => {
-      setBusy(true);
-      try {
-        await fetch(`/api/issues/${issue.id}/transition`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state: target }),
-        });
-      } finally {
-        setBusy(false);
-      }
-    },
-    [issue.id]
-  );
+  const {
+    busy,
+    modalOpen,
+    openModal,
+    closeModal,
+    command,
+    setCommand,
+    models,
+    selectedModel,
+    setSelectedModel,
+    develop,
+    stagedDevelop,
+    transition,
+  } = useCardActions(issue.id);
 
   return (
     <div className="card" style={{ borderLeftColor: color }}>
@@ -912,191 +838,109 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
       </div>
       {developing && <div className="result developing">developing… (live via opencode)</div>}
 
-      {open && (
-        <div className="modal-overlay" onClick={() => setOpen(false)}>
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3>
-              Develop {issue.owner}/{issue.repo} #{issue.number}
-            </h3>
-            <p className="modal-sub">{issue.title}</p>
-            <label className="modal-label" htmlFor="devhub-cmd">
-              Extra instructions (optional)
-            </label>
-            <textarea
-              id="devhub-cmd"
-              className="modal-input"
-              placeholder="e.g. focus on the auth flow and keep the diff minimal"
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              autoFocus
-            />
-            <label className="modal-label" htmlFor="devhub-model">
-              Model (optional — default = pinned tiers)
-            </label>
-            <ModelPicker models={models} value={selectedModel} onChange={setSelectedModel} />
-            <div className="modal-actions">
-              <button className="ghost" onClick={() => setOpen(false)} disabled={busy}>
-                Cancel
-              </button>
-              <button className="develop-btn" onClick={develop} disabled={busy}>
-                {busy ? 'Starting…' : 'Start developing'}
-              </button>
-              <button className="validate-btn" onClick={stagedDevelop} disabled={busy}>
-                {busy ? 'Starting…' : 'Validate & Develop'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {modalOpen && (
+        <DevelopModal
+          issue={issue}
+          command={command}
+          onCommandChange={setCommand}
+          models={models}
+          selectedModel={selectedModel}
+          onSelectedModelChange={setSelectedModel}
+          busy={busy}
+          onCancel={closeModal}
+          onDevelop={develop}
+          onStagedDevelop={stagedDevelop}
+        />
       )}
     </div>
   );
 }
 
-interface ModelChoice {
-  key: string;
-  label: string;
-  hint?: string;
-  model: ModelOption | null;
-}
-
-// Searchable dropdown for picking a develop model. Any model the server
-// exposes is selectable; typing filters the list by id/provider.
-function ModelPicker({
-  models,
-  value,
-  onChange,
+function MobileCardWithActions({
+  issue,
+  onOpenActions,
 }: {
-  models: ModelOption[];
-  value: ModelOption | null;
-  onChange: (model: ModelOption | null) => void;
+  issue: Issue;
+  onOpenActions: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [highlight, setHighlight] = useState(0);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return models;
-    return models.filter((m) => `${m.providerID} ${m.id}`.toLowerCase().includes(q));
-  }, [models, query]);
-
-  const choices = useMemo<ModelChoice[]>(() => {
-    return [
-      { key: '', label: 'Default (no override)', model: null },
-      ...filtered.map((m) => ({
-        key: `${m.providerID}:${m.id}`,
-        label: `${m.id} (${m.providerID})`,
-        model: m,
-      })),
-    ];
-  }, [filtered]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const t = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(t);
-  }, [open]);
-
-  const toggle = () => {
-    if (!open) {
-      setQuery('');
-      setHighlight(0);
-    }
-    setOpen(!open);
-  };
-
-  const select = (choice: ModelChoice) => {
-    onChange(choice.model);
-    setOpen(false);
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHighlight((h) => Math.min(h + 1, choices.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHighlight((h) => Math.max(h - 1, 0));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      const choice = choices[highlight];
-      if (choice) select(choice);
-    }
-  };
-
-  const valueKey = value ? `${value.providerID}:${value.id}` : '';
+  const color = repoColor(`${issue.owner}/${issue.repo}`);
+  const { busy, develop } = useCardActions(issue.id);
 
   return (
-    <div className="model-picker" ref={rootRef}>
-      <button
-        id="devhub-model"
-        type="button"
-        className="model-picker-toggle"
-        onClick={toggle}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-      >
-        <span className="model-picker-label">
-          {value ? `${value.id} (${value.providerID})` : 'Default (no override)'}
-        </span>
-        <span className="model-picker-caret">{open ? '▲' : '▼'}</span>
-      </button>
-      {open && (
-        <div className="model-picker-menu" role="listbox" onKeyDown={onKeyDown}>
-          <input
-            ref={inputRef}
-            className="model-picker-search"
-            placeholder="Search models…  e.g. deepseek, gpt, mimo"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setHighlight(0);
-            }}
-          />
-          <div className="model-picker-list">
-            {choices.length === 0 && <div className="model-picker-empty">no models found</div>}
-            {choices.map((choice, i) => (
-              <button
-                key={choice.key || '__default__'}
-                type="button"
-                role="option"
-                aria-selected={choice.key === valueKey}
-                className={`model-picker-item${i === highlight ? ' highlighted' : ''}${
-                  choice.key === valueKey ? ' selected' : ''
-                }`}
-                onMouseEnter={() => setHighlight(i)}
-                onClick={() => select(choice)}
-              >
-                <span className="model-picker-name">{choice.label}</span>
-                {choice.hint && <span className="model-picker-hint">{choice.hint}</span>}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+    <MobileCard issue={issue} color={color} busy={busy} onPrimaryAction={develop} onOpenActions={onOpenActions} />
   );
+}
+
+function CardActionsSheetWithActions({
+  issue,
+  onClose,
+  onToggleSelection,
+}: {
+  issue: Issue;
+  onClose: () => void;
+  onToggleSelection: (issueId: number) => void;
+}) {
+  const {
+    busy,
+    modalOpen,
+    openModal,
+    command,
+    setCommand,
+    models,
+    selectedModel,
+    setSelectedModel,
+    develop,
+    stagedDevelop,
+    transition,
+  } = useCardActions(issue.id);
+
+  const handleSelect = (id: CardActionId) => {
+    switch (id) {
+      case 'develop-validated':
+        openModal();
+        return;
+      case 'to-refinement':
+        void transition('refinement');
+        break;
+      case 'to-backlog':
+        void transition('backlog');
+        break;
+      case 'select-batch':
+        onToggleSelection(issue.id);
+        break;
+      case 'open-github':
+        window.open(issue.htmlUrl, '_blank', 'noopener,noreferrer');
+        break;
+      case 'recap':
+        // Recap navigates via its own Link in the sheet row — the sheet's
+        // row onClick already closed it. Nothing to do here.
+        return;
+    }
+    onClose();
+  };
+
+  if (modalOpen) {
+    return (
+      <DevelopModal
+        issue={issue}
+        command={command}
+        onCommandChange={setCommand}
+        models={models}
+        selectedModel={selectedModel}
+        onSelectedModelChange={setSelectedModel}
+        busy={busy}
+        onCancel={onClose}
+        onDevelop={() => {
+          void develop();
+          onClose();
+        }}
+        onStagedDevelop={() => {
+          void stagedDevelop();
+          onClose();
+        }}
+      />
+    );
+  }
+
+  return <CardActionsSheet issue={issue} onClose={onClose} onSelect={handleSelect} />;
 }
