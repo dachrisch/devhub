@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import type { Issue, IssueState, ModelOption } from '@/lib/types';
+import type { Issue, IssueState } from '@/lib/types';
 import { excerpt, matchesIssue, relTime, repoColor } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
+import { useCardActions } from '@/components/board/use-card-actions';
+import { DevelopModal } from '@/components/board/develop-modal';
 
 const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'blocked'];
 
@@ -679,87 +681,22 @@ interface CardProps {
 }
 
 function Card({ issue, selected, onToggleSelection }: CardProps) {
-  const [command, setCommand] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [models, setModels] = useState<ModelOption[]>([]);
-  const [selectedModel, setSelectedModel] = useState<ModelOption | null>(null);
   const color = repoColor(`${issue.owner}/${issue.repo}`);
   const developing = issue.state === 'developing';
-
-  const loadModels = useCallback(async () => {
-    try {
-      const res = await fetch('/api/models');
-      if (!res.ok) return;
-      const data = (await res.json()) as { models: ModelOption[]; default: ModelOption | null };
-      setModels(data.models ?? []);
-      setSelectedModel(data.default ?? null);
-    } catch {
-      /* non-fatal: fall back to no override */
-    }
-  }, []);
-
-  const openModal = useCallback(() => {
-    setOpen(true);
-    void loadModels();
-  }, [loadModels]);
-
-  const develop = useCallback(async () => {
-    setBusy(true);
-    try {
-      const body: { command: string; modelId?: string; providerID?: string } = { command };
-      if (selectedModel) {
-        body.modelId = selectedModel.id;
-        body.providerID = selectedModel.providerID;
-      }
-      await fetch(`/api/issues/${issue.id}/develop`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      setOpen(false);
-    } finally {
-      setBusy(false);
-    }
-  }, [issue.id, command, selectedModel]);
-
-  const stagedDevelop = useCallback(async () => {
-    setBusy(true);
-    try {
-      const body: { command: string; modelId?: string; providerID?: string; staged?: boolean } = { 
-        command,
-        staged: true 
-      };
-      if (selectedModel) {
-        body.modelId = selectedModel.id;
-        body.providerID = selectedModel.providerID;
-      }
-      await fetch(`/api/issues/${issue.id}/develop`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      setOpen(false);
-    } finally {
-      setBusy(false);
-    }
-  }, [issue.id, command, selectedModel]);
-
-  const transition = useCallback(
-    async (target: IssueState) => {
-      setBusy(true);
-      try {
-        await fetch(`/api/issues/${issue.id}/transition`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state: target }),
-        });
-      } finally {
-        setBusy(false);
-      }
-    },
-    [issue.id]
-  );
+  const {
+    busy,
+    modalOpen,
+    openModal,
+    closeModal,
+    command,
+    setCommand,
+    models,
+    selectedModel,
+    setSelectedModel,
+    develop,
+    stagedDevelop,
+    transition,
+  } = useCardActions(issue.id);
 
   return (
     <div className="card" style={{ borderLeftColor: color }}>
@@ -840,190 +777,19 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
       </div>
       {developing && <div className="result developing">developing… (live via opencode)</div>}
 
-      {open && (
-        <div className="modal-overlay" onClick={() => setOpen(false)}>
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3>
-              Develop {issue.owner}/{issue.repo} #{issue.number}
-            </h3>
-            <p className="modal-sub">{issue.title}</p>
-            <label className="modal-label" htmlFor="devhub-cmd">
-              Extra instructions (optional)
-            </label>
-            <textarea
-              id="devhub-cmd"
-              className="modal-input"
-              placeholder="e.g. focus on the auth flow and keep the diff minimal"
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              autoFocus
-            />
-            <label className="modal-label" htmlFor="devhub-model">
-              Model (optional — default = pinned tiers)
-            </label>
-            <ModelPicker models={models} value={selectedModel} onChange={setSelectedModel} />
-            <div className="modal-actions">
-              <button className="ghost" onClick={() => setOpen(false)} disabled={busy}>
-                Cancel
-              </button>
-              <button className="develop-btn" onClick={develop} disabled={busy}>
-                {busy ? 'Starting…' : 'Start developing'}
-              </button>
-              <button className="validate-btn" onClick={stagedDevelop} disabled={busy}>
-                {busy ? 'Starting…' : 'Validate & Develop'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface ModelChoice {
-  key: string;
-  label: string;
-  hint?: string;
-  model: ModelOption | null;
-}
-
-// Searchable dropdown for picking a develop model. Any model the server
-// exposes is selectable; typing filters the list by id/provider.
-function ModelPicker({
-  models,
-  value,
-  onChange,
-}: {
-  models: ModelOption[];
-  value: ModelOption | null;
-  onChange: (model: ModelOption | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [highlight, setHighlight] = useState(0);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return models;
-    return models.filter((m) => `${m.providerID} ${m.id}`.toLowerCase().includes(q));
-  }, [models, query]);
-
-  const choices = useMemo<ModelChoice[]>(() => {
-    return [
-      { key: '', label: 'Default (no override)', model: null },
-      ...filtered.map((m) => ({
-        key: `${m.providerID}:${m.id}`,
-        label: `${m.id} (${m.providerID})`,
-        model: m,
-      })),
-    ];
-  }, [filtered]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const t = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(t);
-  }, [open]);
-
-  const toggle = () => {
-    if (!open) {
-      setQuery('');
-      setHighlight(0);
-    }
-    setOpen(!open);
-  };
-
-  const select = (choice: ModelChoice) => {
-    onChange(choice.model);
-    setOpen(false);
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHighlight((h) => Math.min(h + 1, choices.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHighlight((h) => Math.max(h - 1, 0));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      const choice = choices[highlight];
-      if (choice) select(choice);
-    }
-  };
-
-  const valueKey = value ? `${value.providerID}:${value.id}` : '';
-
-  return (
-    <div className="model-picker" ref={rootRef}>
-      <button
-        id="devhub-model"
-        type="button"
-        className="model-picker-toggle"
-        onClick={toggle}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-      >
-        <span className="model-picker-label">
-          {value ? `${value.id} (${value.providerID})` : 'Default (no override)'}
-        </span>
-        <span className="model-picker-caret">{open ? '▲' : '▼'}</span>
-      </button>
-      {open && (
-        <div className="model-picker-menu" role="listbox" onKeyDown={onKeyDown}>
-          <input
-            ref={inputRef}
-            className="model-picker-search"
-            placeholder="Search models…  e.g. deepseek, gpt, mimo"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setHighlight(0);
-            }}
-          />
-          <div className="model-picker-list">
-            {choices.length === 0 && <div className="model-picker-empty">no models found</div>}
-            {choices.map((choice, i) => (
-              <button
-                key={choice.key || '__default__'}
-                type="button"
-                role="option"
-                aria-selected={choice.key === valueKey}
-                className={`model-picker-item${i === highlight ? ' highlighted' : ''}${
-                  choice.key === valueKey ? ' selected' : ''
-                }`}
-                onMouseEnter={() => setHighlight(i)}
-                onClick={() => select(choice)}
-              >
-                <span className="model-picker-name">{choice.label}</span>
-                {choice.hint && <span className="model-picker-hint">{choice.hint}</span>}
-              </button>
-            ))}
-          </div>
-        </div>
+      {modalOpen && (
+        <DevelopModal
+          issue={issue}
+          command={command}
+          onCommandChange={setCommand}
+          models={models}
+          selectedModel={selectedModel}
+          onSelectedModelChange={setSelectedModel}
+          busy={busy}
+          onCancel={closeModal}
+          onDevelop={develop}
+          onStagedDevelop={stagedDevelop}
+        />
       )}
     </div>
   );
