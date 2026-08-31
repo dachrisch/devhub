@@ -1415,3 +1415,221 @@ button:disabled {
     color: var(--bg);
   }
 }
+
+/* Mobile card (2b treatment) + card-actions sheet — mobile only */
+.mobile-card {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-card {
+    display: flex;
+    flex-direction: column;
+    margin: 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .mobile-card-strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mobile-card-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    flex: none;
+  }
+
+  .mobile-card-repo {
+    font-size: 11.5px;
+    font-weight: 650;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-card-number {
+    font-size: 11.5px;
+    color: var(--muted);
+    flex: none;
+  }
+
+  .mobile-card-age {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
+    flex: none;
+  }
+
+  .mobile-card-body {
+    padding: 12px 14px 14px;
+  }
+
+  .mobile-card-title {
+    display: block;
+    font-size: 15.5px;
+    font-weight: 650;
+    line-height: 1.35;
+    color: var(--accent);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .mobile-card-excerpt {
+    margin-top: 7px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--muted);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .mobile-card-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 11px;
+    padding: 8px 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+    font-style: italic;
+    color: var(--muted);
+  }
+
+  .mobile-card-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--developing);
+    animation: dh-pulse 1.1s ease-in-out infinite;
+    flex: none;
+  }
+
+  @keyframes dh-pulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+  }
+
+  .mobile-card-footer {
+    display: flex;
+    align-items: stretch;
+    border-top: 1px solid var(--border);
+  }
+
+  .mobile-card-primary {
+    flex: 1;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 650;
+    color: var(--accent);
+    background: transparent;
+    border: none;
+  }
+
+  .mobile-card-primary-link {
+    text-decoration: none;
+  }
+
+  .mobile-card-more {
+    width: 64px;
+    height: 48px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    background: transparent;
+    border: none;
+    border-left: 1px solid var(--border);
+  }
+
+  .mobile-card-more span {
+    width: 3.5px;
+    height: 3.5px;
+    border-radius: 999px;
+    background: var(--muted);
+  }
+
+  /* Card-actions bottom sheet */
+  .card-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 200;
+  }
+
+  .card-sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    border-radius: 20px 20px 0 0;
+    padding: 10px 14px calc(env(safe-area-inset-bottom, 0px) + 10px);
+  }
+
+  .card-sheet-handle {
+    width: 38px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--border);
+    margin: 0 auto 12px;
+  }
+
+  .card-sheet-header {
+    padding: 0 4px 12px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 6px;
+  }
+
+  .card-sheet-ref {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+
+  .card-sheet-title {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .card-sheet-row {
+    display: block;
+    width: 100%;
+    text-align: left;
+    height: 52px;
+    font-size: 15px;
+    color: var(--text);
+    background: transparent;
+    border: none;
+    border-top: 1px solid var(--border);
+  }
+
+  .card-sheet-row:first-of-type {
+    border-top: none;
+  }
+}

@@ -9,6 +9,10 @@ import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
 import { useCardActions } from '@/components/board/use-card-actions';
 import { DevelopModal } from '@/components/board/develop-modal';
+import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
+import { MobileCard } from '@/components/board/mobile-card';
+import { CardActionsSheet } from '@/components/board/card-actions-sheet';
+import type { CardActionId } from '@/lib/board-ui';
 
 const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'blocked'];
 
@@ -58,10 +62,12 @@ export default function BoardPage() {
   const [sorts, setSorts] = useState<Partial<Record<IssueState, 'newest' | 'oldest'>>>({});
   const [searchHelp, setSearchHelp] = useState(false);
   const [activeColumn, setActiveColumn] = useState<IssueState>('backlog');
+  const [openActionsFor, setOpenActionsFor] = useState<Issue | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<Map<IssueState, HTMLElement>>(new Map());
   const helpRef = useRef<HTMLDivElement>(null);
   const { user, loading, denied, logout } = useAuth();
+  const isMobile = useMediaQuery(MOBILE_QUERY);
   // Last-seen state per issue, so live transitions to pr/blocked can be told
   // apart from cards that already were in that state on load.
   const prevStatesRef = useRef<Map<number, IssueState>>(new Map());
@@ -600,14 +606,22 @@ export default function BoardPage() {
               {items.length === 0 ? (
                 <div className="empty">nothing here</div>
               ) : (
-                items.map((issue) => (
-                  <Card
-                    key={issue.id}
-                    issue={issue}
-                    selected={selectedIds.has(issue.id)}
-                    onToggleSelection={toggleSelection}
-                  />
-                ))
+                items.map((issue) =>
+                  isMobile ? (
+                    <MobileCardWithActions
+                      key={issue.id}
+                      issue={issue}
+                      onOpenActions={() => setOpenActionsFor(issue)}
+                    />
+                  ) : (
+                    <Card
+                      key={issue.id}
+                      issue={issue}
+                      selected={selectedIds.has(issue.id)}
+                      onToggleSelection={toggleSelection}
+                    />
+                  )
+                )
               )}
             </section>
           );
@@ -636,6 +650,14 @@ export default function BoardPage() {
           );
         })}
       </nav>
+
+      {openActionsFor && isMobile && (
+        <CardActionsSheetWithActions
+          issue={openActionsFor}
+          onClose={() => setOpenActionsFor(null)}
+          onToggleSelection={toggleSelection}
+        />
+      )}
     </div>
   );
 }
@@ -792,5 +814,88 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
         />
       )}
     </div>
+  );
+}
+
+function MobileCardWithActions({
+  issue,
+  onOpenActions,
+}: {
+  issue: Issue;
+  onOpenActions: () => void;
+}) {
+  const color = repoColor(`${issue.owner}/${issue.repo}`);
+  const { busy, develop } = useCardActions(issue.id);
+
+  return (
+    <MobileCard issue={issue} color={color} busy={busy} onPrimaryAction={develop} onOpenActions={onOpenActions} />
+  );
+}
+
+function CardActionsSheetWithActions({
+  issue,
+  onClose,
+  onToggleSelection,
+}: {
+  issue: Issue;
+  onClose: () => void;
+  onToggleSelection: (issueId: number) => void;
+}) {
+  const {
+    busy,
+    modalOpen,
+    openModal,
+    closeModal,
+    command,
+    setCommand,
+    models,
+    selectedModel,
+    setSelectedModel,
+    develop,
+    stagedDevelop,
+    transition,
+  } = useCardActions(issue.id);
+
+  const handleSelect = (id: CardActionId) => {
+    switch (id) {
+      case 'develop-validated':
+        openModal();
+        break;
+      case 'to-refinement':
+        void transition('refinement');
+        break;
+      case 'to-backlog':
+        void transition('backlog');
+        break;
+      case 'select-batch':
+        onToggleSelection(issue.id);
+        break;
+      case 'open-github':
+        window.open(issue.htmlUrl, '_blank', 'noopener,noreferrer');
+        break;
+      case 'recap':
+        // Recap navigates via its own Link in the sheet row — see below.
+        break;
+    }
+  };
+
+  return (
+    <>
+      <CardActionsSheet issue={issue} onClose={onClose} onSelect={handleSelect} />
+      {modalOpen && (
+        <DevelopModal
+          issue={issue}
+          command={command}
+          onCommandChange={setCommand}
+          models={models}
+          selectedModel={selectedModel}
+          onSelectedModelChange={setSelectedModel}
+          busy={busy}
+          onCancel={closeModal}
+          onDevelop={develop}
+          onStagedDevelop={stagedDevelop}
+        />
+      )}
+    </>
   );
 }
