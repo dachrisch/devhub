@@ -4,6 +4,7 @@ import type { OpencodeEvent } from './opencode';
 export type ServerEvent =
   | { type: 'issue'; issue: Issue }
   | { type: 'opencode-event'; issueId: number; event: OpencodeEvent }
+  | { type: 'action'; actionId: number; status: string; detail: string }
   | { type: 'hello'; now: string };
 
 type Listener = (event: ServerEvent) => void;
@@ -39,4 +40,8 @@ export function publishIssue(issue: Issue): void {
 
 export function publishOpencodeEvent(issueId: number, event: OpencodeEvent): void {
   broadcaster.publish({ type: 'opencode-event', issueId, event });
+}
+
+export function publishAction(actionId: number, status: string, detail: string): void {
+  broadcaster.publish({ type: 'action', actionId, status, detail });
 }
