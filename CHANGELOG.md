@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.0](https://github.com/dachrisch/devhub/compare/v1.11.1...v1.12.0) (2026-08-31)
+
+
+### Miscellaneous Chores
+
+* trigger release ([9ba1415](https://github.com/dachrisch/devhub/commit/9ba1415af56b5d43027f3eba7679b319e9a05a6f))
+
 ## [1.11.1](https://github.com/dachrisch/devhub/compare/v1.11.0...v1.11.1) (2026-08-31)
 
 
