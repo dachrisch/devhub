@@ -75,18 +75,18 @@ export default function RecapPage() {
 
   if (!signedIn) {
     return (
-      <div className="recap-wrap">
+      <main className="recap-wrap">
         <WelcomeScreen />
-      </div>
+      </main>
     );
   }
 
   if (!issue) {
     return (
-      <div className="recap-wrap">
+      <main className="recap-wrap">
         <p className="muted">Loading…</p>
         <Link href="/" className="recap-link">← Back to board</Link>
-      </div>
+      </main>
     );
   }
 
@@ -98,7 +98,7 @@ export default function RecapPage() {
   const modelEvent = events.find((e) => e.kind === 'model');
 
   return (
-    <div className="recap-wrap">
+    <main className="recap-wrap">
       <header className="recap-head">
         <Link href="/" className="recap-link">← Board</Link>
         <span className={`dot ${issue.state}`} />
@@ -176,6 +176,6 @@ export default function RecapPage() {
           </div>
         ))}
       </div>
-    </div>
+    </main>
   );
 }

@@ -12,7 +12,7 @@ import { DevelopModal } from '@/components/board/develop-modal';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
 import { MobileCard } from '@/components/board/mobile-card';
 import { CardActionsSheet } from '@/components/board/card-actions-sheet';
-import { MobileStatusStrip } from '@/components/board/mobile-status-strip';
+import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
 import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
 import type { CardActionId } from '@/lib/board-ui';
 
@@ -427,7 +427,9 @@ export default function BoardPage() {
             <span className="brand-name">DevHub</span>
           </div>
         </header>
-        {!loading && <WelcomeScreen denied={denied} />}
+        <main className="board-main">
+          {!loading && <WelcomeScreen denied={denied} />}
+        </main>
       </div>
     );
   }
@@ -456,7 +458,7 @@ export default function BoardPage() {
               <>
                 <input
                   className="search"
-                  placeholder="Search…  e.g. repo:devhub title:auth or free text"
+                  placeholder="Search… e.g. repo:devhub title:auth"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
@@ -537,6 +539,7 @@ export default function BoardPage() {
         </div>
       </header>
 
+      <main className="board-main">
       {refreshError && (
         <div className="banner" role="alert">
           <span>Refresh failed: {refreshError}</span>
@@ -644,9 +647,13 @@ export default function BoardPage() {
               return a.updatedAt.localeCompare(b.updatedAt) * dir;
             });
           return (
-            <section 
-              className="column" 
+            <section
+              className="column"
               key={col}
+              id={statusPanelId(col)}
+              role={isMobile ? 'tabpanel' : undefined}
+              aria-labelledby={isMobile ? statusTabId(col) : undefined}
+              tabIndex={isMobile ? 0 : undefined}
               ref={(el) => {
                 if (el) columnRefs.current.set(col, el);
               }}
@@ -728,6 +735,7 @@ export default function BoardPage() {
           onClose={() => setSearchSheetOpen(false)}
         />
       )}
+      </main>
     </div>
   );
 }
@@ -798,6 +806,7 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
           checked={selected}
           onChange={() => onToggleSelection(issue.id)}
           className="card-checkbox"
+          aria-label={`Select issue ${issue.owner}/${issue.repo} #${issue.number} for batch actions`}
         />
         <div className="repo">
           <span

@@ -44,6 +44,16 @@ a:hover {
   overflow: hidden;
 }
 
+/* Main landmark wraps everything below the header; it takes over the flex
+   sizing the board previously got directly from .page-wrap. */
+.board-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 header {
   display: flex;
   align-items: center;
@@ -613,8 +623,12 @@ header h1 {
 }
 
 .card-checkbox {
-  margin-top: 4px;
+  width: 24px;
+  height: 24px;
+  margin: 4px 0 0;
   cursor: pointer;
+  accent-color: var(--accent);
+  flex: none;
 }
 
 .advance-btn {
@@ -649,11 +663,12 @@ header h1 {
 
 .validate-btn {
   background: var(--developing);
-  color: white;
+  color: #0d1117;
   border: none;
   border-radius: 6px;
   padding: 6px 12px;
   font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -1316,17 +1331,27 @@ button:disabled {
   }
 
   .repo-chips {
-    padding: 0 0 4px;
+    padding: 0 0 6px;
     gap: 6px;
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
     max-width: 100%;
   }
 
   .repo-chips::-webkit-scrollbar {
-    display: none;
+    height: 6px;
+  }
+
+  .repo-chips::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+  }
+
+  .repo-chips::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   .repo-chip {

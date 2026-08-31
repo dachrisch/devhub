@@ -1,7 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import type { IssueState } from '@/lib/types';
+
+// Shared id scheme between the tabs (rendered here) and the tabpanel they
+// control (the single visible column, rendered by the board page). Kept in
+// one place so `aria-controls`/`aria-labelledby` can never drift apart.
+export const statusTabId = (col: IssueState) => `status-tab-${col}`;
+export const statusPanelId = (col: IssueState) => `status-panel-${col}`;
 
 interface MobileStatusStripProps {
   columns: IssueState[];
@@ -33,22 +39,58 @@ export function MobileStatusStrip({ columns, counts, active, onSelect }: MobileS
     setMoreOpen(false);
   };
 
+  // WAI-ARIA tabs pattern: Left/Right/Home/End rove focus across the tabs in
+  // the tablist and activate the focused tab (automatic activation). The
+  // "More" tab is part of the roving group too, but only opens its menu on
+  // Enter/Space — it carries no `data-column` so roving never selects it.
+  const onTablistKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    const tabs = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    const idx = tabs.indexOf(document.activeElement as HTMLButtonElement);
+    if (idx === -1) return;
+    let next: number | null = null;
+    if (e.key === 'ArrowRight') next = (idx + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft') next = (idx - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = tabs.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    const target = tabs[next];
+    target.focus();
+    const col = target.dataset.column as IssueState | undefined;
+    if (col) select(col);
+  };
+
   return (
-    <nav className="status-strip" role="tablist" aria-label="Board columns">
-      {main.map((col) => (
-        <button
-          key={col}
-          className={`status-strip-tab${active === col ? ' active' : ''}`}
-          onClick={() => select(col)}
-          role="tab"
-          aria-selected={active === col}
-          aria-label={`${col} column, ${countOf(col)} items`}
-        >
-          <span className={`dot ${col}`} />
-          <span>{col}</span>
-          <span className="status-strip-badge">{countOf(col)}</span>
-        </button>
-      ))}
+    <nav
+      className="status-strip"
+      role="tablist"
+      aria-label="Board columns"
+      aria-orientation="horizontal"
+      onKeyDown={onTablistKeyDown}
+    >
+      {main.map((col) => {
+        const isActive = active === col;
+        return (
+          <button
+            key={col}
+            id={statusTabId(col)}
+            className={`status-strip-tab${isActive ? ' active' : ''}`}
+            onClick={() => select(col)}
+            role="tab"
+            aria-selected={isActive}
+            aria-controls={statusPanelId(col)}
+            // Keep the accessible name aligned with the visible "Backlog 21"
+            // label (WCAG 2.5.3 Label in Name).
+            aria-label={`${col}, ${countOf(col)} items`}
+            tabIndex={isActive ? 0 : -1}
+            data-column={col}
+          >
+            <span className={`dot ${col}`} aria-hidden="true" />
+            <span>{col}</span>
+            <span className="status-strip-badge">{countOf(col)}</span>
+          </button>
+        );
+      })}
 
       {hasMore && (
         <div className="status-strip-more">
@@ -60,6 +102,7 @@ export function MobileStatusStrip({ columns, counts, active, onSelect }: MobileS
             aria-haspopup="menu"
             aria-expanded={moreOpen}
             aria-label="More columns"
+            tabIndex={activeIsMore ? 0 : -1}
           >
             <span>More</span>
             {activeIsMore && <span className="status-strip-badge">{countOf(active)}</span>}
@@ -72,12 +115,13 @@ export function MobileStatusStrip({ columns, counts, active, onSelect }: MobileS
               {more.map((col) => (
                 <button
                   key={col}
+                  id={statusTabId(col)}
                   className={`status-strip-more-item${active === col ? ' active' : ''}`}
                   onClick={() => select(col)}
                   role="menuitem"
-                  aria-label={`${col} column, ${countOf(col)} items`}
+                  aria-label={`${col}, ${countOf(col)} items`}
                 >
-                  <span className={`dot ${col}`} />
+                  <span className={`dot ${col}`} aria-hidden="true" />
                   <span>{col}</span>
                   <span className="status-strip-badge">{countOf(col)}</span>
                 </button>
