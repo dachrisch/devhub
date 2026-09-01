@@ -10,7 +10,7 @@ vi.mock('undici', () => {
   };
 });
 
-const { runDevelop, extractPrUrl, buildDevelopPrompt, defaultModels, discoverModels, getAvailableModels, resolveModels } =
+const { runDevelop, extractPrUrl, buildDevelopPrompt, defaultModels, discoverModels, getAvailableModels, resolveModels, cancelSession } =
   await import('./opencode.js');
 
 function jsonRes(body: unknown, ok = true) {
@@ -60,6 +60,78 @@ describe('opencode client', () => {
     expect(prompt).toContain('github.com/dachrisch/widget/pull');
     expect(prompt).toContain('opencode-contribution');
   });
+
+  it('instructs the agent to adopt a leftover worktree instead of failing', () => {
+    const prompt = buildDevelopPrompt(sampleIssue as never, '');
+    expect(prompt).toContain('git worktree add .worktrees/3 -b devhub/issue-5');
+    expect(prompt).toContain('if [ -d ".worktrees/3" ]; then');
+    expect(prompt).toContain('git checkout devhub/issue-5');
+  });
+
+  it('cancelSession aborts then deletes the session, ignoring failures', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async (url: string, opts: { method?: string }) => {
+      if (opts?.method === 'DELETE') throw new Error('network down');
+      return { ok: false, status: 404, json: async () => ({}), text: async () => '' };
+    });
+
+    await expect(cancelSession('ses_1')).resolves.toBeUndefined();
+    const abortCall = fakeFetch.mock.calls.find((c) => String(c[0]).endsWith('/api/session/ses_1/abort'));
+    const deleteCall = fakeFetch.mock.calls.find((c) => String(c[0]).endsWith('/api/session/ses_1'));
+    expect(abortCall?.[1]?.method).toBe('POST');
+    expect(deleteCall?.[1]?.method).toBe('DELETE');
+  });
+
+  it('runDevelop cancels a timed-out session before retrying, then succeeds', async () => {
+    fakeFetch.mockReset();
+    const calls: Array<{ method: string; url: string }> = [];
+    let attempts = 0;
+    fakeFetch.mockImplementation(async (url: string, opts: { method?: string }) => {
+      calls.push({ method: opts?.method ?? 'GET', url: String(url) });
+      if (opts?.method === 'POST' && String(url).endsWith('/api/session')) {
+        attempts++;
+        return jsonRes({ data: { id: `ses_${attempts}` } });
+      }
+      if (String(url).includes('/abort')) return jsonRes({});
+      if (opts?.method === 'DELETE') return jsonRes({});
+      if (String(url).includes('/prompt')) return jsonRes({ data: { id: 'msg_1' } });
+      if (String(url).includes('/event')) return emptyStreamRes();
+      if (String(url).includes('/message')) {
+        // First two attempts keep working past the tiny poll budget (timeout);
+        // the third finishes with a PR.
+        if (attempts < 3) {
+          return jsonRes({ data: [{ type: 'assistant', content: [{ type: 'text', text: 'still implementing…' }] }] });
+        }
+        return jsonRes({
+          data: [
+            {
+              type: 'assistant',
+              finish: 'stop',
+              content: [{ type: 'text', text: 'done -> https://github.com/dachrisch/widget/pull/111' }],
+            },
+          ],
+        });
+      }
+      return jsonRes({}, false);
+    });
+
+    const models = [{ id: 'test-model', providerID: 'opencode' }];
+    const text = await runDevelop('do it', () => {}, models, undefined, 50);
+
+    expect(text).toContain('https://github.com/dachrisch/widget/pull/111');
+    // Three sessions were created; the first two were abandoned and cancelled.
+    expect(attempts).toBe(3);
+    const aborts = calls.filter((c) => c.url.endsWith('/abort'));
+    const deletes = calls.filter((c) => c.method === 'DELETE');
+    expect(aborts.map((c) => c.url)).toEqual([
+      'https://code.lehel.xyz/api/session/ses_1/abort',
+      'https://code.lehel.xyz/api/session/ses_2/abort',
+    ]);
+    expect(deletes.map((c) => c.url)).toEqual([
+      'https://code.lehel.xyz/api/session/ses_1',
+      'https://code.lehel.xyz/api/session/ses_2',
+    ]);
+  }, 20_000);
 
   it('pins known-good model tiers including DeepSeek V4 Flash', () => {
     expect(defaultModels()[0]).toEqual({ id: 'mimo-v2.5-free', providerID: 'opencode' });
