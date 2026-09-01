@@ -255,16 +255,33 @@ function nextPage(res: Response): string | null {
   return null;
 }
 
+const MEMBER_CHECK_ATTEMPTS = 3;
+const MEMBER_CHECK_RETRY_DELAY_MS = 500;
+
 // True when the authenticated user is a member of GITHUB_ALLOWED_ORG.
 // Used by the callback (authorization gate) and refresh (revocation re-check).
+// The org list is on the hot path for every mutating request, so transient
+// GitHub failures (rate limiting / 5xx / network blips) are retried with
+// backoff before giving up — a single blip must not knock the board read-only.
 export async function isAllowedMember(token: string, fetchFn: FetchFn = fetch): Promise<boolean> {
-  const orgs = (await ghGet('https://api.github.com/user/orgs', token, fetchFn)) as Array<{ login: string }>;
-  const allowed = ENV.githubAllowedOrg.toLowerCase();
-  const result = orgs.some((o) => o.login.toLowerCase() === allowed);
-  if (!result) {
-    console.error('[isAllowedMember] orgs:', orgs.map((o) => o.login), '| allowed:', allowed);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MEMBER_CHECK_ATTEMPTS; attempt++) {
+    try {
+      const orgs = (await ghGet('https://api.github.com/user/orgs', token, fetchFn)) as Array<{ login: string }>;
+      const allowed = ENV.githubAllowedOrg.toLowerCase();
+      const result = orgs.some((o) => o.login.toLowerCase() === allowed);
+      if (!result) {
+        console.error('[isAllowedMember] orgs:', orgs.map((o) => o.login), '| allowed:', allowed);
+      }
+      return result;
+    } catch (err) {
+      lastError = err;
+      if (attempt < MEMBER_CHECK_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, MEMBER_CHECK_RETRY_DELAY_MS * attempt));
+      }
+    }
   }
-  return result;
+  throw lastError;
 }
 
 // Ingests open issues from all repos the authenticated user can access that

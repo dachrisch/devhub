@@ -3,7 +3,7 @@ import { getIssue, setIssueState } from '@/lib/store';
 import { publishIssue } from '@/lib/sse';
 import { setIssueStateLabels } from '@/lib/github';
 import { canBatchAdvance, getBatchAdvanceTarget } from '@/lib/transitions';
-import { UnauthorizedError, ForbiddenError, requireMember } from '@/lib/auth';
+import { UnauthorizedError, ForbiddenError, GithubUnavailableError, requireMember } from '@/lib/auth';
 import { startValidation } from '@/lib/validate';
 import { canDevelop, startDevelop } from '@/lib/develop';
 
@@ -17,6 +17,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     if (err instanceof UnauthorizedError) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
     if (err instanceof ForbiddenError) return NextResponse.json({ error: 'not a bumbleflies member' }, { status: 403 });
+    if (err instanceof GithubUnavailableError) return NextResponse.json({ error: 'github unavailable, try again' }, { status: 502 });
     return NextResponse.json({ error: 'github auth failed' }, { status: 401 });
   }
 
