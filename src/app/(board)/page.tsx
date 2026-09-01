@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Issue, IssueState } from '@/lib/types';
-import { countRepos, excerpt, matchesIssue, relTime, repoColor } from '@/lib/board-ui';
+import { countRepos, closedReasonLabel, excerpt, matchesIssue, relTime, repoColor } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
@@ -21,6 +21,10 @@ const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'blo
 // Released tickets are shown in a slim strip under the header, capped so the
 // strip stays compact.
 const RELEASED_CAP = 5;
+
+// Similarly-capped strip for issues reconciled to the `closed` terminal state
+// (closed on GitHub outside DevHub's own pipeline).
+const CLOSED_CAP = 5;
 
 // Staleness tier for a card, based on time since last update. Used as a
 // lightweight urgency cue for triaging a crowded backlog.
@@ -589,6 +593,7 @@ export default function BoardPage() {
       )}
 
       <RecentlyReleased issues={issues} />
+      <RecentlyClosed issues={issues} />
 
       {!isMobile && (
         <BoardToolbar
@@ -871,6 +876,40 @@ function RecentlyReleased({ issues }: { issues: Issue[] }) {
       {rolled.length > RELEASED_CAP && (
         <button className="released-toggle" onClick={() => setExpanded((e) => !e)}>
           {expanded ? 'Collapse' : `+${rolled.length - RELEASED_CAP} more`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function RecentlyClosed({ issues }: { issues: Issue[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const closed = useMemo(
+    () =>
+      issues
+        .filter((i) => i.state === 'closed')
+        .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')),
+    [issues]
+  );
+  if (closed.length === 0) return null;
+  const visible = expanded ? closed : closed.slice(0, CLOSED_CAP);
+  return (
+    <div className="closed-strip">
+      <span className="released-label">Closed</span>
+      <div className="released-list">
+        {visible.map((issue) => (
+          <Link key={issue.id} href={`/issues/${issue.id}`} className="released-item">
+            <span className="released-tag">{closedReasonLabel(issue.stateReason)}</span>
+            <span className="released-title">
+              {issue.owner}/{issue.repo} #{issue.number}: {issue.title}
+            </span>
+            <span className="released-time">{relTime(issue.updatedAt)}</span>
+          </Link>
+        ))}
+      </div>
+      {closed.length > CLOSED_CAP && (
+        <button className="released-toggle" onClick={() => setExpanded((e) => !e)}>
+          {expanded ? 'Collapse' : `+${closed.length - CLOSED_CAP} more`}
         </button>
       )}
     </div>

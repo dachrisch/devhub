@@ -1,5 +1,5 @@
 import { ENV } from './env';
-import { deleteIssueByGithub, getIssueByGithub, getIssues, setLinkedPrUrl, setRollout, upsertIssue } from './store';
+import { appendEvent, deleteIssueByGithub, getIssueByGithub, getIssues, reopenIssue, setClosed, setLinkedPrUrl, setRollout, upsertIssue } from './store';
 import { publishIssue } from './sse';
 import type { IssueState } from './types';
 
@@ -12,6 +12,7 @@ export const STATE_LABELS: Record<IssueState, string> = {
   pr: 'devhub:pr',
   rollout: 'devhub:rollout',
   blocked: 'devhub:blocked',
+  closed: 'devhub:closed',
 };
 
 function ghHeaders(token: string): Record<string, string> {
@@ -163,10 +164,11 @@ async function findReleaseTag(
 }
 
 // Polls GitHub for the "PR merged + release tag cut" signal and advances
-// `pr` cards to the terminal `rollout` state automatically. Returns the number
-// of cards moved. Runs as part of refresh; failures leave cards in `pr`.
+// `pr` cards (and `closed` cards still carrying a PR — e.g. reconciled before
+// the tag was cut) to the terminal `rollout` state automatically. Returns the
+// number of cards moved. Runs as part of refresh; failures leave cards put.
 export async function sweepRollouts(token: string, fetchFn: FetchFn = fetch): Promise<number> {
-  const candidates = getIssues().filter((i) => i.state === 'pr');
+  const candidates = getIssues().filter((i) => i.state === 'pr' || i.state === 'closed');
   let rolledOut = 0;
   for (const issue of candidates) {
     const prNumber = prNumberFromUrl(issue.resultPrUrl) ?? prNumberFromUrl(issue.linkedPrUrl);
@@ -194,6 +196,67 @@ export async function sweepRollouts(token: string, fetchFn: FetchFn = fetch): Pr
     }
   }
   return rolledOut;
+}
+
+// States re-checked against GitHub on every refresh. `developing` is left to
+// the live run and `rollout` is DevHub's own terminal pipeline state; every
+// other card gets reconciled so GitHub-closed issues stop accumulating.
+// `closed` is included so a card GitHub reopened can move back onto the board.
+const RECONCILE_STATES = ['backlog', 'refinement', 'pr', 'blocked', 'closed'] as const;
+
+// Catch-up reconciliation: the ingest loop only fetches `state=open` issues,
+// so an issue closed outside DevHub's pipeline (manually, duplicate/wontfix,
+// fixed by hand, or even auto-closed by a merge before the rollout sweep saw
+// the tag) would otherwise sit on the board forever. For every locally-tracked
+// non-terminal card, checks the current GitHub state and:
+//   - closed on GitHub → move to the `closed` terminal state (recording why),
+//   - open on GitHub but reconciled `closed` → reopen into `backlog`.
+// Runs after sweepRollouts so merged+tagged PRs become `rollout` first.
+// Returns the number of cards reconciled.
+export async function reconcileClosedIssues(token: string, fetchFn: FetchFn = fetch): Promise<number> {
+  const candidates = getIssues().filter((i) => (RECONCILE_STATES as readonly string[]).includes(i.state));
+  let reconciled = 0;
+  for (const issue of candidates) {
+    try {
+      const detail = await ghGetJson<{ state?: string; state_reason?: string | null }>(
+        `https://api.github.com/repos/${issue.owner}/${issue.repo}/issues/${issue.number}`,
+        token,
+        fetchFn
+      );
+      // Only trust explicit open/closed answers; anything else (malformed,
+      // transient, or an endpoint that didn't return the issue) is left alone.
+      if (detail.state !== 'open' && detail.state !== 'closed') continue;
+      if (detail.state === 'open') {
+        if (issue.state === 'closed') {
+          const reopened = reopenIssue(issue.id);
+          if (!reopened) continue;
+          publishIssue(reopened);
+          appendEvent(issue.id, 'reopened', {});
+          reconciled++;
+          try {
+            await setIssueStateLabels(issue.owner, issue.repo, issue.number, 'backlog', token, fetchFn);
+          } catch {
+            // label mirroring is best-effort
+          }
+        }
+        continue;
+      }
+      if (issue.state === 'closed') continue; // already reconciled
+      const updated = setClosed(issue.id, detail.state_reason ?? null);
+      if (!updated) continue;
+      publishIssue(updated);
+      appendEvent(issue.id, 'closed', { reason: detail.state_reason ?? null });
+      reconciled++;
+      try {
+        await setIssueStateLabels(issue.owner, issue.repo, issue.number, 'closed', token, fetchFn);
+      } catch {
+        // label mirroring is best-effort
+      }
+    } catch {
+      // transient API failure: leave the card for the next pass
+    }
+  }
+  return reconciled;
 }
 
 interface GhSearchIssue {
@@ -285,9 +348,10 @@ export async function isAllowedMember(token: string, fetchFn: FetchFn = fetch): 
 }
 
 // Ingests open issues from all repos the authenticated user can access that
-// match GITHUB_TOPICS, then advances merged+tagged PRs to `rollout`. The token
-// comes from the session — never from env.
-export async function refreshIssues(token: string, fetchFn: FetchFn = fetch): Promise<{ repos: number; issues: number; rolledOut: number }> {
+// match GITHUB_TOPICS, advances merged+tagged PRs to `rollout`, and reconciles
+// cards whose issue has since been closed on GitHub. The token comes from the
+// session — never from env.
+export async function refreshIssues(token: string, fetchFn: FetchFn = fetch): Promise<{ repos: number; issues: number; rolledOut: number; closed: number }> {
   const repos = (await ghGet('https://api.github.com/user/repos', token, fetchFn)) as GhRepo[];
   const matchingRepos = repos.filter((repo) => repoMatchesTopics(repo.topics, ENV.githubTopics));
 
@@ -320,5 +384,6 @@ export async function refreshIssues(token: string, fetchFn: FetchFn = fetch): Pr
   }
 
   const rolledOut = await sweepRollouts(token, fetchFn);
-  return { repos: matchingRepos.length, issues: issueCount, rolledOut };
+  const closed = await reconcileClosedIssues(token, fetchFn);
+  return { repos: matchingRepos.length, issues: issueCount, rolledOut, closed };
 }

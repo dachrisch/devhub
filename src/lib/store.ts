@@ -93,6 +93,9 @@ function migrate(database: Database.Database): void {
   if (!hasColumn('released_at')) {
     database.exec(`ALTER TABLE issues ADD COLUMN released_at TEXT`);
   }
+  if (!hasColumn('state_reason')) {
+    database.exec(`ALTER TABLE issues ADD COLUMN state_reason TEXT`);
+  }
 }
 
 export interface UpsertIssueInput {
@@ -105,8 +108,10 @@ export interface UpsertIssueInput {
   htmlUrl: string;
 }
 
-// Insert as backlog, or refresh metadata only when the row is still in backlog.
-// Rows already developing / pr / blocked are never clobbered.
+// Insert as backlog, or refresh metadata only when the row is still in backlog
+// (or was reconciled to `closed` — a reopened issue must pick up fresh
+// metadata so the reconcile pass can move it back to the active board).
+// Rows already developing / pr / blocked / rollout are never clobbered.
 export function upsertIssue(input: UpsertIssueInput): void {
   getDb()
     .prepare(
@@ -118,7 +123,7 @@ export function upsertIssue(input: UpsertIssueInput): void {
          body = excluded.body,
          html_url = excluded.html_url,
          updated_at = datetime('now')
-       WHERE state = 'backlog'`
+       WHERE state = 'backlog' OR state = 'closed'`
     )
     .run(input);
 }
@@ -192,6 +197,29 @@ export function setRollout(id: number, releaseTag: string): Issue | null {
       `UPDATE issues SET state = 'rollout', release_tag = ?, released_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
     )
     .run(releaseTag, id);
+  return getIssue(id);
+}
+
+// Terminal state for issues closed on GitHub outside DevHub's own pipeline
+// (manually, duplicate/wontfix, fixed by hand). `reason` is GitHub's
+// `state_reason` (e.g. "completed", "not_planned", "reopened").
+export function setClosed(id: number, reason: string | null): Issue | null {
+  getDb()
+    .prepare(
+      `UPDATE issues SET state = 'closed', state_reason = ?, updated_at = datetime('now') WHERE id = ?`
+    )
+    .run(reason, id);
+  return getIssue(id);
+}
+
+// Re-admits a card that GitHub reopened (the issue is open again): back to
+// backlog, clearing the closure metadata.
+export function reopenIssue(id: number): Issue | null {
+  getDb()
+    .prepare(
+      `UPDATE issues SET state = 'backlog', state_reason = NULL, session_id = NULL, updated_at = datetime('now') WHERE id = ?`
+    )
+    .run(id);
   return getIssue(id);
 }
 

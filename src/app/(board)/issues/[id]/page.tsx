@@ -90,7 +90,7 @@ export default function RecapPage() {
     );
   }
 
-  const done = issue.state === 'pr' || issue.state === 'rollout' || issue.state === 'blocked';
+  const done = issue.state === 'pr' || issue.state === 'rollout' || issue.state === 'blocked' || issue.state === 'closed';
   // Strip tool calls / reasoning / keepalives and collapse consecutive
   // identical opencode events so the recap reads as a digest.
   const feed = condense(events.filter((e) => (e.kind === 'opencode' ? !isNoise(e.payload) : true)));
@@ -142,7 +142,9 @@ export default function RecapPage() {
               ? 'Done — pull request opened'
               : issue.state === 'rollout'
                 ? 'Done — released'
-                : 'Blocked'}
+                : issue.state === 'closed'
+                  ? 'Done — closed'
+                  : 'Blocked'}
           </h3>
           {modelEvent && <p className="recap-model">Model: {modelLabel(modelEvent.payload)}</p>}
           {issue.resultPrUrl && (
@@ -153,6 +155,11 @@ export default function RecapPage() {
           {issue.releaseTag && (
             <p>
               Released in <span className="release-tag">{issue.releaseTag}</span>
+            </p>
+          )}
+          {issue.state === 'closed' && issue.stateReason && (
+            <p>
+              Closed on GitHub as <span className="release-tag">{issue.stateReason}</span>
             </p>
           )}
           {issue.resultText && <pre className="recap-text">{issue.resultText}</pre>}
