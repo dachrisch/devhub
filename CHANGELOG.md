@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.2](https://github.com/dachrisch/devhub/compare/v1.14.1...v1.14.2) (2026-09-01)
+
+
+### Bug Fixes
+
+* surface GitHub unavailability as 502 instead of 401 on writes ([#100](https://github.com/dachrisch/devhub/issues/100)) ([b39d7c5](https://github.com/dachrisch/devhub/commit/b39d7c550fff236c4cc23139871af85584294ad0)), closes [#99](https://github.com/dachrisch/devhub/issues/99)
+
 ## [1.14.1](https://github.com/dachrisch/devhub/compare/v1.14.0...v1.14.1) (2026-09-01)
 
 
