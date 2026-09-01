@@ -8,6 +8,10 @@ dist
 devhub.db
 devhub.db-wal
 devhub.db-shm
+.devhub-dev.db
+.devhub-dev.db-wal
+.devhub-dev.db-shm
+.devhub-dev-board.png
 .DS_Store
 test-results
 coverage
