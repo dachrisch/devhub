@@ -148,11 +148,20 @@ export function verifyState(req: Request): boolean {
 }
 
 // Re-checks org membership with the session token (used on refresh so revoked
-// membership takes effect promptly). Throws on non-member / GitHub error.
+// membership takes effect promptly). Throws UnauthorizedError (no session),
+// ForbiddenError (not a member), or GithubUnavailableError (GitHub API/network
+// failure — transient, not an auth problem; the caller should surface a retry).
 export async function requireMember(req: Request): Promise<SessionUser> {
   const session = getSession(req);
   if (!session) throw new UnauthorizedError('not signed in');
-  if (!(await isAllowedMember(session.token))) {
+  let allowed: boolean;
+  try {
+    allowed = await isAllowedMember(session.token);
+  } catch (err) {
+    console.error('[requireMember] GitHub org check failed:', err instanceof Error ? err.message : err);
+    throw new GithubUnavailableError('github org check unavailable');
+  }
+  if (!allowed) {
     deleteAuthSession(session.id);
     throw new ForbiddenError('not a member');
   }
@@ -161,5 +170,6 @@ export async function requireMember(req: Request): Promise<SessionUser> {
 
 export class UnauthorizedError extends Error {}
 export class ForbiddenError extends Error {}
+export class GithubUnavailableError extends Error {}
 
 export type { AuthSession };

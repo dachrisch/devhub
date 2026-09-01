@@ -225,6 +225,24 @@ describe('isAllowedMember', () => {
     }) as unknown as typeof fetch;
     expect(await isAllowedMember('token-abc', fetchFn)).toBe(false);
   });
+
+  it('retries a transient GitHub failure before giving up', async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls++;
+      if (calls === 1) throw new Error('TLS handshake timeout');
+      return ghResponse([{ login: 'bumbleflies' }])();
+    }) as unknown as typeof fetch;
+    expect(await isAllowedMember('token-abc', fetchFn)).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it('throws when the org check keeps failing', async () => {
+    const fetchFn = (async () => {
+      throw new Error('GitHub request failed (500): https://api.github.com/user/orgs');
+    }) as unknown as typeof fetch;
+    await expect(isAllowedMember('token-abc', fetchFn)).rejects.toThrow('GitHub request failed (500)');
+  });
 });
 
 describe('github mirroring', () => {

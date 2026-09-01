@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { appendAction, setActionStatus, getAction, getActions, appendSessionId } from '@/lib/store';
-import { UnauthorizedError, ForbiddenError, requireMember } from '@/lib/auth';
+import { UnauthorizedError, ForbiddenError, GithubUnavailableError, requireMember } from '@/lib/auth';
 import { classifyInput } from '@/lib/router';
 import { getByAction } from '@/lib/skills';
 import { resolveModels } from '@/lib/opencode';
@@ -16,6 +16,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     if (err instanceof UnauthorizedError) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
     if (err instanceof ForbiddenError) return NextResponse.json({ error: 'not a bumbleflies member' }, { status: 403 });
+    if (err instanceof GithubUnavailableError) return NextResponse.json({ error: 'github unavailable, try again' }, { status: 502 });
     return NextResponse.json({ error: 'github auth failed' }, { status: 401 });
   }
 
@@ -44,6 +45,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     if (err instanceof UnauthorizedError) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
     if (err instanceof ForbiddenError) return NextResponse.json({ error: 'not a bumbleflies member' }, { status: 403 });
+    if (err instanceof GithubUnavailableError) return NextResponse.json({ error: 'github unavailable, try again' }, { status: 502 });
     return NextResponse.json({ error: 'github auth failed' }, { status: 401 });
   }
 
