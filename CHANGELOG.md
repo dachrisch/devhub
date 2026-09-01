@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.0](https://github.com/dachrisch/devhub/compare/v1.13.1...v1.14.0) (2026-09-01)
+
+
+### Features
+
+* headless dev harness — mocked GitHub, seeded data, Chrome check + skill ([#90](https://github.com/dachrisch/devhub/issues/90)) ([3e261cc](https://github.com/dachrisch/devhub/commit/3e261cc7cbc7f2286e3ba3dcb83905d736dff962))
+
 ## [1.13.1](https://github.com/dachrisch/devhub/compare/v1.13.0...v1.13.1) (2026-08-31)
 
 
