@@ -87,6 +87,7 @@ export default function BoardPage() {
 
   // Cockpit input bar
   const [actionInput, setActionInput] = useState('');
+  const [cockpitOpen, setCockpitOpen] = useState(false);
   const [actionHistory, setActionHistory] = useState<{id: number; input: string; status: string}[]>([]);
 
   const toggleSelection = useCallback((issueId: number) => {
@@ -558,72 +559,48 @@ export default function BoardPage() {
         </div>
       )}
 
-      <div style={{ padding: '0 16px 12px' }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            type="text"
-            value={actionInput}
-            onChange={(e) => setActionInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && submitAction()}
-            placeholder='Tell me what you want... (e.g. "Launch a new API", "Fix issue #42")'
-            style={{
-              flex: 1, padding: '10px 14px', borderRadius: 8,
-              border: '1px solid var(--border)', background: 'var(--surface)',
-              color: 'var(--text)', fontSize: 14, outline: 'none',
-            }}
-          />
-          <button
-            onClick={submitAction}
-            style={{
-              padding: '10px 20px', borderRadius: 8, border: 'none',
-              background: 'var(--accent)', color: '#fff', fontWeight: 600,
-              cursor: 'pointer', fontSize: 14,
-            }}
-          >
-            Go
-          </button>
+      {!isMobile && (
+        <div style={{ padding: '0 16px 12px' }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="text"
+              value={actionInput}
+              onChange={(e) => setActionInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submitAction()}
+              placeholder='Tell me what you want... (e.g. "Launch a new API", "Fix issue #42")'
+              style={{
+                flex: 1, padding: '10px 14px', borderRadius: 8,
+                border: '1px solid var(--border)', background: 'var(--surface)',
+                color: 'var(--text)', fontSize: 14, outline: 'none',
+              }}
+            />
+            <button
+              onClick={submitAction}
+              style={{
+                padding: '10px 20px', borderRadius: 8, border: 'none',
+                background: 'var(--accent)', color: '#fff', fontWeight: 600,
+                cursor: 'pointer', fontSize: 14,
+              }}
+            >
+              Go
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <RecentlyReleased issues={issues} />
 
-      <div className="board-toolbar">
-        {repos.length > 1 && (
-          <div className="repo-chips" role="group" aria-label="Filter by repo">
-            <button
-              className={`repo-chip${repoFilter === null ? ' active' : ''}`}
-              onClick={() => setRepoFilter(null)}
-            >
-              All
-            </button>
-            {repos.map((r) => {
-              const color = repoColor(r);
-              return (
-                <button
-                  key={r}
-                  className={`repo-chip${repoFilter === r ? ' active' : ''}`}
-                  onClick={() => setRepoFilter(repoFilter === r ? null : r)}
-                  style={{ '--chip-color': color } as React.CSSProperties}
-                >
-                  <span className="repo-chip-dot" />
-                  {r}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        <div className="toolbar-actions">
-          {lastRefreshed && (
-            <span className="last-refreshed">Last refreshed {fmtTime(lastRefreshed)}</span>
-          )}
-          <button className="refresh-btn" onClick={refresh} disabled={refreshing} aria-label="Refresh issues">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={refreshing ? 'spin' : ''}>
-              <path d="M8 2.5a5.487 5.487 0 00-4.131 1.869l1.204 1.204A.25.25 0 014.896 6H1.25A.25.25 0 011 5.75V2.104a.25.25 0 01.427-.177l1.38 1.38A7.001 7.001 0 0114.95 7.16a.75.75 0 01-1.49.178A5.501 5.501 0 008 2.5zM1.705 8.005a.75.75 0 01.834.656 5.501 5.501 0 009.592 2.97l-1.204-1.204a.25.25 0 01.177-.427h3.646a.25.25 0 01.25.25v3.646a.25.25 0 01-.427.177l-1.38-1.38A7.001 7.001 0 011.05 8.84a.75.75 0 01.656-.834z"/>
-            </svg>
-            {refreshing ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
-      </div>
+      {!isMobile && (
+        <BoardToolbar
+          repos={repos}
+          repoFilter={repoFilter}
+          onRepoFilterChange={setRepoFilter}
+          lastRefreshed={lastRefreshed}
+          refreshing={refreshing}
+          onRefresh={refresh}
+          showLastRefreshed
+        />
+      )}
 
       {isMobile && (
         <MobileStatusStrip
@@ -637,6 +614,19 @@ export default function BoardPage() {
       )}
 
       <div className="board" ref={boardRef}>
+        {/* On mobile the toolbar lives inside the scroll container so it scrolls
+            away with the board instead of eating into the fixed chrome. */}
+        {isMobile && (
+          <BoardToolbar
+            repos={repos}
+            repoFilter={repoFilter}
+            onRepoFilterChange={setRepoFilter}
+            lastRefreshed={lastRefreshed}
+            refreshing={refreshing}
+            onRefresh={refresh}
+            showLastRefreshed={false}
+          />
+        )}
         {/* Mobile renders a single column (the active tab); desktop shows all
             five columns side by side with scroll-sync to the status strip. */}
         {(isMobile ? [activeColumn] : COLUMNS).map((col) => {
@@ -735,7 +725,120 @@ export default function BoardPage() {
           onClose={() => setSearchSheetOpen(false)}
         />
       )}
+
+      {/* Mobile: the cockpit collapses to a FAB + bottom sheet so the input
+          bar doesn't consume fixed chrome above the first card. */}
+      {isMobile && (
+        <button
+          className="cockpit-fab"
+          onClick={() => setCockpitOpen(true)}
+          aria-label="Open command input"
+        >
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M2.5 4l4 4-4 4" />
+            <path d="M8.5 12h5" />
+          </svg>
+        </button>
+      )}
+
+      {cockpitOpen && isMobile && (
+        <div className="cockpit-backdrop" onClick={() => setCockpitOpen(false)}>
+          <div
+            className="cockpit-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Command input"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="card-sheet-handle" />
+            <form
+              className="cockpit-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void submitAction();
+                setCockpitOpen(false);
+              }}
+            >
+              <input
+                className="cockpit-input"
+                type="text"
+                value={actionInput}
+                onChange={(e) => setActionInput(e.target.value)}
+                placeholder='Tell me what you want…'
+                autoFocus
+              />
+              <button type="submit" className="cockpit-go" disabled={!actionInput.trim()}>
+                Go
+              </button>
+            </form>
+            <div className="cockpit-hint">e.g. “Launch a new API”, “Fix issue #42”</div>
+          </div>
+        </div>
+      )}
       </main>
+    </div>
+  );
+}
+
+interface BoardToolbarProps {
+  repos: string[];
+  repoFilter: string | null;
+  onRepoFilterChange: (repo: string | null) => void;
+  lastRefreshed: Date | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+  showLastRefreshed: boolean;
+}
+
+// Repo filter chips + manual refresh. On desktop it sits above the board;
+// on mobile it renders inside the scroll container (see BoardPage) and the
+// "Last refreshed" stamp is dropped — SSE live updates make it redundant.
+function BoardToolbar({
+  repos,
+  repoFilter,
+  onRepoFilterChange,
+  lastRefreshed,
+  refreshing,
+  onRefresh,
+  showLastRefreshed,
+}: BoardToolbarProps) {
+  return (
+    <div className="board-toolbar">
+      {repos.length > 1 && (
+        <div className="repo-chips" role="group" aria-label="Filter by repo">
+          <button
+            className={`repo-chip${repoFilter === null ? ' active' : ''}`}
+            onClick={() => onRepoFilterChange(null)}
+          >
+            All
+          </button>
+          {repos.map((r) => {
+            const color = repoColor(r);
+            return (
+              <button
+                key={r}
+                className={`repo-chip${repoFilter === r ? ' active' : ''}`}
+                onClick={() => onRepoFilterChange(repoFilter === r ? null : r)}
+                style={{ '--chip-color': color } as React.CSSProperties}
+              >
+                <span className="repo-chip-dot" />
+                {r}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className="toolbar-actions">
+        {showLastRefreshed && lastRefreshed && (
+          <span className="last-refreshed">Last refreshed {fmtTime(lastRefreshed)}</span>
+        )}
+        <button className="refresh-btn" onClick={onRefresh} disabled={refreshing} aria-label="Refresh issues">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={refreshing ? 'spin' : ''}>
+            <path d="M8 2.5a5.487 5.487 0 00-4.131 1.869l1.204 1.204A.25.25 0 014.896 6H1.25A.25.25 0 011 5.75V2.104a.25.25 0 01.427-.177l1.38 1.38A7.001 7.001 0 0114.95 7.16a.75.75 0 01-1.49.178A5.501 5.501 0 008 2.5zM1.705 8.005a.75.75 0 01.834.656 5.501 5.501 0 009.592 2.97l-1.204-1.204a.25.25 0 01.177-.427h3.646a.25.25 0 01.25.25v3.646a.25.25 0 01-.427.177l-1.38-1.38A7.001 7.001 0 011.05 8.84a.75.75 0 01.656-.834z"/>
+          </svg>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
     </div>
   );
 }
