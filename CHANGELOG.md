@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.1](https://github.com/dachrisch/devhub/compare/v1.14.0...v1.14.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* **mobile:** cut fixed chrome 362px → 196px before first card ([#97](https://github.com/dachrisch/devhub/issues/97)) ([1e6d14f](https://github.com/dachrisch/devhub/commit/1e6d14fab50fc131a65886a8cd35632721075bcd))
+
 ## [1.14.0](https://github.com/dachrisch/devhub/compare/v1.13.1...v1.14.0) (2026-09-01)
 
 
