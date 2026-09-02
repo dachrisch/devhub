@@ -630,6 +630,94 @@ header h1 {
   white-space: nowrap;
 }
 
+/* Cockpit action status strip: live status for submitted actions plus recent
+   history. Reuses .released-label / .released-toggle for the chrome. */
+.action-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  min-height: 36px;
+}
+
+.action-strip-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.action-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 460px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text);
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.action-item .action-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.action-item.pending .action-dot,
+.action-item.running .action-dot {
+  background: var(--developing);
+  animation: conn-pulse 1s ease-in-out infinite;
+}
+
+.action-item.success .action-dot {
+  background: var(--pr);
+}
+
+.action-item.failed {
+  border-color: rgba(248, 81, 73, 0.4);
+  background: rgba(248, 81, 73, 0.1);
+}
+
+.action-item.failed .action-dot {
+  background: var(--blocked);
+}
+
+.action-item-input {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-item-status {
+  flex: none;
+  color: var(--muted);
+}
+
+.action-item.success .action-item-status {
+  color: var(--pr);
+}
+
+.action-item.failed .action-item-status {
+  color: var(--blocked);
+}
+
+.action-item.running .action-item-status,
+.action-item.pending .action-item-status {
+  color: var(--developing);
+}
+
 .card {
   margin: 10px;
   padding: 14px;
