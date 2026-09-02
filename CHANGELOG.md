@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.5](https://github.com/dachrisch/devhub/compare/v1.15.4...v1.15.5) (2026-09-02)
+
+
+### Bug Fixes
+
+* render error/validation events as readable text in recap feed ([#123](https://github.com/dachrisch/devhub/issues/123)) ([363cfe3](https://github.com/dachrisch/devhub/commit/363cfe327764c701fef4a129e8bfd324e212d0e9))
+
 ## [1.15.4](https://github.com/dachrisch/devhub/compare/v1.15.3...v1.15.4) (2026-09-02)
 
 
