@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { IssueState, ModelOption } from '@/lib/types';
 
 export interface UseCardActionsResult {
   busy: boolean;
+  error: string | null;
   modalOpen: boolean;
   openModal: () => void;
   closeModal: () => void;
@@ -21,9 +22,16 @@ export interface UseCardActionsResult {
 export function useCardActions(issueId: number): UseCardActionsResult {
   const [command, setCommand] = useState('');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState<ModelOption | null>(null);
+
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(null), 8000);
+    return () => clearTimeout(t);
+  }, [error]);
 
   const loadModels = useCallback(async () => {
     try {
@@ -47,6 +55,7 @@ export function useCardActions(issueId: number): UseCardActionsResult {
   const postDevelop = useCallback(
     async (staged: boolean) => {
       setBusy(true);
+      setError(null);
       try {
         const body: { command: string; modelId?: string; providerID?: string; staged?: boolean } = {
           command,
@@ -56,12 +65,23 @@ export function useCardActions(issueId: number): UseCardActionsResult {
           body.modelId = selectedModel.id;
           body.providerID = selectedModel.providerID;
         }
-        await fetch(`/api/issues/${issueId}/develop`, {
+        const res = await fetch(`/api/issues/${issueId}/develop`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
+        if (!res.ok) {
+          let detail = '';
+          try {
+            const data = (await res.json()) as { error?: string };
+            detail = data.error ?? '';
+          } catch { /* non-JSON */ }
+          setError(detail || `develop failed (HTTP ${res.status})`);
+          return;
+        }
         setModalOpen(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setBusy(false);
       }
@@ -75,12 +95,23 @@ export function useCardActions(issueId: number): UseCardActionsResult {
   const transition = useCallback(
     async (target: IssueState) => {
       setBusy(true);
+      setError(null);
       try {
-        await fetch(`/api/issues/${issueId}/transition`, {
+        const res = await fetch(`/api/issues/${issueId}/transition`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ state: target }),
         });
+        if (!res.ok) {
+          let detail = '';
+          try {
+            const data = (await res.json()) as { error?: string };
+            detail = data.error ?? '';
+          } catch { /* non-JSON */ }
+          setError(detail || `transition failed (HTTP ${res.status})`);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setBusy(false);
       }
@@ -90,6 +121,7 @@ export function useCardActions(issueId: number): UseCardActionsResult {
 
   return {
     busy,
+    error,
     modalOpen,
     openModal,
     closeModal,

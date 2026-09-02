@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { ENV } from './env';
-import { createAuthSession, deleteAuthSession, getAuthSession, type AuthSession } from './store';
+import { createAuthSession, deleteAuthSession, getAuthSession, updateSessionToken, type AuthSession } from './store';
 import { isAllowedMember } from './github';
 
 export const SESSION_COOKIE = 'devhub_session';
@@ -15,6 +15,8 @@ export interface AuthUser {
 export interface SessionUser extends AuthUser {
   id: string;
   token: string;
+  refreshToken: string | null;
+  tokenExpiresAt: string | null;
 }
 
 // SQLite datetime('now') format, UTC.
@@ -69,12 +71,20 @@ export function buildLoginUrl(): { url: string; state: string; stateCookie: stri
 
 interface GithubTokenResponse {
   access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
   scope?: string;
   error?: string;
   error_description?: string;
 }
 
-export async function exchangeCode(code: string): Promise<string> {
+export interface ExchangeResult {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresIn: number | null;
+}
+
+export async function exchangeCode(code: string): Promise<ExchangeResult> {
   const res = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: {
@@ -94,7 +104,37 @@ export async function exchangeCode(code: string): Promise<string> {
     throw new Error(`GitHub token exchange error: ${data.error_description ?? data.error ?? 'no token'}`);
   }
   console.log('[exchangeCode] granted scopes:', data.scope);
-  return data.access_token;
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token ?? null,
+    expiresIn: data.expires_in ?? null,
+  };
+}
+
+export async function refreshAccessToken(refreshToken: string): Promise<ExchangeResult> {
+  const res = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      client_id: ENV.githubClientId,
+      client_secret: ENV.githubClientSecret,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    }),
+  });
+  if (!res.ok) throw new Error(`GitHub token refresh failed (${res.status})`);
+  const data = (await res.json()) as GithubTokenResponse;
+  if (!data.access_token) {
+    throw new Error(`GitHub token refresh error: ${data.error_description ?? data.error ?? 'no token'}`);
+  }
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token ?? refreshToken,
+    expiresIn: data.expires_in ?? null,
+  };
 }
 
 interface GithubUser {
@@ -114,11 +154,23 @@ export async function fetchUser(token: string): Promise<AuthUser> {
 }
 
 // Creates a DB-backed session and returns the session cookie (Set-Cookie value).
-export function createSession(token: string, user: AuthUser): { id: string; cookie: string } {
+export function createSession(
+  token: string,
+  user: AuthUser,
+  refreshToken?: string | null,
+  expiresIn?: number | null,
+): { id: string; cookie: string } {
   const id = randomBytes(24).toString('hex');
   const now = sqliteNow();
   const expires = new Date(Date.now() + SESSION_TTL_DAYS * 86400_000).toISOString().slice(0, 19).replace('T', ' ');
-  createAuthSession({ id, token, login: user.login, avatarUrl: user.avatarUrl, createdAt: now, expiresAt: expires });
+  const tokenExpiresAt = expiresIn
+    ? new Date(Date.now() + expiresIn * 1000).toISOString().slice(0, 19).replace('T', ' ')
+    : null;
+  createAuthSession({
+    id, token, login: user.login, avatarUrl: user.avatarUrl,
+    createdAt: now, expiresAt: expires,
+    refreshToken: refreshToken ?? null, tokenExpiresAt,
+  });
   return { id, cookie: sessionCookie(SESSION_COOKIE, id, { maxAgeSeconds: SESSION_TTL_DAYS * 86400, httpOnly: true }) };
 }
 
@@ -130,7 +182,10 @@ export function getSession(req: Request): SessionUser | null {
   if (!id) return null;
   const session = getAuthSession(id);
   if (!session) return null;
-  return { id: session.id, login: session.login, avatarUrl: session.avatarUrl, token: session.token };
+  return {
+    id: session.id, login: session.login, avatarUrl: session.avatarUrl,
+    token: session.token, refreshToken: session.refreshToken, tokenExpiresAt: session.tokenExpiresAt,
+  };
 }
 
 // Deletes the session row for the request's cookie; returns the cookie to clear.
@@ -154,12 +209,53 @@ export function verifyState(req: Request): boolean {
 export async function requireMember(req: Request): Promise<SessionUser> {
   const session = getSession(req);
   if (!session) throw new UnauthorizedError('not signed in');
+
+  // Proactive refresh: if the token is within 5 minutes of expiry, refresh now.
+  if (session.refreshToken && session.tokenExpiresAt) {
+    const expiresAtMs = new Date(session.tokenExpiresAt + 'Z').getTime();
+    if (expiresAtMs - Date.now() < 5 * 60_000) {
+      try {
+        const refreshed = await refreshAccessToken(session.refreshToken);
+        updateSessionToken(session.id, refreshed.accessToken, refreshed.refreshToken, refreshed.refreshToken
+          ? new Date(Date.now() + (refreshed.expiresIn ?? 3600) * 1000).toISOString().slice(0, 19).replace('T', ' ')
+          : null);
+        session.token = refreshed.accessToken;
+        session.refreshToken = refreshed.refreshToken;
+        session.tokenExpiresAt = refreshed.expiresIn
+          ? new Date(Date.now() + refreshed.expiresIn * 1000).toISOString().slice(0, 19).replace('T', ' ')
+          : null;
+        console.log('[requireMember] proactive token refresh succeeded');
+      } catch (err) {
+        console.error('[requireMember] proactive token refresh failed:', err instanceof Error ? err.message : err);
+      }
+    }
+  }
+
   let allowed: boolean;
   try {
     allowed = await isAllowedMember(session.token);
   } catch (err) {
-    console.error('[requireMember] GitHub org check failed:', err instanceof Error ? err.message : err);
-    throw new GithubUnavailableError('github org check unavailable');
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[requireMember] GitHub org check failed:', msg);
+
+    // Reactive refresh: if the error looks like a 401 and we have a refresh
+    // token, try refreshing once before giving up.
+    if (session.refreshToken && /401/.test(msg)) {
+      try {
+        const refreshed = await refreshAccessToken(session.refreshToken);
+        updateSessionToken(session.id, refreshed.accessToken, refreshed.refreshToken, refreshed.refreshToken
+          ? new Date(Date.now() + (refreshed.expiresIn ?? 3600) * 1000).toISOString().slice(0, 19).replace('T', ' ')
+          : null);
+        session.token = refreshed.accessToken;
+        console.log('[requireMember] reactive token refresh succeeded, retrying org check');
+        allowed = await isAllowedMember(session.token);
+      } catch (refreshErr) {
+        console.error('[requireMember] reactive token refresh/retry failed:', refreshErr instanceof Error ? refreshErr.message : refreshErr);
+        throw new GithubUnavailableError('github org check unavailable (token refresh failed)');
+      }
+    } else {
+      throw new GithubUnavailableError('github org check unavailable');
+    }
   }
   if (!allowed) {
     deleteAuthSession(session.id);

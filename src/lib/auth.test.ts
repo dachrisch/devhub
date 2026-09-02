@@ -32,6 +32,8 @@ describe('auth sessions', () => {
       avatarUrl: 'https://avatars.example/u',
       createdAt: '2026-08-30 00:00:00',
       expiresAt: '2099-01-01 00:00:00',
+      refreshToken: null,
+      tokenExpiresAt: null,
     });
     const session = getAuthSession('s1');
     expect(session?.login).toBe('dachrisch');
@@ -51,6 +53,8 @@ describe('auth sessions', () => {
       avatarUrl: null,
       createdAt: '2026-08-30 00:00:00',
       expiresAt: '2099-01-01 00:00:00',
+      refreshToken: null,
+      tokenExpiresAt: null,
     });
     deleteAuthSession('s2');
     expect(getAuthSession('s2')).toBeNull();
@@ -64,6 +68,8 @@ describe('auth sessions', () => {
       avatarUrl: null,
       createdAt: '2020-01-01 00:00:00',
       expiresAt: '2020-01-02 00:00:00',
+      refreshToken: null,
+      tokenExpiresAt: null,
     });
     expect(getAuthSession('s3')).toBeNull();
   });
@@ -78,6 +84,8 @@ describe('requireMember', () => {
       avatarUrl: null,
       createdAt: '2026-08-30 00:00:00',
       expiresAt: '2099-01-01 00:00:00',
+      refreshToken: null,
+      tokenExpiresAt: null,
     });
     vi.mocked(isAllowedMember).mockRejectedValueOnce(
       new Error('GitHub request failed (500): https://api.github.com/user/orgs')
@@ -96,6 +104,8 @@ describe('requireMember', () => {
       avatarUrl: null,
       createdAt: '2026-08-30 00:00:00',
       expiresAt: '2099-01-01 00:00:00',
+      refreshToken: null,
+      tokenExpiresAt: null,
     });
     vi.mocked(isAllowedMember).mockResolvedValueOnce(false);
     const req = new Request('http://localhost/api/issues', {
