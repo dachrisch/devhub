@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import type { Issue, IssueEvent } from '@/lib/types';
+import { relTime } from '@/lib/board-ui';
 import { activityLine, condense, eventSnippet, isNoise } from '@/lib/recap';
 import { useAuth } from '@/components/use-auth';
 import { WelcomeScreen } from '@/components/auth-ui';
@@ -186,7 +187,7 @@ export default function RecapPage() {
         {feed.map((e, idx) => (
           <div className="recap-event" key={`${e.ts}-${idx}`}>
             <span className="recap-event-type">{e.kind === 'opencode' ? activityLine(e.payload) : e.kind === 'model' ? 'Model' : e.kind === 'error' || e.kind === 'validation-error' ? 'Error' : e.kind === 'validation' ? 'Validation' : e.kind}</span>
-            <span className="recap-event-time">{e.ts}</span>
+            <span className="recap-event-time" title={e.ts}>{relTime(e.ts)}</span>
             <div className="recap-event-payload">
               {e.kind === 'opencode'
                 ? eventSnippet(e.payload) || activityLine(e.payload)

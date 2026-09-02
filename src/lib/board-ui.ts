@@ -47,7 +47,10 @@ export function matchesIssue(issue: Issue, query: string): boolean {
 }
 
 export function relTime(iso: string): string {
-  const then = new Date(iso.replace(' ', 'T') + 'Z').getTime();
+  // SQLite stores timestamps as 'YYYY-MM-DD HH:MM:SS' (treated as UTC).
+  // SSE events stamp with toISOString() producing '...T...Z' or '+HH:MM'.
+  // Normalise both to a parseable Date.
+  const then = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').getTime();
   if (Number.isNaN(then)) return '';
   const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
   const units: [number, string][] = [

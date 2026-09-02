@@ -34,7 +34,7 @@ export function MobileCard({ issue, color, busy, onPrimaryAction, onOpenActions 
         {developing && (
           <div className="mobile-card-status">
             <span className="mobile-card-status-dot" />
-            developing… (live via opencode)
+            developing{issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)
           </div>
         )}
       </div>

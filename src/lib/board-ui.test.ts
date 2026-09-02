@@ -29,6 +29,7 @@ function issue(overrides: Partial<Issue> = {}): Issue {
     releaseTag: null,
     releasedAt: null,
     stateReason: null,
+    modelId: null,
     createdAt: '2026-01-01 00:00:00',
     updatedAt: '2026-01-01 00:00:00',
     ...overrides,
@@ -157,6 +158,16 @@ describe('matchesIssue', () => {
 
 describe('relTime', () => {
   it('renders seconds for very recent timestamps', () => {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    expect(relTime(now)).toMatch(/^\d+s ago$/);
+  });
+
+  it('handles ISO 8601 strings from SSE events', () => {
+    const now = new Date().toISOString();
+    expect(relTime(now)).toMatch(/^\d+s ago$/);
+  });
+
+  it('handles SQLite datetime format', () => {
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     expect(relTime(now)).toMatch(/^\d+s ago$/);
   });

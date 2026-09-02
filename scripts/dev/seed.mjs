@@ -33,6 +33,7 @@ const DDL = `
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     release_tag TEXT,
     released_at TEXT,
+    model_id TEXT,
     UNIQUE(owner, repo, number)
   );
   CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -86,7 +87,8 @@ export function seedDevDb(dbPath) {
        title = excluded.title, state = excluded.state,
        session_id = excluded.session_id, result_pr_url = excluded.result_pr_url,
        result_text = excluded.result_text, release_tag = excluded.release_tag,
-       updated_at = datetime('now')`
+       updated_at = datetime('now')
+     WHERE state = 'backlog'`
   );
 
   const count = db.transaction(() => {
