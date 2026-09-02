@@ -13,8 +13,15 @@ const insecureDispatcher: Dispatcher | undefined =
 //   POST /api/session/:id/prompt -> ack ({"data": {"id": "msg_..."}})
 //   GET  /api/session/:id/message -> {"data": [<newest first>]}
 //   GET  /api/session/:id/event   -> SSE of live events
+//   POST /api/session/:id/abort  -> stop a running session (best-effort)
+//   DELETE /api/session/:id      -> delete a session and its data
+//
+// The poll budget is the *entire* wall-clock window one session gets to
+// explore, implement, lint, commit, push and open a PR — measured in tens of
+// minutes, not seconds (see devhub#102). Overridable via
+// OPENCODE_POLL_TIMEOUT_MS for per-deployment tuning.
 const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS = 120_000;
+const POLL_TIMEOUT_MS = ENV.opencodePollTimeoutMs;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1000;
 
@@ -177,6 +184,32 @@ export async function sendPrompt(sessionId: string, text: string): Promise<void>
   }
 }
 
+// Stops an abandoned session so it cannot keep running its tool-call loop
+// (and mutating the shared worktree) after DevHub has given up on it. First
+// aborts the run, then deletes the session and its data so it stops consuming
+// quota. Best-effort: never throws — a 404 (already gone) or transient network
+// failure must not break the retry/failover path.
+export async function cancelSession(sessionId: string): Promise<void> {
+  const attempts: Array<{ method: 'POST' | 'DELETE'; url: string }> = [
+    { method: 'POST', url: `${ENV.opencodeBaseUrl}/api/session/${sessionId}/abort` },
+    { method: 'DELETE', url: `${ENV.opencodeBaseUrl}/api/session/${sessionId}` },
+  ];
+  for (const { method, url } of attempts) {
+    try {
+      const res = await undiciFetch(url, {
+        method,
+        headers: { ...authHeaders() },
+        dispatcher: insecureDispatcher,
+      });
+      // Non-2xx (e.g. 404 for an already-gone session) is fine: the goal is a
+      // stopped session, and it may already be stopped.
+      void res;
+    } catch {
+      // never throw — cancellation is best-effort
+    }
+  }
+}
+
 interface OpencodeMessage {
   type: 'user' | 'assistant';
   finish?: string;
@@ -206,8 +239,8 @@ function lastAssistantText(messages: OpencodeMessage[]): string {
 // `finish` set to a terminal state (stop/error). Returns the assistant text.
 // Used as the authoritative completion signal (the /event SSE runs concurrently
 // for live UI updates).
-export async function pollForFinish(sessionId: string): Promise<{ text: string; finish: string }> {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
+export async function pollForFinish(sessionId: string, timeoutMs: number = POLL_TIMEOUT_MS): Promise<{ text: string; finish: string }> {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const res = await undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/message`, {
       headers: { ...authHeaders() },
@@ -297,23 +330,29 @@ function parseSseBlock(raw: string): OpencodeEvent | null {
 // Orchestrates a full develop run against opencode with model failover and
 // retry/backoff. Resolves with the final assistant message text; throws on
 // unrecoverable failure. `onEvent` receives live opencode events for streaming.
+// Every session DevHub gives up on (timeout or error) is explicitly cancelled
+// before the next attempt, so abandoned agents cannot keep racing the shared
+// worktree or burning quota in the background. `timeoutMs` overrides the
+// module-level poll budget (mainly for tests).
 export async function runDevelop(
   prompt: string,
   onEvent: (event: OpencodeEvent) => void,
   models: OpencodeModel[] = MODEL_TIERS,
-  onSession?: (sessionId: string) => void
+  onSession?: (sessionId: string) => void,
+  timeoutMs?: number
 ): Promise<string> {
   let lastError: unknown;
   for (const model of models) {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      let sessionId: string | null = null;
       try {
-        const sessionId = await createSession(model);
+        sessionId = await createSession(model);
         onSession?.(sessionId);
         const controller = new AbortController();
         const streamDone = streamEvents(sessionId, onEvent, controller.signal);
         try {
           await sendPrompt(sessionId, prompt);
-          const { text } = await pollForFinish(sessionId);
+          const { text } = await pollForFinish(sessionId, timeoutMs);
           controller.abort();
           await streamDone;
           return text;
@@ -322,6 +361,7 @@ export async function runDevelop(
         }
       } catch (err) {
         lastError = err;
+        if (sessionId) await cancelSession(sessionId);
         if (attempt < MAX_ATTEMPTS) {
           await sleep(RETRY_DELAY_MS * 2 ** (attempt - 1));
         }
@@ -360,11 +400,18 @@ export function buildDevelopPrompt(issue: Issue, command: string): string {
   parts.push(
     `## Steps`,
     ``,
-    `### 1. Create an isolated worktree`,
+    `### 1. Set up an isolated worktree`,
+    `A previous attempt may have left the worktree or branch behind — adopt it in place instead of failing or creating duplicates:`,
     `\`\`\`bash`,
     `cd ${repoPath}`,
     `git fetch origin`,
-    `git worktree add .worktrees/${issue.id} -b ${branch}`,
+    `if [ -d ".worktrees/${issue.id}" ]; then`,
+    `  cd .worktrees/${issue.id}`,
+    `  git checkout ${branch} 2>/dev/null || true`,
+    `else`,
+    `  git worktree add .worktrees/${issue.id} -b ${branch}`,
+    `  cd .worktrees/${issue.id}`,
+    `fi`,
     `\`\`\``,
     ``,
     `### 2. Work only inside the worktree`,

@@ -3,6 +3,7 @@ export interface DevhubEnv {
   opencodeApiKey: string;
   opencodeBasicUser: string;
   opencodeBasicPassword: string;
+  opencodePollTimeoutMs: number;
   githubClientId: string;
   githubClientSecret: string;
   githubRedirectUri: string;
@@ -18,6 +19,9 @@ export const ENV: DevhubEnv = {
   opencodeApiKey: process.env.OPENCODE_API_KEY ?? '',
   opencodeBasicUser: process.env.OPENCODE_BASIC_USER ?? 'opencode',
   opencodeBasicPassword: process.env.OPENCODE_BASIC_PASSWORD ?? '',
+  // A full agentic coding+PR run routinely takes 15+ minutes; the old 120s
+  // budget made every real develop run "time out" and churn new sessions.
+  opencodePollTimeoutMs: parsePositiveInt(process.env.OPENCODE_POLL_TIMEOUT_MS, 30 * 60 * 1000),
   githubClientId: process.env.GITHUB_CLIENT_ID ?? '',
   githubClientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
   githubRedirectUri: process.env.GITHUB_REDIRECT_URI ?? 'http://localhost:3000/api/auth/callback',
@@ -30,3 +34,10 @@ export const ENV: DevhubEnv = {
   openWorkspaceRoot: process.env.OPENCODE_WORKSPACE_ROOT ?? '/root/dev',
   dbPath: process.env.DEVHUB_DB ?? './devhub.db',
 };
+
+// Parses an env var as a positive integer (ms); falls back to `fallback`.
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
