@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.1](https://github.com/dachrisch/devhub/compare/v1.15.0...v1.15.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* **mobile:** add scroll affordance to status strip and released strip ([#107](https://github.com/dachrisch/devhub/issues/107)) ([5531fa6](https://github.com/dachrisch/devhub/commit/5531fa6041a74b812c52ba90512ec1fb2340baaa)), closes [#96](https://github.com/dachrisch/devhub/issues/96)
+
 ## [1.15.0](https://github.com/dachrisch/devhub/compare/v1.14.2...v1.15.0) (2026-09-02)
 
 
