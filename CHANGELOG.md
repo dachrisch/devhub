@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.8](https://github.com/dachrisch/devhub/compare/v1.15.7...v1.15.8) (2026-09-02)
+
+
+### Bug Fixes
+
+* detect already-resolved issues after develop + sync blocked labels ([#130](https://github.com/dachrisch/devhub/issues/130)) ([5ae4fd5](https://github.com/dachrisch/devhub/commit/5ae4fd5594717229488fe67a7c22522669daa593)), closes [#129](https://github.com/dachrisch/devhub/issues/129)
+
 ## [1.15.7](https://github.com/dachrisch/devhub/compare/v1.15.6...v1.15.7) (2026-09-02)
 
 
