@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.2](https://github.com/dachrisch/devhub/compare/v1.15.1...v1.15.2) (2026-09-02)
+
+
+### Bug Fixes
+
+* **mobile:** raise tap targets to 44px minimum ([#109](https://github.com/dachrisch/devhub/issues/109)) ([70ffd02](https://github.com/dachrisch/devhub/commit/70ffd025836c33baca8759288cb0e7d421676af1))
+
 ## [1.15.1](https://github.com/dachrisch/devhub/compare/v1.15.0...v1.15.1) (2026-09-02)
 
 
