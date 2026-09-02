@@ -21,6 +21,16 @@ function modelLabel(payload: unknown): string {
   return provider ? `${id} (${provider})` : id;
 }
 
+function validationLabel(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return '';
+  const p = payload as { status?: unknown; ready?: unknown; summary?: unknown };
+  const status = typeof p.status === 'string' ? p.status : '';
+  if (status === 'started') return 'Validation started';
+  const ready = p.ready === true;
+  const summary = typeof p.summary === 'string' ? p.summary : '';
+  return summary ? `Validation ${ready ? 'passed' : 'failed'}: ${summary}` : `Validation ${ready ? 'passed' : 'failed'}`;
+}
+
 export default function RecapPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
@@ -93,7 +103,11 @@ export default function RecapPage() {
   const done = issue.state === 'pr' || issue.state === 'rollout' || issue.state === 'blocked' || issue.state === 'closed';
   // Strip tool calls / reasoning / keepalives and collapse consecutive
   // identical opencode events so the recap reads as a digest.
-  const feed = condense(events.filter((e) => (e.kind === 'opencode' ? !isNoise(e.payload) : true)));
+  const feed = condense(events.filter((e) => {
+    if (e.kind === 'validation-event') return false;
+    if (e.kind === 'opencode') return !isNoise(e.payload);
+    return true;
+  }));
   const latest = feed.find((e) => e.kind === 'opencode');
   const modelEvent = events.find((e) => e.kind === 'model');
 
@@ -171,14 +185,18 @@ export default function RecapPage() {
         {feed.length === 0 && <p className="muted">No meaningful activity yet.</p>}
         {feed.map((e, idx) => (
           <div className="recap-event" key={`${e.ts}-${idx}`}>
-            <span className="recap-event-type">{e.kind === 'opencode' ? activityLine(e.payload) : e.kind === 'model' ? 'Model' : e.kind}</span>
+            <span className="recap-event-type">{e.kind === 'opencode' ? activityLine(e.payload) : e.kind === 'model' ? 'Model' : e.kind === 'error' || e.kind === 'validation-error' ? 'Error' : e.kind === 'validation' ? 'Validation' : e.kind}</span>
             <span className="recap-event-time">{e.ts}</span>
             <div className="recap-event-payload">
               {e.kind === 'opencode'
                 ? eventSnippet(e.payload) || activityLine(e.payload)
                 : e.kind === 'model'
                   ? modelLabel(e.payload)
-                  : JSON.stringify(e.payload).slice(0, 200)}
+                  : e.kind === 'error' || e.kind === 'validation-error'
+                    ? (typeof e.payload === 'object' && e.payload !== null && 'message' in e.payload ? String((e.payload as { message: unknown }).message) : JSON.stringify(e.payload).slice(0, 200))
+                    : e.kind === 'validation'
+                      ? validationLabel(e.payload)
+                      : JSON.stringify(e.payload).slice(0, 200)}
             </div>
           </div>
         ))}
