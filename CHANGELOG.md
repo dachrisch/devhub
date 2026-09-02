@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.15.0](https://github.com/dachrisch/devhub/compare/v1.14.2...v1.15.0) (2026-09-02)
+
+
+### Features
+
+* **board:** reconcile issues closed on GitHub outside DevHub's pipeline ([#105](https://github.com/dachrisch/devhub/issues/105)) ([45581c7](https://github.com/dachrisch/devhub/commit/45581c72c995272828d86bb768541fdb13ec5615))
+
+
+### Bug Fixes
+
+* **develop:** give opencode sessions a real poll budget and cancel abandoned ones ([#104](https://github.com/dachrisch/devhub/issues/104)) ([62aed65](https://github.com/dachrisch/devhub/commit/62aed6505b4884f69291ebd810e40905e84a2f16))
+
 ## [1.14.2](https://github.com/dachrisch/devhub/compare/v1.14.1...v1.14.2) (2026-09-01)
 
 
