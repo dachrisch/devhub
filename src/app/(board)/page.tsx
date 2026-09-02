@@ -15,6 +15,14 @@ import { CardActionsSheet } from '@/components/board/card-actions-sheet';
 import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
 import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
 import type { CardActionId } from '@/lib/board-ui';
+import {
+  ActionStatusStrip,
+  actionFromApi,
+  isTerminalActionStatus,
+  mergeAction,
+  type ApiActionRow,
+  type CockpitAction,
+} from '@/components/board/action-status-strip';
 
 const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'blocked'];
 
@@ -92,7 +100,13 @@ export default function BoardPage() {
   // Cockpit input bar
   const [actionInput, setActionInput] = useState('');
   const [cockpitOpen, setCockpitOpen] = useState(false);
-  const [actionHistory, setActionHistory] = useState<{id: number; input: string; status: string}[]>([]);
+  // Recent cockpit actions with live status: hydrated from GET /api/action on
+  // load, updated by `type:'action'` SSE broadcasts, and drilled into
+  // GET /api/action/[id] for summary/duration when we lack the row.
+  const [actions, setActions] = useState<CockpitAction[]>([]);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const knownActionIdsRef = useRef<Set<number>>(new Set());
+  const actionDetailFetchedRef = useRef<Set<string>>(new Set());
 
   const toggleSelection = useCallback((issueId: number) => {
     setSelectedIds((prev) => {
@@ -128,6 +142,54 @@ export default function BoardPage() {
     });
   }, []);
 
+  // Drill into GET /api/action/[id] for the full row (input text, stored
+  // summary, duration). Used when an SSE broadcast references an action this
+  // client doesn't know, and when an action finishes so the broadcast's terse
+  // detail can be upgraded to the stored summary.
+  const hydrateAction = useCallback(async (actionId: number) => {
+    try {
+      const res = await fetch(`/api/action/${actionId}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { action?: ApiActionRow };
+      const row = data.action;
+      if (!row || typeof row.id !== 'number') return;
+      setActions((prev) => {
+        const idx = prev.findIndex((a) => a.id === row.id);
+        if (idx === -1) return prev;
+        const next = prev.slice();
+        next[idx] = mergeAction(next[idx], row);
+        return next;
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Recent action history so past cockpit runs are discoverable on load.
+  useEffect(() => {
+    if (!signedIn) return;
+    let active = true;
+    fetch('/api/action?limit=20')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { actions?: ApiActionRow[] } | null) => {
+        const rows = data?.actions;
+        if (!active || !rows) return;
+        knownActionIdsRef.current = new Set(rows.map((a) => a.id));
+        setActions((prev) => {
+          const byId = new Map(prev.map((a) => [a.id, a] as const));
+          for (const row of rows) {
+            const existing = byId.get(row.id);
+            byId.set(row.id, existing ? mergeAction(existing, row) : actionFromApi(row));
+          }
+          return Array.from(byId.values()).sort((a, b) => b.id - a.id);
+        });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [signedIn]);
+
   useEffect(() => {
     if (!signedIn) return;
     let active = true;
@@ -157,6 +219,36 @@ export default function BoardPage() {
             if (issue.state === 'pr' || issue.state === 'blocked') notifyStateChange(issue);
           }
           upsert(issue);
+        } else if (msg.type === 'action') {
+          const actionId = Number(msg.actionId);
+          const status = String(msg.status);
+          const detail = typeof msg.detail === 'string' ? msg.detail : null;
+          if (!Number.isInteger(actionId) || actionId <= 0) return;
+          const known = knownActionIdsRef.current.has(actionId);
+          knownActionIdsRef.current.add(actionId);
+          setActions((prev) => {
+            const idx = prev.findIndex((a) => a.id === actionId);
+            if (idx === -1) {
+              return [{ id: actionId, input: `Action #${actionId}`, status, detail, durationMs: null }, ...prev];
+            }
+            const next = prev.slice();
+            const current = next[idx];
+            next[idx] = {
+              ...current,
+              status,
+              detail: detail ?? current.detail,
+              durationMs: isTerminalActionStatus(status) ? null : current.durationMs,
+            };
+            return next;
+          });
+          // Fetch the stored row when we don't know the action (fills the
+          // input text) or when it finishes (fills summary + duration).
+          const phase = isTerminalActionStatus(status) ? 'final' : 'initial';
+          const key = `${actionId}:${phase}`;
+          if ((!known || phase === 'final') && !actionDetailFetchedRef.current.has(key)) {
+            actionDetailFetchedRef.current.add(key);
+            void hydrateAction(actionId);
+          }
         }
       } catch {
         // ignore malformed
@@ -166,7 +258,7 @@ export default function BoardPage() {
       active = false;
       es.close();
     };
-  }, [signedIn, upsert]);
+  }, [signedIn, upsert, hydrateAction]);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -182,25 +274,46 @@ export default function BoardPage() {
   }, [refreshError]);
 
   useEffect(() => {
+    if (!actionError) return;
+    const t = setTimeout(() => setActionError(null), 8000);
+    return () => clearTimeout(t);
+  }, [actionError]);
+
+  useEffect(() => {
     return () => {
       if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
     };
   }, []);
 
   const submitAction = useCallback(async () => {
-    if (!actionInput.trim()) return;
+    const input = actionInput.trim();
+    if (!input) return;
     try {
       const res = await fetch('/api/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: actionInput }),
+        body: JSON.stringify({ input }),
       });
-      const data = await res.json();
-      if (data.ok) {
-        setActionHistory((prev) => [{ id: data.actionId, input: actionInput, status: 'pending' }, ...prev]);
-        setActionInput('');
+      const data = (await res.json().catch(() => null)) as
+        | { ok?: boolean; actionId?: number; error?: string }
+        | null;
+      if (!res.ok || !data?.ok || typeof data.actionId !== 'number') {
+        setActionError(data?.error ?? `action failed (HTTP ${res.status})`);
+        return;
       }
-    } catch { /* ignore */ }
+      // Optimistically surface the action as pending; the `type:'action'`
+      // SSE broadcasts (starting immediately on the server) keep it live.
+      knownActionIdsRef.current.add(data.actionId);
+      const actionId = data.actionId;
+      setActions((prev) =>
+        prev.some((a) => a.id === actionId)
+          ? prev
+          : [{ id: actionId, input, status: 'pending', detail: null, durationMs: null }, ...prev]
+      );
+      setActionInput('');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
   }, [actionInput]);
 
   useEffect(() => {
@@ -562,6 +675,19 @@ export default function BoardPage() {
           )}
         </div>
       )}
+
+      {actionError && (
+        <div className="banner" role="alert">
+          <span>Action failed: {actionError}</span>
+          <button className="ghost" onClick={() => setActionError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Live status for cockpit submissions (pending → running → done/failed)
+          plus recent history, fed by SSE + GET /api/action. */}
+      <ActionStatusStrip actions={actions} />
 
       {!isMobile && (
         <div style={{ padding: '0 16px 12px' }}>
