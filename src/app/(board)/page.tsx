@@ -1106,11 +1106,11 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
         </div>
       )}
       {issue.state === 'blocked' && issue.resultText && (
-        <div className="result">{issue.resultText}</div>
+        <div className="result">{excerpt(issue.resultText)}</div>
       )}
       {issue.state === 'refinement' && issue.resultText && (
         <div className="result">
-          <strong>Validation:</strong> {issue.resultText}
+          <strong>Validation:</strong> {excerpt(issue.resultText)}
         </div>
       )}
 
