@@ -7,7 +7,7 @@ import {
   type OpencodeEvent,
   type OpencodeModel,
 } from './opencode';
-import { setIssueStateLabels } from './github';
+import { isIssueClosedOnGitHub, setIssueStateLabels } from './github';
 import { publishIssue, publishOpencodeEvent } from './sse';
 import { mirrorComment } from './utils';
 import { buildValidatePrompt, parseValidationResult } from './validate';
@@ -59,20 +59,36 @@ export async function startDevelop(
     });
 
     const prUrl = extractPrUrl(text);
-    const updated = prUrl
-      ? setResult(issue.id, 'pr', prUrl, text)
-      : setResult(issue.id, 'blocked', null, text);
-    if (updated) publishIssue(updated);
     if (prUrl) {
+      const updated = setResult(issue.id, 'pr', prUrl, text);
+      if (updated) publishIssue(updated);
       void mirrorLabels(issue, 'pr', token);
       void mirrorComment(issue, `DevHub opened a pull request: ${prUrl}`, token);
     } else {
-      void mirrorLabels(issue, 'blocked', token);
-      void mirrorComment(
-        issue,
-        `DevHub finished but did not open a PR.\n\n${text.slice(0, 4000)}`,
-        token
-      );
+      // No PR URL — determine if the agent assessed the issue as already
+      // resolved (closed on GitHub or has a linked PR) or if it truly failed.
+      const alreadyResolved =
+        text.includes('ALREADY RESOLVED') ||
+        (await isIssueClosedOnGitHub(issue.owner, issue.repo, issue.number, token)) ||
+        Boolean(issue.linkedPrUrl);
+
+      const finalState = alreadyResolved ? 'closed' : 'blocked';
+      const updated = setResult(issue.id, finalState, null, text);
+      if (updated) publishIssue(updated);
+      void mirrorLabels(issue, finalState, token);
+      if (alreadyResolved) {
+        void mirrorComment(
+          issue,
+          `DevHub determined this issue is already resolved.\n\n${text.slice(0, 4000)}`,
+          token
+        );
+      } else {
+        void mirrorComment(
+          issue,
+          `DevHub finished but did not open a PR.\n\n${text.slice(0, 4000)}`,
+          token
+        );
+      }
     }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);

@@ -400,6 +400,17 @@ export function buildDevelopPrompt(issue: Issue, command: string): string {
   parts.push(
     `## Steps`,
     ``,
+    `### 0. Check if work is needed`,
+    `Before doing anything, verify whether this issue is already resolved:`,
+    `\`\`\`bash`,
+    `cd ${repoPath}`,
+    `# Check if the issue is closed on GitHub`,
+    `gh issue view ${issue.number} --repo ${issue.owner}/${issue.repo} --json state,stateReason`,
+    `\`\`\``,
+    `- If the issue is **closed**, do NOT implement. Clean up any leftover worktree and branch, then end with \`ALREADY RESOLVED: Issue #${issue.number} is already closed\`.`,
+    `- Also search for a linked or merged PR: \`gh pr list --repo ${issue.owner}/${issue.repo} --state all --search "${issue.number} in:title,body"\``,
+    `- If a merged PR addresses this issue, end with \`ALREADY RESOLVED: PR already merged for this issue\`.`,
+    ``,
     `### 1. Set up an isolated worktree`,
     `A previous attempt may have left the worktree or branch behind — adopt it in place instead of failing or creating duplicates:`,
     `\`\`\`bash`,
@@ -451,8 +462,9 @@ export function buildDevelopPrompt(issue: Issue, command: string): string {
     `## CRITICAL: Final message format`,
     `End your final message with EXACTLY ONE of:`,
     `- the full PR URL (e.g. https://github.com/${issue.owner}/${issue.repo}/pull/123), or`,
-    `- the line "CANNOT FULFILL: <reason>" if you cannot complete the work.`,
-    `Never end without one of these two.`
+    `- "ALREADY RESOLVED: <reason>" if the issue is already closed or has a merged PR — do NOT attempt implementation,`,
+    `- "CANNOT FULFILL: <reason>" if you cannot complete the work.`,
+    `Never end without one of these three.`
   );
 
   return parts.join('\n');

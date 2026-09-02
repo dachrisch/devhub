@@ -109,6 +109,27 @@ async function ghGetJson<T>(url: string, token: string, fetchFn: FetchFn): Promi
   return (await res.json()) as T;
 }
 
+// Checks whether a GitHub issue is currently closed. Returns false on any
+// transient error so the caller can fall back to the default (blocked) path.
+export async function isIssueClosedOnGitHub(
+  owner: string,
+  repo: string,
+  number: number,
+  token: string,
+  fetchFn: FetchFn = fetch
+): Promise<boolean> {
+  try {
+    const detail = await ghGetJson<{ state?: string }>(
+      `https://api.github.com/repos/${owner}/${repo}/issues/${number}`,
+      token,
+      fetchFn
+    );
+    return detail.state === 'closed';
+  } catch {
+    return false;
+  }
+}
+
 function prNumberFromUrl(url: string | null): number | null {
   if (!url) return null;
   const m = url.match(/\/pull\/(\d+)/);
@@ -256,6 +277,18 @@ export async function reconcileClosedIssues(token: string, fetchFn: FetchFn = fe
       // transient API failure: leave the card for the next pass
     }
   }
+
+  // Sync labels for blocked issues whose GitHub label may be stale (e.g.
+  // after server-restart recovery which sets state but can't mirror labels).
+  const blocked = getIssues().filter((i) => i.state === 'blocked');
+  for (const issue of blocked) {
+    try {
+      await setIssueStateLabels(issue.owner, issue.repo, issue.number, 'blocked', token, fetchFn);
+    } catch {
+      // label mirroring is best-effort
+    }
+  }
+
   return reconciled;
 }
 
