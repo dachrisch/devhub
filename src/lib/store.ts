@@ -99,6 +99,16 @@ function migrate(database: Database.Database): void {
   if (!hasColumn('model_id')) {
     database.exec(`ALTER TABLE issues ADD COLUMN model_id TEXT`);
   }
+
+  // One-time migration: refresh token support for OAuth sessions.
+  const sessionCols = database.prepare('PRAGMA table_info(auth_sessions)').all() as { name: string }[];
+  const hasSessionCol = (name: string) => sessionCols.some((c) => c.name === name);
+  if (!hasSessionCol('refresh_token')) {
+    database.exec(`ALTER TABLE auth_sessions ADD COLUMN refresh_token TEXT`);
+  }
+  if (!hasSessionCol('token_expires_at')) {
+    database.exec(`ALTER TABLE auth_sessions ADD COLUMN token_expires_at TEXT`);
+  }
 }
 
 export interface UpsertIssueInput {
@@ -282,6 +292,8 @@ export interface AuthSessionRow {
   avatar_url: string | null;
   created_at: string;
   expires_at: string;
+  refresh_token: string | null;
+  token_expires_at: string | null;
 }
 
 export interface AuthSession {
@@ -291,14 +303,16 @@ export interface AuthSession {
   avatarUrl: string | null;
   createdAt: string;
   expiresAt: string;
+  refreshToken: string | null;
+  tokenExpiresAt: string | null;
 }
 
 export function createAuthSession(session: AuthSession): void {
   const db = getDb();
   db.prepare(`DELETE FROM auth_sessions WHERE expires_at <= datetime('now')`).run();
   db.prepare(
-    `INSERT INTO auth_sessions (id, token, login, avatar_url, created_at, expires_at)
-     VALUES (@id, @token, @login, @avatarUrl, @createdAt, @expiresAt)`
+    `INSERT INTO auth_sessions (id, token, login, avatar_url, created_at, expires_at, refresh_token, token_expires_at)
+     VALUES (@id, @token, @login, @avatarUrl, @createdAt, @expiresAt, @refreshToken, @tokenExpiresAt)`
   ).run(session);
 }
 
@@ -316,6 +330,19 @@ export function deleteAuthSession(id: string): void {
   getDb().prepare('DELETE FROM auth_sessions WHERE id = ?').run(id);
 }
 
+export function updateSessionToken(
+  id: string,
+  token: string,
+  refreshToken: string | null,
+  tokenExpiresAt: string | null,
+): void {
+  getDb()
+    .prepare(
+      `UPDATE auth_sessions SET token = ?, refresh_token = ?, token_expires_at = ? WHERE id = ?`
+    )
+    .run(token, refreshToken, tokenExpiresAt, id);
+}
+
 function serializeAuthSession(row: AuthSessionRow): AuthSession {
   return {
     id: row.id,
@@ -324,6 +351,8 @@ function serializeAuthSession(row: AuthSessionRow): AuthSession {
     avatarUrl: row.avatar_url,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
+    refreshToken: row.refresh_token,
+    tokenExpiresAt: row.token_expires_at,
   };
 }
 

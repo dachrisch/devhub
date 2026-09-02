@@ -22,17 +22,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const token = await exchangeCode(code);
-    const user = await fetchUser(token);
+    const { accessToken, refreshToken, expiresIn } = await exchangeCode(code);
+    const user = await fetchUser(accessToken);
 
-    if (!(await isAllowedMember(token))) {
+    if (!(await isAllowedMember(accessToken))) {
       console.error('[auth/callback] isAllowedMember returned false for user:', user.login);
       return NextResponse.redirect(new URL('/?auth=denied', base), {
         headers: { 'Set-Cookie': sessionClearCookie(STATE_COOKIE) },
       });
     }
 
-    const { cookie } = createSession(token, user);
+    const { cookie } = createSession(accessToken, user, refreshToken, expiresIn);
     return NextResponse.redirect(new URL('/', base), {
       headers: { 'Set-Cookie': [cookie, sessionClearCookie(STATE_COOKIE)].join(', ') },
     });

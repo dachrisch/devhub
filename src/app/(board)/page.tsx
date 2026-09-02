@@ -660,7 +660,12 @@ export default function BoardPage() {
       <main className="board-main">
       {refreshError && (
         <div className="banner" role="alert">
-          <span>Refresh failed: {refreshError}</span>
+          <span>
+            Refresh failed: {refreshError}
+            {/401|auth/i.test(refreshError) && (
+              <> — <a href="/api/auth/login" style={{ color: 'inherit', textDecoration: 'underline' }}>log in again</a></>
+            )}
+          </span>
           <button className="ghost" onClick={() => setRefreshError(null)}>
             Dismiss
           </button>
@@ -678,7 +683,12 @@ export default function BoardPage() {
 
       {actionError && (
         <div className="banner" role="alert">
-          <span>Action failed: {actionError}</span>
+          <span>
+            Action failed: {actionError}
+            {/401|auth/i.test(actionError) && (
+              <> — <a href="/api/auth/login" style={{ color: 'inherit', textDecoration: 'underline' }}>log in again</a></>
+            )}
+          </span>
           <button className="ghost" onClick={() => setActionError(null)}>
             Dismiss
           </button>
@@ -1053,6 +1063,7 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
   const developing = issue.state === 'developing';
   const {
     busy,
+    error,
     modalOpen,
     openModal,
     closeModal,
@@ -1065,6 +1076,8 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
     stagedDevelop,
     transition,
   } = useCardActions(issue.id);
+
+  const isAuthError = error && (/401/.test(error) || /403/.test(error) || /auth/i.test(error));
 
   return (
     <div className="card" style={{ borderLeftColor: color }}>
@@ -1114,7 +1127,7 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
         </div>
       )}
 
-<div className="card-actions">
+      <div className="card-actions">
         {issue.state === 'backlog' && (
           <button className="ghost" onClick={() => transition('refinement')} disabled={busy}>
             Refine
@@ -1139,6 +1152,12 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
           </>
         )}
       </div>
+      {error && (
+        <div className="card-error" role="alert">
+          <span>{isAuthError ? 'Session expired — ' : `${error}`}</span>
+          {isAuthError && <a href="/api/auth/login" className="card-error-login">log in again</a>}
+        </div>
+      )}
       <div className="recap-row">
         <Link href={`/issues/${issue.id}`} className="recap-link">
           {developing ? 'Recap (live)' : 'Recap'}
