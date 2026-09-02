@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.4](https://github.com/dachrisch/devhub/compare/v1.15.3...v1.15.4) (2026-09-02)
+
+
+### Bug Fixes
+
+* **board:** render cockpit action status live instead of dropping it ([#120](https://github.com/dachrisch/devhub/issues/120)) ([c62833d](https://github.com/dachrisch/devhub/commit/c62833db5684b889cae506d09968cef01ea92e94)), closes [#114](https://github.com/dachrisch/devhub/issues/114)
+
 ## [1.15.3](https://github.com/dachrisch/devhub/compare/v1.15.2...v1.15.3) (2026-09-02)
 
 
