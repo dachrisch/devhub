@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.15.7](https://github.com/dachrisch/devhub/compare/v1.15.6...v1.15.7) (2026-09-02)
+
+
+### Bug Fixes
+
+* implement OAuth token refresh flow and surface card action errors ([#113](https://github.com/dachrisch/devhub/issues/113)) ([fd47b55](https://github.com/dachrisch/devhub/commit/fd47b552c5cfbc2e013ec208e90fbe4bc9d4af28))
+* implement OAuth token refresh flow and surface card action errors in UI ([50f163a](https://github.com/dachrisch/devhub/commit/50f163ad031866189a6b4a88e27f772df9474c50)), closes [#113](https://github.com/dachrisch/devhub/issues/113)
+
 ## [1.15.6](https://github.com/dachrisch/devhub/compare/v1.15.5...v1.15.6) (2026-09-02)
 
 
