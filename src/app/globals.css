@@ -12,6 +12,7 @@
   --pr: #3fb950;
   --rollout: #39c5cf;
   --blocked: #f85149;
+  --closed: #8b949e;
 }
 
 * {
@@ -531,8 +532,12 @@ header h1 {
 .dot.blocked {
   background: var(--blocked);
 }
+.dot.closed {
+  background: var(--closed);
+}
 
-.released-strip {
+.released-strip,
+.closed-strip {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -584,6 +589,10 @@ header h1 {
   font-weight: 600;
   font-size: 11px;
   white-space: nowrap;
+}
+
+.closed-strip .released-tag {
+  color: var(--closed);
 }
 
 .released-title {
@@ -1106,6 +1115,10 @@ button:disabled {
 
 .recap-result.blocked {
   border-left-color: var(--blocked);
+}
+
+.recap-result.closed {
+  border-left-color: var(--closed);
 }
 
 .recap-result h3 {

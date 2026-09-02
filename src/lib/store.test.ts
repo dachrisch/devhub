@@ -160,6 +160,53 @@ describe('store', () => {
     const issue = store.getIssueByGithub('dachrisch', 'cli', 2)!;
     expect(issue.releaseTag).toBeNull();
     expect(issue.releasedAt).toBeNull();
+    expect(issue.stateReason).toBeNull();
+  });
+
+  it('marks a card closed with a GitHub state reason and reopens it', () => {
+    store.upsertIssue({
+      githubIssueId: 15,
+      owner: 'dachrisch',
+      repo: 'cli',
+      number: 3,
+      title: 'Closed outside the pipeline',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/cli/issues/3',
+    });
+    const id = store.getIssueByGithub('dachrisch', 'cli', 3)!.id;
+
+    const closed = store.setClosed(id, 'not_planned');
+    expect(closed?.state).toBe('closed');
+    expect(closed?.stateReason).toBe('not_planned');
+
+    const reopened = store.reopenIssue(id);
+    expect(reopened?.state).toBe('backlog');
+    expect(reopened?.stateReason).toBeNull();
+  });
+
+  it('upsert refresh is allowed again on a closed card (reopen picks up metadata)', () => {
+    store.upsertIssue({
+      githubIssueId: 16,
+      owner: 'dachrisch',
+      repo: 'cli',
+      number: 4,
+      title: 'Before',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/cli/issues/4',
+    });
+    const id = store.getIssueByGithub('dachrisch', 'cli', 4)!.id;
+    store.setClosed(id, 'completed');
+
+    store.upsertIssue({
+      githubIssueId: 16,
+      owner: 'dachrisch',
+      repo: 'cli',
+      number: 4,
+      title: 'Renamed after reopen',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/cli/issues/4',
+    });
+    expect(store.getIssue(id)?.title).toBe('Renamed after reopen');
   });
 });
 

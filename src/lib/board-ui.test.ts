@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cardActions,
+  closedReasonLabel,
   countRepos,
   excerpt,
   matchesIssue,
@@ -27,6 +28,7 @@ function issue(overrides: Partial<Issue> = {}): Issue {
     linkedPrUrl: null,
     releaseTag: null,
     releasedAt: null,
+    stateReason: null,
     createdAt: '2026-01-01 00:00:00',
     updatedAt: '2026-01-01 00:00:00',
     ...overrides,
@@ -80,6 +82,20 @@ describe('cardActions', () => {
       'select-batch',
       'open-github',
     ]);
+    expect(cardActions(issue({ state: 'closed' })).map((a) => a.id)).toEqual([
+      'recap',
+      'select-batch',
+      'open-github',
+    ]);
+  });
+});
+
+describe('closedReasonLabel', () => {
+  it('renders GitHub state reasons human-readably', () => {
+    expect(closedReasonLabel('completed')).toBe('completed');
+    expect(closedReasonLabel('not_planned')).toBe('not planned');
+    expect(closedReasonLabel('reopened')).toBe('reopened');
+    expect(closedReasonLabel(null)).toBe('closed');
   });
 });
 
@@ -100,6 +116,7 @@ describe('primaryCardAction', () => {
   it('is plain Recap for pr and rollout', () => {
     expect(primaryCardAction(issue({ state: 'pr' }))).toEqual({ label: 'Recap', kind: 'recap' });
     expect(primaryCardAction(issue({ state: 'rollout' }))).toEqual({ label: 'Recap', kind: 'recap' });
+    expect(primaryCardAction(issue({ state: 'closed' }))).toEqual({ label: 'Recap', kind: 'recap' });
   });
 });
 

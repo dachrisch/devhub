@@ -14,6 +14,7 @@ const {
   isAllowedMember,
   refreshIssues,
   sweepRollouts,
+  reconcileClosedIssues,
   setIssueStateLabels,
   commentOnIssue,
 } = await import('./github.js');
@@ -135,7 +136,7 @@ describe('refreshIssues', () => {
       return ghResponse([])();
     }) as unknown as typeof fetch;
     const result = await refreshIssues('token-abc', fetchFn);
-    expect(result).toEqual({ repos: 0, issues: 0, rolledOut: 0 });
+    expect(result).toEqual({ repos: 0, issues: 0, rolledOut: 0, closed: 0 });
   });
 });
 
@@ -206,6 +207,137 @@ describe('sweepRollouts', () => {
 
     expect(await sweepRollouts('token-abc', fetchFn)).toBe(0);
     expect(store.getIssue(id)?.state).toBe('pr');
+  });
+
+  it('promotes a closed card whose PR later got merged + tagged to rollout', async () => {
+    // Card was reconciled to `closed` before the release tag was cut; once the
+    // tag exists, the sweep must still promote it (not strand it in `closed`).
+    store.upsertIssue({
+      githubIssueId: 700,
+      owner: 'dachrisch',
+      repo: 'matched',
+      number: 30,
+      title: 'closed then tagged',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/matched/issues/30',
+    });
+    const id = store.getIssueByGithub('dachrisch', 'matched', 30)!.id;
+    store.setResult(id, 'pr', 'https://github.com/dachrisch/matched/pull/30', 'shipped');
+    store.setClosed(id, 'completed');
+
+    const fetchFn = (async (url: string, init?: { method?: string }) => {
+      if (url.includes('/pulls/30')) return ghResponse({ merged: true, merge_commit_sha: 'abc123' })();
+      if (url.includes('/tags')) {
+        return ghResponse([{ name: 'v2.0.0', commit: { sha: 'abc123' } }])();
+      }
+      if (url.includes('/compare/abc123')) return ghResponse({ status: 'identical' })();
+      return ghResponse(init?.method === 'GET' ? { labels: [] } : {})();
+    }) as unknown as typeof fetch;
+
+    expect(await sweepRollouts('token-abc', fetchFn)).toBe(1);
+    expect(store.getIssue(id)?.state).toBe('rollout');
+  });
+});
+
+describe('reconcileClosedIssues', () => {
+  function ghResponse(body: unknown) {
+    return async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => body,
+    });
+  }
+
+  it('moves GitHub-closed cards to closed with the state reason', async () => {
+    store.upsertIssue({
+      githubIssueId: 601,
+      owner: 'dachrisch',
+      repo: 'matched',
+      number: 21,
+      title: 'closed from backlog',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/matched/issues/21',
+    });
+    const backlogId = store.getIssueByGithub('dachrisch', 'matched', 21)!.id;
+
+    store.upsertIssue({
+      githubIssueId: 602,
+      owner: 'dachrisch',
+      repo: 'matched',
+      number: 22,
+      title: 'closed from pr',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/matched/issues/22',
+    });
+    const prId = store.getIssueByGithub('dachrisch', 'matched', 22)!.id;
+    store.setResult(prId, 'pr', 'https://github.com/dachrisch/matched/pull/55', 'shipped');
+
+    const fetchFn = (async (url: string) => {
+      if (url.endsWith('/issues/21')) return ghResponse({ state: 'closed', state_reason: 'not_planned' })();
+      if (url.endsWith('/issues/22')) return ghResponse({ state: 'closed', state_reason: 'completed' })();
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+
+    const count = await reconcileClosedIssues('token-abc', fetchFn);
+    expect(count).toBe(2);
+
+    const fromBacklog = store.getIssue(backlogId);
+    expect(fromBacklog?.state).toBe('closed');
+    expect(fromBacklog?.stateReason).toBe('not_planned');
+
+    const fromPr = store.getIssue(prId);
+    expect(fromPr?.state).toBe('closed');
+    expect(fromPr?.stateReason).toBe('completed');
+    expect(fromPr?.resultPrUrl).toBe('https://github.com/dachrisch/matched/pull/55');
+  });
+
+  it('reopens a closed card when GitHub reports the issue open again', async () => {
+    store.upsertIssue({
+      githubIssueId: 603,
+      owner: 'dachrisch',
+      repo: 'matched',
+      number: 23,
+      title: 'reopened issue',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/matched/issues/23',
+    });
+    const id = store.getIssueByGithub('dachrisch', 'matched', 23)!.id;
+    store.setClosed(id, 'completed');
+    expect(store.getIssue(id)?.state).toBe('closed');
+
+    const fetchFn = (async (url: string) => {
+      if (url.endsWith('/issues/23')) return ghResponse({ state: 'open', state_reason: null })();
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+
+    const count = await reconcileClosedIssues('token-abc', fetchFn);
+    expect(count).toBe(1);
+
+    const reopened = store.getIssue(id);
+    expect(reopened?.state).toBe('backlog');
+    expect(reopened?.stateReason).toBeNull();
+  });
+
+  it('does not reconcile a card it cannot read', async () => {
+    store.upsertIssue({
+      githubIssueId: 604,
+      owner: 'dachrisch',
+      repo: 'matched',
+      number: 24,
+      title: 'unreadable',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/matched/issues/24',
+    });
+    const id = store.getIssueByGithub('dachrisch', 'matched', 24)!.id;
+
+    const fetchFn = (async (url: string) => {
+      if (url.endsWith('/issues/24')) throw new Error('GitHub request failed (500)');
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+
+    expect(await reconcileClosedIssues('token-abc', fetchFn)).toBe(0);
+    expect(store.getIssue(id)?.state).toBe('backlog');
   });
 });
 

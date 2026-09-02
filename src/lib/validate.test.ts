@@ -19,6 +19,7 @@ describe('validate', () => {
       linkedPrUrl: null,
       releaseTag: null,
       releasedAt: null,
+      stateReason: null,
       createdAt: '2026-01-01',
       updatedAt: '2026-01-01',
     };

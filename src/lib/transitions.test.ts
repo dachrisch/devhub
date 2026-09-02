@@ -24,6 +24,7 @@ describe('transitions', () => {
   it('recognizes the new states', () => {
     expect(isIssueState('refinement')).toBe(true);
     expect(isIssueState('rollout')).toBe(true);
+    expect(isIssueState('closed')).toBe(true);
     expect(isIssueState('bogus')).toBe(false);
   });
 });
@@ -44,6 +45,7 @@ describe('batch transitions', () => {
     expect(canBatchAdvance('pr')).toBe(false);
     expect(canBatchAdvance('rollout')).toBe(false);
     expect(canBatchAdvance('blocked')).toBe(false);
+    expect(canBatchAdvance('closed')).toBe(false);
   });
 
   it('returns null for getBatchAdvanceTarget from unsupported states', () => {

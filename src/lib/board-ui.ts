@@ -76,6 +76,20 @@ export function countRepos(issues: Pick<Issue, 'owner' | 'repo'>[]): number {
   return new Set(issues.map((i) => `${i.owner}/${i.repo}`)).size;
 }
 
+// Human-friendly label for GitHub's `state_reason` on a reconciled card.
+export function closedReasonLabel(reason: string | null): string {
+  switch (reason) {
+    case 'completed':
+      return 'completed';
+    case 'not_planned':
+      return 'not planned';
+    case 'reopened':
+      return 'reopened';
+    default:
+      return 'closed';
+  }
+}
+
 export type CardActionId =
   | 'develop-validated'
   | 'to-refinement'
