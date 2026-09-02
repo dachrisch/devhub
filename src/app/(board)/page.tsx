@@ -513,7 +513,7 @@ export default function BoardPage() {
             </>
           )}
           {selectedIds.size > 0 && (
-            <>
+            <div className="batch-actions">
               <button
                 className="develop-batch-btn"
                 onClick={developSelected}
@@ -539,7 +539,7 @@ export default function BoardPage() {
                 <span>Ctrl+Enter to advance</span>
                 <span>Esc to clear</span>
               </div>
-            </>
+            </div>
           )}
         </div>
       </header>
