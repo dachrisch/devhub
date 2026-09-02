@@ -96,6 +96,9 @@ function migrate(database: Database.Database): void {
   if (!hasColumn('state_reason')) {
     database.exec(`ALTER TABLE issues ADD COLUMN state_reason TEXT`);
   }
+  if (!hasColumn('model_id')) {
+    database.exec(`ALTER TABLE issues ADD COLUMN model_id TEXT`);
+  }
 }
 
 export interface UpsertIssueInput {
@@ -227,6 +230,14 @@ export function appendEvent(issueId: number, kind: string, payload: unknown): Is
   const info = getDb()
     .prepare(`INSERT INTO events (issue_id, kind, payload_json) VALUES (?, ?, ?)`)
     .run(issueId, kind, JSON.stringify(payload ?? null));
+  // Cache the model id on the issue row so the board card can render it
+  // without querying the events table.
+  if (kind === 'model' && payload && typeof payload === 'object') {
+    const p = payload as { id?: unknown };
+    if (typeof p.id === 'string') {
+      getDb().prepare(`UPDATE issues SET model_id = ? WHERE id = ?`).run(p.id, issueId);
+    }
+  }
   const row = getDb().prepare('SELECT * FROM events WHERE id = ?').get(info.lastInsertRowid) as {
     id: number;
     issue_id: number;

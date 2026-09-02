@@ -36,6 +36,7 @@ export interface IssueRow {
   release_tag: string | null;
   released_at: string | null;
   state_reason: string | null;
+  model_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -73,6 +74,7 @@ export interface Issue {
   releaseTag: string | null;
   releasedAt: string | null;
   stateReason: string | null;
+  modelId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -95,6 +97,7 @@ export function serializeIssue(row: IssueRow): Issue {
     releaseTag: row.release_tag,
     releasedAt: row.released_at,
     stateReason: row.state_reason,
+    modelId: row.model_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

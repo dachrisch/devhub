@@ -1144,7 +1144,7 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
           {developing ? 'Recap (live)' : 'Recap'}
         </Link>
       </div>
-      {developing && <div className="result developing">developing… (live via opencode)</div>}
+      {developing && <div className="result developing">developing{issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)</div>}
 
       {modalOpen && (
         <DevelopModal
