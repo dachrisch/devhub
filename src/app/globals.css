@@ -564,6 +564,18 @@ header h1 {
   padding-bottom: 2px;
 }
 
+.released-list::after {
+  content: '';
+  position: sticky;
+  right: 0;
+  flex: 0 0 28px;
+  align-self: stretch;
+  margin-left: -28px;
+  background: linear-gradient(to right, transparent, var(--panel));
+  pointer-events: none;
+  z-index: 1;
+}
+
 .released-item {
   display: inline-flex;
   align-items: center;
@@ -597,8 +609,10 @@ header h1 {
 
 .released-title {
   color: var(--muted);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .released-time {
@@ -1439,6 +1453,18 @@ button:disabled {
 
   .status-strip::-webkit-scrollbar {
     display: none;
+  }
+
+  .status-strip::after {
+    content: '';
+    position: sticky;
+    right: 0;
+    flex: 0 0 28px;
+    align-self: stretch;
+    margin-left: -28px;
+    background: linear-gradient(to right, transparent, var(--bg));
+    pointer-events: none;
+    z-index: 1;
   }
 
   .status-strip-tab {
