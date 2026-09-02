@@ -458,6 +458,10 @@ header h1 {
   margin-right: 12px;
 }
 
+.batch-actions {
+  display: contents;
+}
+
 .board {
   display: grid;
   grid-template-columns: repeat(5, minmax(260px, 1fr));
@@ -1299,7 +1303,7 @@ button:disabled {
     display: block;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 16px;
+    padding-bottom: 80px;
     gap: 0;
     scroll-behavior: smooth;
   }
@@ -1436,6 +1440,35 @@ button:disabled {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .batch-actions {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    z-index: 20;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .batch-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .keyboard-hints {
+    display: none;
+  }
+
+  /* 16px prevents iOS Safari focus auto-zoom */
+  input, textarea, select {
+    font-size: 16px;
   }
 }
 
@@ -1833,7 +1866,7 @@ button:disabled {
     border: 1px solid var(--accent);
     border-radius: 10px;
     color: var(--text);
-    font-size: 14px;
+    font-size: 16px;
   }
 
   .search-sheet-cancel {
@@ -2036,5 +2069,14 @@ button:disabled {
     margin-top: 8px;
     font-size: 12px;
     color: var(--muted);
+  }
+
+  /* 16px prevents iOS Safari focus auto-zoom on modal inputs */
+  .modal-input {
+    font-size: 16px;
+  }
+
+  .model-picker-search {
+    font-size: 16px;
   }
 }
