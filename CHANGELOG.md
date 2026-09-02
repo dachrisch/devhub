@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.3](https://github.com/dachrisch/devhub/compare/v1.15.2...v1.15.3) (2026-09-02)
+
+
+### Bug Fixes
+
+* **mobile:** batch bar + 16px input font ([#111](https://github.com/dachrisch/devhub/issues/111)) ([daf82e0](https://github.com/dachrisch/devhub/commit/daf82e06fdcbec8d9f04cc433a4dc2b1ad5ecb36))
+
 ## [1.15.2](https://github.com/dachrisch/devhub/compare/v1.15.1...v1.15.2) (2026-09-02)
 
 
