@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.6](https://github.com/dachrisch/devhub/compare/v1.15.5...v1.15.6) (2026-09-02)
+
+
+### Bug Fixes
+
+* consistent recap timestamps, model on developing cards, safe reseed ([#125](https://github.com/dachrisch/devhub/issues/125)) ([b36fea8](https://github.com/dachrisch/devhub/commit/b36fea885bb89f46ebdf4c18bdd6f2d90aa929be))
+
 ## [1.15.5](https://github.com/dachrisch/devhub/compare/v1.15.4...v1.15.5) (2026-09-02)
 
 
