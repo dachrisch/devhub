@@ -28,6 +28,7 @@ const DDL = `
     session_id TEXT,
     result_pr_url TEXT,
     result_text TEXT,
+    blocked_reason TEXT,
     linked_pr_url TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -54,7 +55,9 @@ const ISSUES = [
   { owner: 'dachrisch', repo: 'devhub', number: 102, title: 'Add keyboard shortcut cheat sheet', state: 'backlog' },
   { owner: 'dachrisch', repo: 'devhub', number: 103, title: 'Cache model list for 5 minutes', state: 'refinement' },
   { owner: 'dachrisch', repo: 'devhub', number: 104, title: 'Improve SSE reconnect backoff', state: 'developing', session: 'dev-mock-session' },
-  { owner: 'dachrisch', repo: 'devhub', number: 105, title: 'Trim log noise in develop runs', state: 'blocked' },
+  // devhub#132: failed develop runs stay in `developing` with a reason — this
+  // row is the "Work retries a failed run" fixture.
+  { owner: 'dachrisch', repo: 'devhub', number: 105, title: 'Trim log noise in develop runs', state: 'developing', blockedReason: 'CANNOT FULFILL: simulated previous run failure (seeded retry fixture)' },
   { owner: 'dachrisch', repo: 'devhub', number: 106, title: 'Support repo filter on mobile search', state: 'pr', pr: 'https://github.com/dachrisch/devhub/pull/206' },
   { owner: 'dachrisch', repo: 'devhub', number: 99, title: 'Ship WAL checkpoint tuning', state: 'rollout', releaseTag: 'v1.11.0' },
   { owner: 'bumbleflies', repo: 'warehouse', number: 101, title: 'Polish board card hover states', state: 'backlog' },
@@ -80,13 +83,14 @@ export function seedDevDb(dbPath) {
 
   const insert = db.prepare(
     `INSERT INTO issues (github_issue_id, owner, repo, number, title, body, html_url, state,
-                         session_id, result_pr_url, result_text, release_tag)
+                         session_id, result_pr_url, result_text, blocked_reason, release_tag)
      VALUES (@githubIssueId, @owner, @repo, @number, @title, @body, @htmlUrl, @state,
-             @sessionId, @prUrl, @resultText, @releaseTag)
+             @sessionId, @prUrl, @resultText, @blockedReason, @releaseTag)
      ON CONFLICT(owner, repo, number) DO UPDATE SET
        title = excluded.title, state = excluded.state,
        session_id = excluded.session_id, result_pr_url = excluded.result_pr_url,
-       result_text = excluded.result_text, release_tag = excluded.release_tag,
+       result_text = excluded.result_text, blocked_reason = excluded.blocked_reason,
+       release_tag = excluded.release_tag,
        updated_at = datetime('now')
      WHERE state = 'backlog'`
   );
@@ -106,6 +110,7 @@ export function seedDevDb(dbPath) {
         sessionId: i.session ?? null,
         prUrl: i.pr ?? null,
         resultText: i.session ? 'Mock develop run in progress.' : null,
+        blockedReason: i.blockedReason ?? null,
         releaseTag: i.releaseTag ?? null,
       });
       n++;

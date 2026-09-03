@@ -3,7 +3,7 @@ export async function register() {
     const { recoverStuckDeveloping } = await import('./lib/store');
     const recovered = recoverStuckDeveloping();
     if (recovered > 0) {
-      console.log(`[startup] Recovered ${recovered} stuck developing issue(s) → blocked`);
+      console.log(`[startup] Recovered ${recovered} stuck developing issue(s) — needs input (blocked_reason set)`);
     }
 
     // Register cockpit skills

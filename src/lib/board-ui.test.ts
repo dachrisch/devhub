@@ -25,6 +25,7 @@ function issue(overrides: Partial<Issue> = {}): Issue {
     sessionId: null,
     resultPrUrl: null,
     resultText: null,
+    blockedReason: null,
     linkedPrUrl: null,
     releaseTag: null,
     releasedAt: null,
@@ -37,9 +38,9 @@ function issue(overrides: Partial<Issue> = {}): Issue {
 }
 
 describe('cardActions', () => {
-  it('offers develop + move-to-refinement for a backlog issue', () => {
+  it('offers work + move-to-refinement for a backlog issue', () => {
     expect(cardActions(issue({ state: 'backlog' })).map((a) => a.id)).toEqual([
-      'develop-validated',
+      'work',
       'to-refinement',
       'recap',
       'select-batch',
@@ -47,9 +48,9 @@ describe('cardActions', () => {
     ]);
   });
 
-  it('offers develop + move-to-backlog for a refinement issue', () => {
+  it('offers work + move-to-backlog for a refinement issue', () => {
     expect(cardActions(issue({ state: 'refinement' })).map((a) => a.id)).toEqual([
-      'develop-validated',
+      'work',
       'to-backlog',
       'recap',
       'select-batch',
@@ -57,22 +58,19 @@ describe('cardActions', () => {
     ]);
   });
 
-  it('offers develop but no transition for a blocked issue', () => {
-    expect(cardActions(issue({ state: 'blocked' })).map((a) => a.id)).toEqual([
-      'develop-validated',
-      'recap',
-      'select-batch',
-      'open-github',
-    ]);
+  it('offers work on a failed developing run (needs input) and labels recap plain', () => {
+    const actions = cardActions(issue({ state: 'developing', blockedReason: 'CANNOT FULFILL: x' }));
+    expect(actions.map((a) => a.id)).toEqual(['work', 'recap', 'select-batch', 'open-github']);
+    expect(actions.find((a) => a.id === 'recap')?.label).toBe('Recap');
   });
 
-  it('drops develop for a developing issue and labels recap as live', () => {
+  it('drops work for a live developing issue and labels recap as live', () => {
     const actions = cardActions(issue({ state: 'developing' }));
     expect(actions.map((a) => a.id)).toEqual(['recap', 'select-batch', 'open-github']);
     expect(actions.find((a) => a.id === 'recap')?.label).toBe('Recap (live)');
   });
 
-  it('drops develop for pr and rollout issues', () => {
+  it('drops work for pr, rollout and closed issues', () => {
     expect(cardActions(issue({ state: 'pr' })).map((a) => a.id)).toEqual([
       'recap',
       'select-batch',
@@ -101,10 +99,14 @@ describe('closedReasonLabel', () => {
 });
 
 describe('primaryCardAction', () => {
-  it('is Develop for backlog, refinement and blocked', () => {
-    for (const state of ['backlog', 'refinement', 'blocked'] as const) {
-      expect(primaryCardAction(issue({ state }))).toEqual({ label: 'Develop', kind: 'develop' });
+  it('is Work for backlog, refinement and failed developing runs', () => {
+    for (const state of ['backlog', 'refinement'] as const) {
+      expect(primaryCardAction(issue({ state }))).toEqual({ label: 'Work', kind: 'work' });
     }
+    expect(primaryCardAction(issue({ state: 'developing', blockedReason: 'needs input' }))).toEqual({
+      label: 'Work',
+      kind: 'work',
+    });
   });
 
   it('is Recap (live) while developing', () => {

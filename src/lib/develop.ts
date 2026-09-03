@@ -1,4 +1,15 @@
-import { appendEvent, getIssue, setDefaultModel, setIssueState, setResult, setSessionId, type Issue } from './store';
+import {
+  appendEvent,
+  clearBlockedReason,
+  getIssue,
+  setBlockedReason,
+  setDefaultModel,
+  setIssueBody,
+  setIssueState,
+  setResult,
+  setSessionId,
+  type Issue,
+} from './store';
 import {
   buildDevelopPrompt,
   extractPrUrl,
@@ -7,10 +18,10 @@ import {
   type OpencodeEvent,
   type OpencodeModel,
 } from './opencode';
-import { isIssueClosedOnGitHub, setIssueStateLabels } from './github';
+import { isIssueClosedOnGitHub, setIssueStateLabels, updateIssueBody } from './github';
 import { publishIssue, publishOpencodeEvent } from './sse';
 import { mirrorComment } from './utils';
-import { buildValidatePrompt, parseValidationResult } from './validate';
+import { buildRefinePrompt, parseRefineResult } from './validate';
 
 // Best-effort mirror of DevHub state/notes onto the GitHub issue (labels +
 // a comment). Failures here must never break the develop run.
@@ -72,97 +83,134 @@ export async function startDevelop(
         (await isIssueClosedOnGitHub(issue.owner, issue.repo, issue.number, token)) ||
         Boolean(issue.linkedPrUrl);
 
-      const finalState = alreadyResolved ? 'closed' : 'blocked';
-      const updated = setResult(issue.id, finalState, null, text);
-      if (updated) publishIssue(updated);
-      void mirrorLabels(issue, finalState, token);
       if (alreadyResolved) {
+        const updated = setResult(issue.id, 'closed', null, text);
+        if (updated) publishIssue(updated);
+        void mirrorLabels(issue, 'closed', token);
         void mirrorComment(
           issue,
           `DevHub determined this issue is already resolved.\n\n${text.slice(0, 4000)}`,
           token
         );
       } else {
-        void mirrorComment(
-          issue,
-          `DevHub finished but did not open a PR.\n\n${text.slice(0, 4000)}`,
-          token
-        );
+        // Stage failure (devhub#132): stay in `developing`, surface what's
+        // needed — the next "Work" click resumes from here.
+        const updated = setBlockedReason(issue.id, text.slice(0, 500));
+        if (updated) publishIssue(updated);
+        void mirrorComment(issue, `DevHub finished but did not open a PR.\n\n${text.slice(0, 4000)}`, token);
       }
     }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     appendEvent(issue.id, 'error', { message: reason });
-    const blocked = setResult(issue.id, 'blocked', null, `CANNOT FULFILL: ${reason}`);
-    if (blocked) publishIssue(blocked);
-    void mirrorLabels(issue, 'blocked', token);
+    const updated = setBlockedReason(issue.id, `CANNOT FULFILL: ${reason}`);
+    if (updated) publishIssue(updated);
     void mirrorComment(issue, `DevHub could not fulfill this issue: ${reason}`, token);
   }
 }
 
-// Staged develop: validates the issue first, then proceeds to develop if validation passes.
-// Intended to be called fire-and-forget from the API route.
-export async function startStagedDevelop(
+// Refinement stage: assess the issue with opencode, auto-refine the body when
+// possible, and proceed to develop when ready. On failure the issue stays in
+// `refinement` with a `blocked_reason` — the next "Work" click re-runs this.
+async function runRefinement(
   issue: Issue,
   command: string,
   token: string,
   selectedModel?: OpencodeModel | null
 ): Promise<void> {
-  // Phase 1: Validate
-  const originalState = issue.state;
-  const validating = setIssueState(issue.id, 'refinement');
-  if (validating) publishIssue(validating);
-  void mirrorLabels(issue, 'refinement', token);
-  void mirrorComment(issue, 'DevHub validating this issue...', token);
+  clearBlockedReason(issue.id);
+  appendEvent(issue.id, 'refinement', { status: 'started' });
 
   try {
     const models = resolveModels(selectedModel);
-    const validatePrompt = buildValidatePrompt(issue);
-    
-    appendEvent(issue.id, 'validation', { status: 'started' });
-    
-    const onEvent = (event: OpencodeEvent) => {
-      appendEvent(issue.id, 'validation-event', event);
-    };
-    
-    const validateText = await runDevelop(validatePrompt, onEvent, models);
-    const result = parseValidationResult(validateText);
-    
-    appendEvent(issue.id, 'validation', { 
-      status: 'completed', 
-      ready: result.ready, 
-      summary: result.summary 
+    const prompt = buildRefinePrompt(issue);
+    const onEvent = (event: OpencodeEvent) => appendEvent(issue.id, 'refinement-event', event);
+
+    const text = await runDevelop(prompt, onEvent, models);
+    const result = parseRefineResult(text);
+
+    appendEvent(issue.id, 'refinement', {
+      status: 'completed',
+      ready: result.ready,
+      summary: result.summary,
+      blockingQuestions: result.blockingQuestions,
     });
 
     if (!result.ready) {
-      // Validation failed - restore original state with feedback
-      const restored = setResult(issue.id, originalState, null, `Validation: ${result.summary}`);
-      if (restored) publishIssue(restored);
-      void mirrorLabels(issue, originalState, token);
-      void mirrorComment(issue, `DevHub validation found issues:\n\n${result.summary}`, token);
+      const feedback =
+        result.blockingQuestions.length > 0
+          ? result.blockingQuestions.map((q) => `- ${q}`).join('\n')
+          : result.summary;
+      const updated = setBlockedReason(issue.id, feedback);
+      if (updated) publishIssue(updated);
+      void mirrorComment(issue, `DevHub needs input to proceed:\n\n${feedback}`, token);
       return;
     }
 
-    // Validation passed - proceed to develop
-    void mirrorComment(issue, `DevHub validation passed: ${result.summary}`, token);
-    
+    if (result.improvedBody) {
+      void updateIssueBody(issue.owner, issue.repo, issue.number, result.improvedBody, token);
+      setIssueBody(issue.id, result.improvedBody);
+      void mirrorComment(issue, 'DevHub refined this issue (added acceptance criteria, clarified scope).', token);
+    } else {
+      void mirrorComment(issue, `DevHub validation: ready — ${result.summary}`, token);
+    }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    appendEvent(issue.id, 'validation-error', { message: reason });
-    const restored = setResult(issue.id, originalState, null, `Validation failed: ${reason}`);
-    if (restored) publishIssue(restored);
-    void mirrorLabels(issue, originalState, token);
-    void mirrorComment(issue, `DevHub validation failed: ${reason}`, token);
+    appendEvent(issue.id, 'refinement-error', { message: reason });
+    const updated = setBlockedReason(issue.id, `Refinement failed: ${reason}`);
+    if (updated) publishIssue(updated);
+    void mirrorComment(issue, `DevHub refinement failed: ${reason}`, token);
     return;
   }
 
-  // Phase 2: Implement (reuse existing develop flow)
-  await startDevelop(issue, command, token, selectedModel);
+  // Proceed to develop with the freshly-loaded issue — the body may have been
+  // refined above, and the develop prompt must implement the improved text.
+  const fresh = getIssue(issue.id) ?? issue;
+  await startDevelop(fresh, command, token, selectedModel);
+}
+
+// Unified entry point behind the single "Work" button (devhub#132). Routes by
+// the issue's current stage so a card always resumes from where it is:
+//   backlog     → refinement (readiness check) → develop when ready
+//   refinement  → re-check (user may have updated the issue)
+//   developing  → retry after a failed run (blocked_reason set)
+//   pr/rollout/closed → no-op
+export async function startWork(
+  issue: Issue,
+  command: string,
+  token: string,
+  selectedModel?: OpencodeModel | null
+): Promise<void> {
+  if (issue.state === 'backlog') {
+    const moved = setIssueState(issue.id, 'refinement');
+    if (moved) publishIssue(moved);
+    void mirrorLabels(issue, 'refinement', token);
+    return await runRefinement(moved ?? issue, command, token, selectedModel);
+  }
+
+  if (issue.state === 'refinement') {
+    return await runRefinement(issue, command, token, selectedModel);
+  }
+
+  if (issue.state === 'developing') {
+    // Only reachable when a previous run failed (see canDevelop): a live run
+    // must never get a concurrent duplicate session in the same worktree.
+    clearBlockedReason(issue.id);
+    return await startDevelop(issue, command, token, selectedModel);
+  }
+
+  // pr / rollout / closed — nothing to do.
 }
 
 export function canDevelop(issue: Issue): boolean {
-  // Exactly one session per issue; never re-run a session that already produced a PR.
-  return issue.state === 'backlog' || issue.state === 'refinement' || issue.state === 'blocked';
+  // Exactly one session per issue; never re-run a session that already
+  // produced a PR. A `developing` card is only re-workable when its last run
+  // failed (blocked_reason set) — otherwise the run may still be live.
+  return (
+    issue.state === 'backlog' ||
+    issue.state === 'refinement' ||
+    (issue.state === 'developing' && Boolean(issue.blockedReason))
+  );
 }
 
 export { setSessionId, getIssue };

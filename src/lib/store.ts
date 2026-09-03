@@ -15,6 +15,19 @@ export function getDb(): Database.Database {
   return db;
 }
 
+// Test-only: drop the cached connection so a later getDb() re-opens the file
+// and re-runs migrate() against whatever rows are on disk.
+export function closeDbForTests(): void {
+  if (db) {
+    try {
+      db.close();
+    } catch {
+      /* ignore */
+    }
+    db = null;
+  }
+}
+
 function migrate(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS issues (
@@ -100,6 +113,25 @@ function migrate(database: Database.Database): void {
     database.exec(`ALTER TABLE issues ADD COLUMN model_id TEXT`);
   }
 
+  // One-time migration: the `blocked` state was removed (devhub#132). Failures
+  // now stay in their stage with a `blocked_reason`. Legacy blocked rows move
+  // to `backlog` with their failure text preserved as the reason. Idempotent:
+  // nothing ever writes `blocked` again, so the SELECT finds nothing after the
+  // first pass.
+  if (!hasColumn('blocked_reason')) {
+    database.exec(`ALTER TABLE issues ADD COLUMN blocked_reason TEXT`);
+  }
+  const blockedIssues = database
+    .prepare("SELECT id, result_text FROM issues WHERE state = 'blocked'")
+    .all() as { id: number; result_text: string | null }[];
+  for (const issue of blockedIssues) {
+    database
+      .prepare(
+        `UPDATE issues SET state = 'backlog', blocked_reason = ?, updated_at = datetime('now') WHERE id = ?`
+      )
+      .run(`Previous attempt: ${issue.result_text ?? 'needs review'}`, issue.id);
+  }
+
   // One-time migration: refresh token support for OAuth sessions.
   const sessionCols = database.prepare('PRAGMA table_info(auth_sessions)').all() as { name: string }[];
   const hasSessionCol = (name: string) => sessionCols.some((c) => c.name === name);
@@ -124,7 +156,7 @@ export interface UpsertIssueInput {
 // Insert as backlog, or refresh metadata only when the row is still in backlog
 // (or was reconciled to `closed` — a reopened issue must pick up fresh
 // metadata so the reconcile pass can move it back to the active board).
-// Rows already developing / pr / blocked / rollout are never clobbered.
+// Rows already developing / pr / rollout are never clobbered.
 export function upsertIssue(input: UpsertIssueInput): void {
   getDb()
     .prepare(
@@ -174,8 +206,10 @@ export function recoverStuckDeveloping(): number {
   const stuck = db.prepare('SELECT id FROM issues WHERE state = ?').all('developing') as { id: number }[];
   if (stuck.length === 0) return 0;
 
+  // Stay in `developing` with a reason (devhub#132): the card remains in its
+  // stage and a "Work" click resumes from there.
   db.prepare(
-    `UPDATE issues SET state = 'blocked', session_id = NULL, result_text = 'recovered from stuck developing state (server restart interrupted the develop run).', updated_at = datetime('now')
+    `UPDATE issues SET session_id = NULL, blocked_reason = 'Server restart interrupted the develop run — click Work to retry.', updated_at = datetime('now')
      WHERE state = 'developing'`
   ).run();
 
@@ -184,6 +218,30 @@ export function recoverStuckDeveloping(): number {
   }
 
   return stuck.length;
+}
+
+// Surfaces a stage-level failure: the issue keeps its state, the reason is
+// shown on the card and cleared by the next "Work" click.
+export function setBlockedReason(id: number, reason: string): Issue | null {
+  getDb()
+    .prepare(`UPDATE issues SET blocked_reason = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(reason, id);
+  return getIssue(id);
+}
+
+export function clearBlockedReason(id: number): Issue | null {
+  getDb()
+    .prepare(`UPDATE issues SET blocked_reason = NULL, updated_at = datetime('now') WHERE id = ?`)
+    .run(id);
+  return getIssue(id);
+}
+
+// Persists a refined issue body produced during the refinement stage.
+export function setIssueBody(id: number, body: string): Issue | null {
+  getDb()
+    .prepare(`UPDATE issues SET body = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(body, id);
+  return getIssue(id);
 }
 
 export function setSessionId(id: number, sessionId: string): void {
@@ -230,7 +288,7 @@ export function setClosed(id: number, reason: string | null): Issue | null {
 export function reopenIssue(id: number): Issue | null {
   getDb()
     .prepare(
-      `UPDATE issues SET state = 'backlog', state_reason = NULL, session_id = NULL, updated_at = datetime('now') WHERE id = ?`
+      `UPDATE issues SET state = 'backlog', state_reason = NULL, session_id = NULL, blocked_reason = NULL, updated_at = datetime('now') WHERE id = ?`
     )
     .run(id);
   return getIssue(id);

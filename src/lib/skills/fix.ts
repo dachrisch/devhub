@@ -1,6 +1,6 @@
 import { registerSkill } from './index';
 import type { SkillContext, SkillResult } from './types';
-import { getIssue, appendEvent, setSessionId, setResult } from '../store';
+import { getIssue, appendEvent, setSessionId, setResult, setBlockedReason } from '../store';
 import { remember } from '../knowledge';
 import { buildDevelopPrompt, extractPrUrl, runDevelop, type OpencodeEvent } from '../opencode';
 import { publishIssue, publishOpencodeEvent } from '../sse';
@@ -58,12 +58,12 @@ registerSkill(
 
         return { success: true, summary: `PR opened: ${prUrl}`, sessionIds };
       } else {
-        setResult(issue.id, 'blocked', null, text);
+        setBlockedReason(issue.id, text.slice(0, 500));
         const updated = getIssue(issue.id);
         if (updated) publishIssue(updated);
 
         remember('fix',
-          `Attempted issue #${issue.number} in ${issue.repo}: blocked`,
+          `Attempted issue #${issue.number} in ${issue.repo}: needs input`,
           { issueId: issue.id, owner: issue.owner, repo: issue.repo, number: issue.number },
           ctx.actionId
         );
@@ -73,7 +73,7 @@ registerSkill(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       appendEvent(issue.id, 'error', { message: reason });
-      setResult(issue.id, 'blocked', null, `CANNOT FULFILL: ${reason}`);
+      setBlockedReason(issue.id, `CANNOT FULFILL: ${reason}`);
       const updated = getIssue(issue.id);
       if (updated) publishIssue(updated);
       return { success: false, summary: reason };

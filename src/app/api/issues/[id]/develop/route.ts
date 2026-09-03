@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getIssue } from '@/lib/store';
-import { canDevelop, startDevelop, startStagedDevelop } from '@/lib/develop';
+import { canDevelop, startWork } from '@/lib/develop';
 import { UnauthorizedError, ForbiddenError, GithubUnavailableError, requireMember } from '@/lib/auth';
 import type { OpencodeModel } from '@/lib/opencode';
 
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   if (!canDevelop(issue)) {
     return NextResponse.json(
-      { error: `issue is '${issue.state}'; only backlog/refinement/blocked issues can be developed` },
+      { error: `issue is '${issue.state}'${issue.state === 'developing' ? ' and still running' : ''}; only backlog/refinement issues (or failed developing runs) can be worked` },
       { status: 409 }
     );
   }
@@ -39,20 +39,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     command?: unknown;
     modelId?: unknown;
     providerID?: unknown;
-    staged?: unknown;
   };
   const command = typeof body.command === 'string' ? body.command : '';
   const modelId = typeof body.modelId === 'string' && body.modelId ? body.modelId : null;
   const providerID = typeof body.providerID === 'string' && body.providerID ? body.providerID : null;
   const selectedModel: OpencodeModel | null = modelId ? { id: modelId, providerID: providerID ?? 'opencode' } : null;
-  const staged = body.staged === true;
 
   // Fire-and-forget: the route returns immediately; progress streams via SSE.
-  if (staged) {
-    void startStagedDevelop(issue, command, session.token, selectedModel);
-  } else {
-    void startDevelop(issue, command, session.token, selectedModel);
-  }
+  void startWork(issue, command, session.token, selectedModel);
 
-  return NextResponse.json({ ok: true, state: staged ? 'validating' : 'developing' }, { status: 202 });
+  return NextResponse.json({ ok: true, state: issue.state }, { status: 202 });
 }

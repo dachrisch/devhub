@@ -1,4 +1,4 @@
-export type IssueState = 'backlog' | 'refinement' | 'developing' | 'pr' | 'rollout' | 'blocked' | 'closed';
+export type IssueState = 'backlog' | 'refinement' | 'developing' | 'pr' | 'rollout' | 'closed';
 
 export const ISSUE_STATES: readonly IssueState[] = [
   'backlog',
@@ -6,7 +6,6 @@ export const ISSUE_STATES: readonly IssueState[] = [
   'developing',
   'pr',
   'rollout',
-  'blocked',
   'closed',
 ];
 
@@ -32,6 +31,7 @@ export interface IssueRow {
   session_id: string | null;
   result_pr_url: string | null;
   result_text: string | null;
+  blocked_reason: string | null;
   linked_pr_url: string | null;
   release_tag: string | null;
   released_at: string | null;
@@ -70,6 +70,7 @@ export interface Issue {
   sessionId: string | null;
   resultPrUrl: string | null;
   resultText: string | null;
+  blockedReason: string | null;
   linkedPrUrl: string | null;
   releaseTag: string | null;
   releasedAt: string | null;
@@ -93,6 +94,7 @@ export function serializeIssue(row: IssueRow): Issue {
     sessionId: row.session_id,
     resultPrUrl: row.result_pr_url,
     resultText: row.result_text,
+    blockedReason: row.blocked_reason,
     linkedPrUrl: row.linked_pr_url,
     releaseTag: row.release_tag,
     releasedAt: row.released_at,

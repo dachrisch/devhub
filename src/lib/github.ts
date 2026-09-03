@@ -11,7 +11,6 @@ export const STATE_LABELS: Record<IssueState, string> = {
   developing: 'devhub:developing',
   pr: 'devhub:pr',
   rollout: 'devhub:rollout',
-  blocked: 'devhub:blocked',
   closed: 'devhub:closed',
 };
 
@@ -63,6 +62,24 @@ export async function commentOnIssue(
     body: JSON.stringify({ body: body.slice(0, 60000) }),
   });
   if (!res.ok) throw new Error(`GitHub comment failed (${res.status})`);
+}
+
+// Replaces the issue body on GitHub — used by the refinement stage to write
+// back an auto-refined version of a vague issue.
+export async function updateIssueBody(
+  owner: string,
+  repo: string,
+  number: number,
+  body: string,
+  token: string,
+  fetchFn: FetchFn = fetch
+): Promise<void> {
+  const res = await fetchFn(`https://api.github.com/repos/${owner}/${repo}/issues/${number}`, {
+    method: 'PATCH',
+    headers: { ...ghHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body: body.slice(0, 65536) }),
+  });
+  if (!res.ok) throw new Error(`GitHub issue update failed (${res.status})`);
 }
 
 export interface GhRepo {
@@ -223,7 +240,7 @@ export async function sweepRollouts(token: string, fetchFn: FetchFn = fetch): Pr
 // the live run and `rollout` is DevHub's own terminal pipeline state; every
 // other card gets reconciled so GitHub-closed issues stop accumulating.
 // `closed` is included so a card GitHub reopened can move back onto the board.
-const RECONCILE_STATES = ['backlog', 'refinement', 'pr', 'blocked', 'closed'] as const;
+const RECONCILE_STATES = ['backlog', 'refinement', 'pr', 'closed'] as const;
 
 // Catch-up reconciliation: the ingest loop only fetches `state=open` issues,
 // so an issue closed outside DevHub's pipeline (manually, duplicate/wontfix,
@@ -277,18 +294,6 @@ export async function reconcileClosedIssues(token: string, fetchFn: FetchFn = fe
       // transient API failure: leave the card for the next pass
     }
   }
-
-  // Sync labels for blocked issues whose GitHub label may be stale (e.g.
-  // after server-restart recovery which sets state but can't mirror labels).
-  const blocked = getIssues().filter((i) => i.state === 'blocked');
-  for (const issue of blocked) {
-    try {
-      await setIssueStateLabels(issue.owner, issue.repo, issue.number, 'blocked', token, fetchFn);
-    } catch {
-      // label mirroring is best-effort
-    }
-  }
-
   return reconciled;
 }
 

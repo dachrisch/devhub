@@ -12,8 +12,7 @@ interface DevelopModalProps {
   onSelectedModelChange: (model: ModelOption | null) => void;
   busy: boolean;
   onCancel: () => void;
-  onDevelop: () => void;
-  onStagedDevelop: () => void;
+  onStart: () => void;
 }
 
 export function DevelopModal({
@@ -25,8 +24,7 @@ export function DevelopModal({
   onSelectedModelChange,
   busy,
   onCancel,
-  onDevelop,
-  onStagedDevelop,
+  onStart,
 }: DevelopModalProps) {
   return (
     <div className="modal-overlay" onClick={onCancel}>
@@ -54,11 +52,8 @@ export function DevelopModal({
           <button className="ghost" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
-          <button className="develop-btn" onClick={onDevelop} disabled={busy}>
-            {busy ? 'Starting…' : 'Start developing'}
-          </button>
-          <button className="validate-btn" onClick={onStagedDevelop} disabled={busy}>
-            {busy ? 'Starting…' : 'Validate & Develop'}
+          <button className="develop-btn" onClick={onStart} disabled={busy}>
+            {busy ? 'Starting…' : 'Start work'}
           </button>
         </div>
       </div>
