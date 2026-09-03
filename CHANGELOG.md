@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.17.0](https://github.com/dachrisch/devhub/compare/v1.16.2...v1.17.0) (2026-09-03)
+
+
+### Features
+
+* **board:** bring mobile card and cockpit patterns to desktop ([1a5af0b](https://github.com/dachrisch/devhub/commit/1a5af0b928dee7bdc91fecc89a8f90c3f57354c1))
+* **board:** bring mobile card and cockpit patterns to desktop ([bffe663](https://github.com/dachrisch/devhub/commit/bffe66336f0cff19115284ed5818635d0acd99ea))
+
 ## [1.16.2](https://github.com/dachrisch/devhub/compare/v1.16.1...v1.16.2) (2026-09-03)
 
 
