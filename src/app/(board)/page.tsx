@@ -1147,6 +1147,7 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
           selectedModel={selectedModel}
           onSelectedModelChange={setSelectedModel}
           busy={busy}
+          error={error}
           onCancel={closeModal}
           onStart={start}
         />
@@ -1163,10 +1164,38 @@ function MobileCardWithActions({
   onOpenActions: () => void;
 }) {
   const color = repoColor(`${issue.owner}/${issue.repo}`);
-  const { busy, start } = useCardActions(issue.id);
+  const {
+    busy,
+    error,
+    modalOpen,
+    openModal,
+    closeModal,
+    command,
+    setCommand,
+    models,
+    selectedModel,
+    setSelectedModel,
+    start,
+  } = useCardActions(issue.id);
 
   return (
-    <MobileCard issue={issue} color={color} busy={busy} onPrimaryAction={start} onOpenActions={onOpenActions} />
+    <>
+      <MobileCard issue={issue} color={color} busy={busy} onPrimaryAction={openModal} onOpenActions={onOpenActions} />
+      {modalOpen && (
+        <DevelopModal
+          issue={issue}
+          command={command}
+          onCommandChange={setCommand}
+          models={models}
+          selectedModel={selectedModel}
+          onSelectedModelChange={setSelectedModel}
+          busy={busy}
+          error={error}
+          onCancel={closeModal}
+          onStart={start}
+        />
+      )}
+    </>
   );
 }
 
@@ -1181,6 +1210,7 @@ function CardActionsSheetWithActions({
 }) {
   const {
     busy,
+    error,
     modalOpen,
     openModal,
     command,
@@ -1227,6 +1257,7 @@ function CardActionsSheetWithActions({
         selectedModel={selectedModel}
         onSelectedModelChange={setSelectedModel}
         busy={busy}
+        error={error}
         onCancel={onClose}
         onStart={() => {
           void start();

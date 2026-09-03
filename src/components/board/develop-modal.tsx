@@ -11,6 +11,7 @@ interface DevelopModalProps {
   selectedModel: ModelOption | null;
   onSelectedModelChange: (model: ModelOption | null) => void;
   busy: boolean;
+  error?: string | null;
   onCancel: () => void;
   onStart: () => void;
 }
@@ -23,6 +24,7 @@ export function DevelopModal({
   selectedModel,
   onSelectedModelChange,
   busy,
+  error,
   onCancel,
   onStart,
 }: DevelopModalProps) {
@@ -48,6 +50,11 @@ export function DevelopModal({
           Model (optional — default = pinned tiers)
         </label>
         <ModelPicker models={models} value={selectedModel} onChange={onSelectedModelChange} />
+        {error && (
+          <div className="card-error" role="alert">
+            {error}
+          </div>
+        )}
         <div className="modal-actions">
           <button className="ghost" onClick={onCancel} disabled={busy}>
             Cancel

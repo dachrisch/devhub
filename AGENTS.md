@@ -120,6 +120,11 @@ The unified Work flow (single "Work" button, `startWork`) routes by stage:
 Failures never move the card backwards or to a dead state — the card stays put with
 `blocked_reason` set and the next Work click resumes from there.
 
+Every per-issue Work entry point (desktop card button, mobile card primary button,
+mobile "…" sheet) opens the Start-work modal first, offering extra instructions
+(prompt extension) and a model override (pre-selected with the operator's last-used
+default). "Work on selected" is the exception: it starts immediately with defaults.
+
 ### E2E
 Headless Work-flow e2e against mocked GitHub + opencode:
 `node scripts/dev/start-dev.mjs --port 3111` then
