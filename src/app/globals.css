@@ -300,6 +300,8 @@ header h1 {
   font-weight: 500;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
+  /* Adopted from the mobile layout: 44px touch target. */
+  min-height: 44px;
 }
 
 .refresh-btn:hover {
@@ -315,7 +317,7 @@ header h1 {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 12px;
+  padding: 8px 14px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--panel);
@@ -324,6 +326,9 @@ header h1 {
   font-weight: 500;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
+  /* Adopted from the mobile layout: 44px touch target, no wrapping. */
+  min-height: 44px;
+  white-space: nowrap;
 }
 
 .repo-chip:hover {
@@ -502,6 +507,8 @@ header h1 {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
 }
 
 .column {
@@ -509,6 +516,7 @@ header h1 {
   border: 1px solid var(--border);
   border-radius: 10px;
   min-height: 120px;
+  min-width: 0;
 }
 
 .column-head {
@@ -520,6 +528,15 @@ header h1 {
   font-weight: 600;
   font-size: 14px;
   text-transform: capitalize;
+  /* Adopted from the mobile layout: sticky headers stay visible while a
+     tall column scrolls, and long repo names wrap instead of blowing out
+     the 260px grid track. */
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 5;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .sort-toggle {
@@ -536,6 +553,8 @@ header h1 {
   border-radius: 6px;
   cursor: pointer;
   text-transform: none;
+  /* Adopted from the mobile layout: 44px touch target. */
+  min-height: 44px;
 }
 
 .sort-toggle:hover {
@@ -757,6 +776,10 @@ header h1 {
   border-left: 3px solid var(--border);
   border-radius: 10px;
   transition: border-color 0.15s ease, transform 0.15s ease;
+  /* Adopted from the mobile layout: never let long names/URLs blow out the
+     grid track. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .card:hover {
@@ -839,6 +862,8 @@ header h1 {
   font-weight: 600;
   font-size: 11px;
   line-height: 1.6;
+  /* Adopted from the mobile layout. */
+  overflow-wrap: anywhere;
 }
 
 .issue-number {
@@ -894,6 +919,8 @@ header h1 {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  /* Adopted from the mobile layout spacing. */
+  margin-top: 12px;
 }
 
 .release-tag {
@@ -910,6 +937,10 @@ header h1 {
   color: #0d1117;
   border: none;
   font-weight: 600;
+  /* Adopted from the mobile layout: 44px touch target. */
+  padding: 12px 20px;
+  min-height: 44px;
+  font-size: 14px;
 }
 
 .develop-btn:hover:not(:disabled) {
@@ -969,6 +1000,9 @@ button:disabled {
   color: var(--muted);
   font-size: 12px;
   padding: 12px 14px;
+  /* Adopted from the mobile layout. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .modal-overlay {
@@ -1165,12 +1199,14 @@ button:disabled {
   font-size: 13px;
   font-weight: 500;
   color: var(--text);
-  padding: 6px 12px;
+  padding: 12px 16px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--panel);
   text-decoration: none;
   transition: border-color 0.15s ease, background 0.15s ease;
+  /* Adopted from the mobile layout: 44px touch target. */
+  min-height: 44px;
 }
 
 .recap-link:hover {
