@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.0](https://github.com/dachrisch/devhub/compare/v1.15.8...v1.16.0) (2026-09-03)
+
+
+### Features
+
+* unify develop flow behind single Work button, remove blocked state ([234affa](https://github.com/dachrisch/devhub/commit/234affa4ba504cac418d288bec1b00e1bba376b9))
+
 ## [1.15.8](https://github.com/dachrisch/devhub/compare/v1.15.7...v1.15.8) (2026-09-02)
 
 
