@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Issue, IssueState } from '@/lib/types';
-import { countRepos, closedReasonLabel, excerpt, isWorkable, matchesIssue, relTime, repoColor } from '@/lib/board-ui';
+import { countRepos, closedReasonLabel, excerpt, matchesIssue, primaryCardAction, relTime, repoColor } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
@@ -12,6 +12,7 @@ import { DevelopModal } from '@/components/board/develop-modal';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
 import { MobileCard } from '@/components/board/mobile-card';
 import { CardActionsSheet } from '@/components/board/card-actions-sheet';
+import { CardActionsMenu } from '@/components/board/card-actions-menu';
 import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
 import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
 import type { CardActionId } from '@/lib/board-ui';
@@ -107,6 +108,9 @@ export default function BoardPage() {
   // Cockpit input bar
   const [actionInput, setActionInput] = useState('');
   const [cockpitOpen, setCockpitOpen] = useState(false);
+  // Desktop cockpit starts collapsed to a trigger pill, same instinct as
+  // mobile's FAB+sheet: don't spend fixed vertical space until it's wanted.
+  const [desktopCockpitOpen, setDesktopCockpitOpen] = useState(false);
   // Recent cockpit actions with live status: hydrated from GET /api/action on
   // load, updated by `type:'action'` SSE broadcasts, and drilled into
   // GET /api/action/[id] for summary/duration when we lack the row.
@@ -329,6 +333,7 @@ export default function BoardPage() {
           : [{ id: actionId, input, status: 'pending', detail: null, durationMs: null }, ...prev]
       );
       setActionInput('');
+      setDesktopCockpitOpen(false);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     }
@@ -673,32 +678,47 @@ export default function BoardPage() {
           plus recent history, fed by SSE + GET /api/action. */}
       <ActionStatusStrip actions={actions} />
 
-      {!isMobile && (
-        <div style={{ padding: '0 16px 12px' }}>
-          <div style={{ display: 'flex', gap: 8 }}>
+      {!isMobile && !desktopCockpitOpen && (
+        <div className="cockpit-collapsed-wrap">
+          <button
+            type="button"
+            className="cockpit-collapsed-trigger"
+            onClick={() => setDesktopCockpitOpen(true)}
+          >
+            Tell me what you want… <span className="cockpit-collapsed-hint">e.g. &quot;Launch a new API&quot;, &quot;Fix issue #42&quot;</span>
+          </button>
+        </div>
+      )}
+
+      {!isMobile && desktopCockpitOpen && (
+        <div className="cockpit-expanded-wrap">
+          <form
+            className="cockpit-expanded-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitAction();
+            }}
+          >
             <input
               type="text"
               value={actionInput}
               onChange={(e) => setActionInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submitAction()}
               placeholder='Tell me what you want... (e.g. "Launch a new API", "Fix issue #42")'
-              style={{
-                flex: 1, padding: '10px 14px', borderRadius: 8,
-                border: '1px solid var(--border)', background: 'var(--surface)',
-                color: 'var(--text)', fontSize: 14, outline: 'none',
-              }}
+              className="cockpit-expanded-input"
+              autoFocus
             />
-            <button
-              onClick={submitAction}
-              style={{
-                padding: '10px 20px', borderRadius: 8, border: 'none',
-                background: 'var(--accent)', color: '#fff', fontWeight: 600,
-                cursor: 'pointer', fontSize: 14,
-              }}
-            >
+            <button type="submit" className="cockpit-expanded-go" disabled={!actionInput.trim()}>
               Go
             </button>
-          </div>
+            <button
+              type="button"
+              className="cockpit-expanded-close"
+              onClick={() => setDesktopCockpitOpen(false)}
+              aria-label="Collapse command input"
+            >
+              ×
+            </button>
+          </form>
         </div>
       )}
 
@@ -1055,10 +1075,25 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
   } = useCardActions(issue.id);
 
   const isAuthError = error && (/401/.test(error) || /403/.test(error) || /auth/i.test(error));
+  const primary = primaryCardAction(issue);
+
+  const handleMenuSelect = (id: CardActionId) => {
+    switch (id) {
+      case 'to-refinement':
+        if (!busy) void transition('refinement');
+        break;
+      case 'to-backlog':
+        if (!busy) void transition('backlog');
+        break;
+      case 'open-github':
+        window.open(issue.htmlUrl, '_blank', 'noopener,noreferrer');
+        break;
+    }
+  };
 
   return (
-    <div className="card" style={{ borderLeftColor: color }}>
-      <div className="card-header">
+    <div className="card">
+      <div className="card-strip" style={{ background: `${color}22` }}>
         <input
           type="checkbox"
           checked={selected}
@@ -1066,77 +1101,63 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
           className="card-checkbox"
           aria-label={`Select issue ${issue.owner}/${issue.repo} #${issue.number} for batch actions`}
         />
-        <div className="repo">
-          <span
-            className="repo-pill"
-            style={{ color, borderColor: color, background: `${color}22` }}
-          >
-            {issue.owner}/{issue.repo}
-          </span>
-          <span className="issue-number">#{issue.number}</span>
-          <span className={`age ${urgencyTier(issue.updatedAt)}`}>{relTime(issue.updatedAt)}</span>
-        </div>
+        <span className="card-strip-dot" style={{ background: color }} />
+        <span className="card-strip-repo" style={{ color }}>
+          {issue.owner}/{issue.repo}
+        </span>
+        <span className="card-strip-number">#{issue.number}</span>
+        <span className={`card-strip-age age ${urgencyTier(issue.updatedAt)}`}>{relTime(issue.updatedAt)}</span>
       </div>
-      <div className="title">
+
+      <div className="card-body">
         <Link href={`/issues/${issue.id}`} className="title-link">
-          {issue.title}
+          <div className="title">{issue.title}</div>
+          {issue.body && <div className="excerpt">{excerpt(issue.body)}</div>}
         </Link>
-      </div>
-      {issue.body && <div className="excerpt">{excerpt(issue.body)}</div>}
 
-      {issue.linkedPrUrl && issue.state !== 'pr' && (
-        <div className="result">
-          PR: <a href={issue.linkedPrUrl}>{issue.linkedPrUrl}</a>
-        </div>
-      )}
-
-      {issue.state === 'pr' && issue.resultPrUrl && (
-        <div className="result">
-          PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
-        </div>
-      )}
-      {issue.blockedReason && (
-        <div className="card-blocked" role="alert">
-          <strong>Needs input:</strong> {excerpt(issue.blockedReason)}
-        </div>
-      )}
-      {issue.state === 'refinement' && !issue.blockedReason && issue.resultText && (
-        <div className="result">
-          <strong>Validation:</strong> {excerpt(issue.resultText)}
-        </div>
-      )}
-
-      <div className="card-actions">
-        {issue.state === 'backlog' && (
-          <button className="ghost" onClick={() => transition('refinement')} disabled={busy}>
-            Refine
-          </button>
+        {issue.linkedPrUrl && issue.state !== 'pr' && (
+          <div className="result">
+            PR: <a href={issue.linkedPrUrl}>{issue.linkedPrUrl}</a>
+          </div>
         )}
-        {issue.state === 'refinement' && (
-          <button className="ghost" onClick={() => transition('backlog')} disabled={busy}>
-            Back to backlog
-          </button>
+        {issue.state === 'pr' && issue.resultPrUrl && (
+          <div className="result">
+            PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
+          </div>
         )}
-        {isWorkable(issue) && (
-          <button className="develop-btn" onClick={openModal}>
-            Work
-          </button>
+        {issue.blockedReason && (
+          <div className="card-blocked" role="alert">
+            <strong>Needs input:</strong> {excerpt(issue.blockedReason)}
+          </div>
+        )}
+        {issue.state === 'refinement' && !issue.blockedReason && issue.resultText && (
+          <div className="result">
+            <strong>Validation:</strong> {excerpt(issue.resultText)}
+          </div>
+        )}
+        {error && (
+          <div className="card-error" role="alert">
+            <span>{isAuthError ? 'Session expired — ' : `${error}`}</span>
+            {isAuthError && <a href="/api/auth/login" className="card-error-login">log in again</a>}
+          </div>
+        )}
+        {developing && !issue.blockedReason && (
+          <div className="result developing">developing{issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)</div>
         )}
       </div>
-      {error && (
-        <div className="card-error" role="alert">
-          <span>{isAuthError ? 'Session expired — ' : `${error}`}</span>
-          {isAuthError && <a href="/api/auth/login" className="card-error-login">log in again</a>}
-        </div>
-      )}
-      <div className="recap-row">
-        <Link href={`/issues/${issue.id}`} className="recap-link">
-          {developing && !issue.blockedReason ? 'Recap (live)' : 'Recap'}
-        </Link>
+
+      <div className="card-footer">
+        {primary.kind === 'work' ? (
+          <button className="card-primary" onClick={openModal} disabled={busy}>
+            {primary.label}
+          </button>
+        ) : (
+          <Link href={`/issues/${issue.id}`} className="card-primary card-primary-link">
+            {primary.label}
+          </Link>
+        )}
+        <CardActionsMenu issue={issue} onSelect={handleMenuSelect} />
       </div>
-      {developing && !issue.blockedReason && (
-        <div className="result developing">developing{issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)</div>
-      )}
 
       {modalOpen && (
         <DevelopModal
