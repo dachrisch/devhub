@@ -14,8 +14,7 @@ export interface UseCardActionsResult {
   models: ModelOption[];
   selectedModel: ModelOption | null;
   setSelectedModel: (model: ModelOption | null) => void;
-  develop: () => Promise<void>;
-  stagedDevelop: () => Promise<void>;
+  start: () => Promise<void>;
   transition: (target: IssueState) => Promise<void>;
 }
 
@@ -52,45 +51,38 @@ export function useCardActions(issueId: number): UseCardActionsResult {
 
   const closeModal = useCallback(() => setModalOpen(false), []);
 
-  const postDevelop = useCallback(
-    async (staged: boolean) => {
-      setBusy(true);
-      setError(null);
-      try {
-        const body: { command: string; modelId?: string; providerID?: string; staged?: boolean } = {
-          command,
-        };
-        if (staged) body.staged = true;
-        if (selectedModel) {
-          body.modelId = selectedModel.id;
-          body.providerID = selectedModel.providerID;
-        }
-        const res = await fetch(`/api/issues/${issueId}/develop`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          let detail = '';
-          try {
-            const data = (await res.json()) as { error?: string };
-            detail = data.error ?? '';
-          } catch { /* non-JSON */ }
-          setError(detail || `develop failed (HTTP ${res.status})`);
-          return;
-        }
-        setModalOpen(false);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setBusy(false);
+  const start = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const body: { command: string; modelId?: string; providerID?: string } = {
+        command,
+      };
+      if (selectedModel) {
+        body.modelId = selectedModel.id;
+        body.providerID = selectedModel.providerID;
       }
-    },
-    [issueId, command, selectedModel]
-  );
-
-  const develop = useCallback(() => postDevelop(false), [postDevelop]);
-  const stagedDevelop = useCallback(() => postDevelop(true), [postDevelop]);
+      const res = await fetch(`/api/issues/${issueId}/develop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        let detail = '';
+        try {
+          const data = (await res.json()) as { error?: string };
+          detail = data.error ?? '';
+        } catch { /* non-JSON */ }
+        setError(detail || `develop failed (HTTP ${res.status})`);
+        return;
+      }
+      setModalOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [issueId, command, selectedModel]);
 
   const transition = useCallback(
     async (target: IssueState) => {
@@ -130,8 +122,7 @@ export function useCardActions(issueId: number): UseCardActionsResult {
     models,
     selectedModel,
     setSelectedModel,
-    develop,
-    stagedDevelop,
+    start,
     transition,
   };
 }

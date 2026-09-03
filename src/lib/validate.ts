@@ -1,17 +1,20 @@
 import { ENV } from './env';
 import type { Issue } from './types';
-import { appendEvent, setIssueState, setResult } from './store';
-import { resolveModels, runDevelop, type OpencodeEvent } from './opencode';
-import { publishIssue } from './sse';
-import { mirrorComment } from './utils';
-import { startDevelop } from './develop';
 
-export function buildValidatePrompt(issue: Issue): string {
+export interface RefineResult {
+  ready: boolean;
+  summary: string;
+  improvedBody: string | null;
+  blockingQuestions: string[];
+}
+
+// Refinement-stage prompt: assess the issue AND, when possible, produce an
+// improved version so the develop stage can start without user input.
+export function buildRefinePrompt(issue: Issue): string {
   const repoPath = `${ENV.openWorkspaceRoot}/${issue.repo}`;
-  
-  const parts = [
-    `You are validating a GitHub issue for readiness on a personal dev command board (DevHub).`,
-    `Your job is to assess whether this issue is clear enough to be implemented.`,
+  return [
+    `You are refining a GitHub issue for readiness on a personal dev command board (DevHub).`,
+    `Assess the issue AND produce an improved version if possible.`,
     ``,
     `## Repository`,
     `Repository path: ${repoPath}`,
@@ -20,86 +23,52 @@ export function buildValidatePrompt(issue: Issue): string {
     ``,
     `## Issue`,
     `Title: ${issue.title}`,
-    ``,
     `Body:`,
-    issue.body?.trim() ? issue.body.trim() : '(no description)',
+    issue.body?.trim() || '(no description)',
     ``,
-    `## Validation Criteria`,
-    `Assess the issue against these criteria:`,
-    `1. **Clear scope**: Is the goal well-defined? Can you tell what needs to be done?`,
+    `## Assessment Criteria`,
+    `1. **Clear scope**: Is the goal well-defined?`,
     `2. **Acceptance criteria**: Are there testable conditions for completion?`,
     `3. **Technical feasibility**: Is this achievable with the repo's existing stack?`,
-    `4. **No major ambiguities**: Are there blocking questions that need answers?`,
+    `4. **No major ambiguities**: Are there blocking questions that need human answers?`,
     ``,
     `## Response Format`,
-    `Respond with EXACTLY ONE of:`,
-    `- "READY: <brief summary of what will be implemented>" if the issue is clear enough to proceed`,
-    `- "NEEDS_WORK: <specific improvements needed>" if the issue needs refinement before implementation`,
+    `Respond with EXACTLY ONE JSON object (no markdown fences):`,
+    `{`,
+    `  "ready": true/false,`,
+    `  "summary": "brief assessment",`,
+    `  "improvedBody": "full improved issue body" or null if already ready,`,
+    `  "blockingQuestions": ["question that needs human answer"] or empty array`,
+    `}`,
     ``,
-    `Be concise. Focus on whether a developer (human or AI) could start working on this immediately.`,
-  ];
-
-  return parts.join('\n');
+    `Rules:`,
+    `- If already clear and ready: ready=true, improvedBody=null, blockingQuestions=[]`,
+    `- If needs minor improvements (missing criteria, vague scope that can be inferred): ready=true, write improved body, blockingQuestions=[]`,
+    `- If has truly blocking questions (architecture decisions, business requirements, missing info): ready=false, list in blockingQuestions`,
+    `- improvedBody must be a complete GitHub issue body (markdown), not a diff`,
+  ].join('\n');
 }
 
-export function parseValidationResult(text: string): { ready: boolean; summary: string } {
-  const trimmed = text.trim();
-  
-  if (trimmed.startsWith('READY:')) {
-    return { ready: true, summary: trimmed.slice(6).trim() };
-  }
-  
-  if (trimmed.startsWith('NEEDS_WORK:')) {
-    return { ready: false, summary: trimmed.slice(11).trim() };
-  }
-  
-  // Fallback: check for keywords
-  const lower = trimmed.toLowerCase();
-  if (lower.includes('ready') && !lower.includes('needs work')) {
-    return { ready: true, summary: trimmed };
-  }
-  
-  return { ready: false, summary: trimmed };
-}
-
-export async function startValidation(issue: Issue, token: string): Promise<void> {
-  if (issue.state !== 'backlog' && issue.state !== 'refinement') {
-    appendEvent(issue.id, 'validation', { status: 'skipped', reason: `issue in '${issue.state}' state` });
-    return;
-  }
-
-  try {
-    const models = resolveModels();
-    const prompt = buildValidatePrompt(issue);
-    
-    appendEvent(issue.id, 'validation', { status: 'started' });
-    
-    const onEvent = (event: OpencodeEvent) => {
-      appendEvent(issue.id, 'validation-event', event);
-    };
-    
-    const text = await runDevelop(prompt, onEvent, models);
-    const result = parseValidationResult(text);
-    
-    appendEvent(issue.id, 'validation', { 
-      status: 'completed', 
-      ready: result.ready, 
-      summary: result.summary 
-    });
-
-    if (result.ready) {
-      const updated = setIssueState(issue.id, 'backlog');
-      if (updated) publishIssue(updated);
-      void startDevelop(issue, '', token);
-    } else {
-      const updated = setResult(issue.id, 'refinement', null, result.summary);
-      if (updated) publishIssue(updated);
+export function parseRefineResult(text: string): RefineResult {
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+      return {
+        ready: Boolean(parsed.ready),
+        summary: String(parsed.summary ?? text),
+        improvedBody: typeof parsed.improvedBody === 'string' && parsed.improvedBody.trim() ? parsed.improvedBody : null,
+        blockingQuestions: Array.isArray(parsed.blockingQuestions)
+          ? parsed.blockingQuestions.map(String)
+          : [],
+      };
+    } catch {
+      /* fall through to the plain-text fallback */
     }
-    
-    void mirrorComment(issue, `DevHub validation: ${result.ready ? 'READY' : 'NEEDS_WORK'}\n${result.summary}`, token);
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    appendEvent(issue.id, 'validation-error', { message: reason });
-    void mirrorComment(issue, `DevHub validation failed: ${reason}`, token);
   }
+  const trimmed = text.trim();
+  if (trimmed.startsWith('READY:')) {
+    return { ready: true, summary: trimmed.slice(6).trim(), improvedBody: null, blockingQuestions: [] };
+  }
+  return { ready: false, summary: trimmed, improvedBody: null, blockingQuestions: [] };
 }

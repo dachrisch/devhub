@@ -138,13 +138,59 @@ describe('store', () => {
     const recovered = store.recoverStuckDeveloping();
     expect(recovered).toBe(1);
 
+    // The card stays in `developing` (devhub#132) with a blocked_reason so a
+    // "Work" click can resume it.
     const issue = store.getIssue(id);
-    expect(issue?.state).toBe('blocked');
+    expect(issue?.state).toBe('developing');
+    expect(issue?.blockedReason).toContain('Server restart interrupted');
     expect(issue?.sessionId).toBeNull();
-    expect(issue?.resultText).toContain('recovered');
 
     const events = store.getEvents(id);
     expect(events.some(e => e.kind === 'recovery')).toBe(true);
+  });
+
+  it('sets, clears and surfaces the blocked reason without changing state', () => {
+    store.upsertIssue({
+      githubIssueId: 21,
+      owner: 'dachrisch',
+      repo: 'cli',
+      number: 3,
+      title: 'Needs input',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/cli/issues/3',
+    });
+    const id = store.getIssueByGithub('dachrisch', 'cli', 3)!.id;
+
+    const blocked = store.setBlockedReason(id, 'Which auth flow?');
+    expect(blocked?.state).toBe('backlog');
+    expect(blocked?.blockedReason).toBe('Which auth flow?');
+
+    const cleared = store.clearBlockedReason(id);
+    expect(cleared?.blockedReason).toBeNull();
+  });
+
+  it('migrates legacy blocked rows to backlog with the reason preserved', () => {
+    store.upsertIssue({
+      githubIssueId: 22,
+      owner: 'dachrisch',
+      repo: 'legacy',
+      number: 4,
+      title: 'Legacy blocked',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/legacy/issues/4',
+    });
+    const id = store.getIssueByGithub('dachrisch', 'legacy', 4)!.id;
+
+    // Simulate a row written by the pre-#132 schema.
+    store.getDb()
+      .prepare(`UPDATE issues SET state = 'blocked', result_text = 'CANNOT FULFILL: no tests' WHERE id = ?`)
+      .run(id);
+
+    // Reopening the DB re-runs migrate(); the blocked row must be re-admitted.
+    store.closeDbForTests();
+    const fresh = store.getIssue(id);
+    expect(fresh?.state).toBe('backlog');
+    expect(fresh?.blockedReason).toBe('Previous attempt: CANNOT FULFILL: no tests');
   });
 
   it('exposes the migration-added rollout columns on every issue', () => {

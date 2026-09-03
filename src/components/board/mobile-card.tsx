@@ -31,15 +31,20 @@ export function MobileCard({ issue, color, busy, onPrimaryAction, onOpenActions 
           <span className="mobile-card-title">{issue.title}</span>
           {issue.body && <div className="mobile-card-excerpt">{excerpt(issue.body)}</div>}
         </Link>
-        {developing && (
+        {developing && !issue.blockedReason && (
           <div className="mobile-card-status">
             <span className="mobile-card-status-dot" />
             developing{issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)
           </div>
         )}
+        {issue.blockedReason && (
+          <div className="card-blocked" role="alert">
+            <strong>Needs input:</strong> {excerpt(issue.blockedReason)}
+          </div>
+        )}
       </div>
       <div className="mobile-card-footer">
-        {primary.kind === 'develop' ? (
+        {primary.kind === 'work' ? (
           <button className="mobile-card-primary" onClick={onPrimaryAction} disabled={busy}>
             {primary.label}
           </button>

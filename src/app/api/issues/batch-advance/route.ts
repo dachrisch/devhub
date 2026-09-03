@@ -4,8 +4,7 @@ import { publishIssue } from '@/lib/sse';
 import { setIssueStateLabels } from '@/lib/github';
 import { canBatchAdvance, getBatchAdvanceTarget } from '@/lib/transitions';
 import { UnauthorizedError, ForbiddenError, GithubUnavailableError, requireMember } from '@/lib/auth';
-import { startValidation } from '@/lib/validate';
-import { canDevelop, startDevelop } from '@/lib/develop';
+import { canDevelop, startWork } from '@/lib/develop';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,12 +20,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'github auth failed' }, { status: 401 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { 
+  const body = (await req.json().catch(() => ({}))) as {
     issueIds?: unknown;
     mode?: unknown;
   };
   const issueIds = Array.isArray(body.issueIds) ? [...new Set(body.issueIds.filter((id): id is number => typeof id === 'number'))] : [];
-  const mode = body.mode === 'develop' ? 'develop' : body.mode === 'validate' ? 'validate' : 'advance';
+  const mode = body.mode === 'work' ? 'work' : 'advance';
 
   if (issueIds.length === 0) {
     return NextResponse.json({ error: 'no issue IDs provided' }, { status: 400 });
@@ -45,28 +44,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       continue;
     }
 
-    if (mode === 'develop' && canDevelop(issue)) {
-      void startDevelop(issue, '', session.token);
-      results.push({ id: issueId, success: true, mode: 'developing' });
-      continue;
-    }
-
-    if (mode === 'validate') {
-      if (issue.state !== 'backlog') {
-        results.push({ id: issueId, success: false, error: 'validate only supports backlog issues', mode: 'validate' });
+    if (mode === 'work') {
+      if (!canDevelop(issue)) {
+        results.push({
+          id: issueId,
+          success: false,
+          error: `cannot work from '${issue.state}'${issue.state === 'developing' ? ' (run still live)' : ''}`,
+          currentState: issue.state,
+        });
         continue;
       }
-      const validating = setIssueState(issue.id, 'refinement');
-      if (validating) {
-        publishIssue(validating);
-        void setIssueStateLabels(issue.owner, issue.repo, issue.number, 'refinement', session.token).catch(() => {});
-        
-        void startValidation(issue, session.token);
-        
-        results.push({ id: issueId, success: true, mode: 'validating' });
-      } else {
-        results.push({ id: issueId, success: false, error: 'failed to start validation' });
-      }
+      void startWork(issue, '', session.token);
+      results.push({ id: issueId, success: true, mode: 'working' });
       continue;
     }
 

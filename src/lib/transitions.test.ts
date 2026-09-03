@@ -12,7 +12,6 @@ describe('transitions', () => {
     expect(canTransition('backlog', 'developing')).toBe(false);
     expect(canTransition('developing', 'pr')).toBe(false);
     expect(canTransition('pr', 'rollout')).toBe(false);
-    expect(canTransition('backlog', 'blocked')).toBe(false);
   });
 
   it('covers every state as a source (all stay unreachable for manual moves)', () => {
@@ -25,6 +24,7 @@ describe('transitions', () => {
     expect(isIssueState('refinement')).toBe(true);
     expect(isIssueState('rollout')).toBe(true);
     expect(isIssueState('closed')).toBe(true);
+    expect(isIssueState('blocked')).toBe(false);
     expect(isIssueState('bogus')).toBe(false);
   });
 });
@@ -44,7 +44,6 @@ describe('batch transitions', () => {
     expect(canBatchAdvance('developing')).toBe(false);
     expect(canBatchAdvance('pr')).toBe(false);
     expect(canBatchAdvance('rollout')).toBe(false);
-    expect(canBatchAdvance('blocked')).toBe(false);
     expect(canBatchAdvance('closed')).toBe(false);
   });
 

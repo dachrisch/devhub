@@ -45,7 +45,7 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
 ## Domain wiring
 
 - `src/lib/store.ts` — SQLite (`issues`, `events`). `upsertIssue` only writes metadata when a
-  row is `backlog`; it never clobbers `refinement`/`developing`/`pr`/`rollout`/`blocked`.
+  row is `backlog` or `closed`; it never clobbers `refinement`/`developing`/`pr`/`rollout`.
 - `src/lib/github.ts` — `POST /api/issues` (refresh) ingests open issues from `dachrisch` +
   `bumbleflies`, filtered by `GITHUB_TOPICS`, skipping PRs. It also runs `sweepRollouts`,
   which advances `pr` cards to the terminal `rollout` state once their PR is merged **and** a
@@ -59,9 +59,16 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
   Polling `GET .../message` is the completion signal; `GET .../event` SSE is streamed for the
   UI. `buildDevelopPrompt` expects repos already checked out at `WORKSPACE_ROOT/<owner>/<repo>`
   (no cloning). Final assistant message must end in a PR URL or `CANNOT FULFILL: <reason>`.
-- `src/lib/develop.ts` — `startDevelop` runs fire-and-forget; it owns all state transitions
-  and SSE broadcasts. `POST /api/issues/[id]/develop` returns 202 immediately. **Never
-  re-develop an issue in `pr` state** (`canDevelop` only allows `backlog`/`refinement`/`blocked`).
+- `src/lib/develop.ts` — `startWork` (devhub#132) is the single entry point behind the "Work"
+  button and routes by stage: `backlog` → refinement readiness check (opencode assesses +
+  auto-refines the issue body, then develops when ready), `refinement` → re-check,
+  `developing` → retry after a failed run. `startDevelop` runs fire-and-forget; it owns all
+  state transitions and SSE broadcasts. `POST /api/issues/[id]/develop` returns 202
+  immediately. **There is no `blocked` state**: failures keep the card in its stage and set
+  `blocked_reason` ("Needs input" banner); the next Work click clears it and resumes.
+  **Never re-develop an issue in `pr`/`rollout`/`closed`, and never re-develop a `developing`
+  card whose run is live** (`canDevelop` allows `backlog`/`refinement`, plus `developing`
+  only when `blocked_reason` is set).
 
 ## Env
 
@@ -94,21 +101,30 @@ The board supports batch operations for advancing multiple issues through the pi
 - Use `Escape` to clear selection
 
 ### Batch Actions
+- **Work on selected**: run the unified Work flow (devhub#132) for each selected issue —
+  backlog → refinement check → develop; failed `developing` cards retry
 - **Advance selected**: Move selected issues to the next stage (backlog → refinement, refinement → backlog)
-- **Validate selected**: Start validation flow for selected issues (assesses readiness)
-- **Develop selected**: Start development for selected issues (backlog/refinement → developing)
 
 ### Keyboard Shortcuts
 - `Ctrl+A`: Select all visible issues
 - `Escape`: Clear selection
 - `Ctrl+Enter`: Advance selected issues
 
-### Validation Gate
-The validate-then-implement flow provides a two-step process:
-1. **Validate**: An opencode session assesses if the issue is clear enough to implement
-2. **Implement**: If validation passes, a full develop session implements the issue
+### Work Flow Gate
+The unified Work flow (single "Work" button, `startWork`) routes by stage:
+1. **Refinement**: an opencode session assesses if the issue is clear enough to implement;
+   if not, it surfaces blocking questions as `blocked_reason` ("Needs input" banner) and the
+   card stays in its stage; if ready it may auto-refine the issue body, then develops
+2. **Develop**: a full develop session implements the issue and opens a PR
 
-This helps reduce blocked runs caused by underspecified issues.
+Failures never move the card backwards or to a dead state — the card stays put with
+`blocked_reason` set and the next Work click resumes from there.
+
+### E2E
+Headless Work-flow e2e against mocked GitHub + opencode:
+`node scripts/dev/start-dev.mjs --port 3111` then
+`node scripts/dev/e2e-workflow.mjs --url http://localhost:3111`
+(see `docs/plans/2026-09-02-unify-develop-flow.md`).
 
 ## Not yet verified live (from the plan)
 

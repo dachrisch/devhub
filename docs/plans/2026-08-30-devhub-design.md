@@ -1,6 +1,8 @@
 # DevHub — Design Plan
 
-> Status: proposed (2026-08-30). Personal development command board.
+> Status: implemented (2026-08-30); updated 2026-09-02. Personal development
+> command board. The develop flow was unified and the `blocked` state removed —
+> see `2026-09-02-unify-develop-flow.md` for the current flow.
 
 ## 1. Purpose & scope
 
@@ -45,9 +47,12 @@ Deploy later behind Traefik on `lehel.xyz` (out of scope for v1; mirror dontforg
 
 `issues`:
 `id, github_issue_id, owner, repo, number, title, body, html_url,
-state, session_id, result_pr_url, result_text, created_at, updated_at`
+state, session_id, result_pr_url, result_text, blocked_reason, linked_pr_url,
+release_tag, released_at, state_reason, model_id, created_at, updated_at`
 
-`state ∈ {backlog, developing, pr, blocked}`.
+`state ∈ {backlog, refinement, developing, pr, rollout, closed}` — the
+`blocked` state was removed (devhub#132); stage failures keep the state and
+set `blocked_reason` instead.
 
 `events`:
 `id, issue_id, kind, payload_json, ts`
@@ -60,7 +65,7 @@ On `POST /api/issues/refresh`:
   `topics` intersect `GITHUB_TOPICS`.
 - For each, fetch `state=open` issues, **skip pull requests**.
 - Upsert into `issues` as `backlog`. **Do not clobber** rows already in
-  `developing` / `pr` / `blocked`.
+  `refinement` / `developing` / `pr` / `rollout`.
 
 Uses `GH_TOKEN` (has `repo` scope) and `BUMBLEFLIES_GH_TOKEN` for org/private repos.
 
@@ -90,17 +95,23 @@ the opencode server auto-approves tool calls, or whether the prompt API accepts 
 (or session config). If neither, we may need a server-side auto-approve setting. This is a
 blocking verification item before autonomous PR creation works.
 
-## 6. The "develop" flow & prompt
+## 6. The "work" flow & prompt
 
-`POST /api/issues/:id/develop` (body: optional `command` string).
+`POST /api/issues/:id/develop` (body: optional `command` string) is the single
+entry point behind the "Work" button. `startWork` routes by stage:
+`backlog` → refinement readiness check (opencode assesses + auto-refines the
+body, then develops when ready), `refinement` → re-check, `developing` →
+retry after a failed run. Failures keep the card in its stage with
+`blocked_reason` set (see `2026-09-02-unify-develop-flow.md`).
 
-Backend:
+Backend (`startDevelop`):
 1. Set `state = developing`, broadcast change.
 2. Open session, subscribe to `/event` SSE → re-broadcast to UI.
 3. Send a self-contained prompt (see template below).
 4. On finish, capture the **last assistant message**:
    - contains a PR URL → `state = pr`, `result_pr_url` set.
-   - otherwise → `state = blocked`, `result_text` = that message (the `CANNOT FULFILL` reason).
+   - otherwise → stay `developing`, `blocked_reason` = excerpt of the message
+     (the `CANNOT FULFILL` reason).
 
 **Prompt template** instructs opencode to:
 - Operate in the already-provisioned checkout at `${WORKSPACE_ROOT}/<owner>/<repo>`
@@ -126,15 +137,20 @@ The board page subscribes on load and updates cards live. `GET /api/issues` and
 ## 8. Error handling & guardrails
 
 - opencode 503/429 → retry + backoff + model failover.
-- session timeout → `blocked` with reason.
-- clone/checkout/PR failure inside opencode → `blocked`, reason surfaced from the assistant message.
-- Free models only; exactly one session per issue; never re-run a session that already produced a PR.
+- session timeout → stay in stage with `blocked_reason` set.
+- clone/checkout/PR failure inside opencode → `blocked_reason`, reason surfaced
+  from the assistant message.
+- Free models only; exactly one session per issue (a `developing` card is
+  re-workable only after a failed run, i.e. `blocked_reason` set); never re-run
+  a session that already produced a PR.
 - **No secrets committed** — `.env.example` + `.gitignore`. `OPENCODE_API_KEY` / PATs come from env only.
 
 ## 9. Testing
 
 - Unit: GitHub issue/PR parsing, opencode client with `fetch` mocked (per dontforget),
   SSE broadcast hub.
+- E2E: headless Work-flow scenarios against mocked GitHub + opencode
+  (`scripts/dev/e2e-workflow.mjs` — see `2026-09-02-unify-develop-flow.md`).
 - **Mandatory live check** against `code.lehel.xyz` with the real key before trusting parsing
   (session create → prompt → message/event shape), and the auto-approve verification (§5).
 

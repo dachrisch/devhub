@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Issue, IssueState } from '@/lib/types';
-import { countRepos, closedReasonLabel, excerpt, matchesIssue, relTime, repoColor } from '@/lib/board-ui';
+import { countRepos, closedReasonLabel, excerpt, isWorkable, matchesIssue, relTime, repoColor } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
@@ -24,7 +24,7 @@ import {
   type CockpitAction,
 } from '@/components/board/action-status-strip';
 
-const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr', 'blocked'];
+const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr'];
 
 // Released tickets are shown in a slim strip under the header, capped so the
 // strip stays compact.
@@ -50,16 +50,21 @@ function fmtTime(d: Date): string {
 }
 
 // Fire a browser notification when a card lands in a state that needs the
-// operator's attention (PR opened = success, blocked = needs a look). Only
-// fires for transitions seen live over SSE; existing cards on load are not
+// operator's attention (PR opened = success, blocked_reason = needs input).
+// Only fires for changes seen live over SSE; existing cards on load are not
 // re-notified.
 function notifyStateChange(issue: Issue): void {
   if (typeof window === 'undefined' || !('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
-  const title = issue.state === 'pr' ? 'DevHub: pull request opened' : 'DevHub: develop run blocked';
+  const blocked = Boolean(issue.blockedReason);
+  const title = blocked
+    ? 'DevHub: needs input'
+    : issue.state === 'pr'
+      ? 'DevHub: pull request opened'
+      : `DevHub: ${issue.state}`;
   const body = `${issue.owner}/${issue.repo} #${issue.number}: ${issue.title}`;
   try {
-    new Notification(title, { body, tag: `devhub-${issue.id}-${issue.state}` });
+    new Notification(title, { body, tag: `devhub-${issue.id}-${blocked ? 'blocked' : issue.state}` });
   } catch {
     // ignore
   }
@@ -83,9 +88,11 @@ export default function BoardPage() {
   const helpRef = useRef<HTMLDivElement>(null);
   const { user, loading, denied, logout } = useAuth();
   const isMobile = useMediaQuery(MOBILE_QUERY);
-  // Last-seen state per issue, so live transitions to pr/blocked can be told
-  // apart from cards that already were in that state on load.
+  // Last-seen state / blocked flag per issue, so live transitions to pr or a
+  // newly-set blocked_reason can be told apart from cards that already were
+  // in that situation on load.
   const prevStatesRef = useRef<Map<number, IssueState>>(new Map());
+  const prevBlockedRef = useRef<Map<number, boolean>>(new Map());
   const batchStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Batch selection state
@@ -199,8 +206,12 @@ export default function BoardPage() {
         if (active) {
           setIssues(data.issues);
           setLastRefreshed(new Date());
-          const prev = prevStatesRef.current;
-          for (const i of data.issues) prev.set(i.id, i.state);
+          const prevState = prevStatesRef.current;
+          const prevBlocked = prevBlockedRef.current;
+          for (const i of data.issues) {
+            prevState.set(i.id, i.state);
+            prevBlocked.set(i.id, Boolean(i.blockedReason));
+          }
         }
       })
       .catch(() => {});
@@ -214,9 +225,16 @@ export default function BoardPage() {
         if (msg.type === 'issue') {
           const issue = msg.issue as Issue;
           const prevState = prevStatesRef.current.get(issue.id);
+          const prevBlocked = prevBlockedRef.current.get(issue.id) ?? false;
+          const nowBlocked = Boolean(issue.blockedReason);
           prevStatesRef.current.set(issue.id, issue.state);
-          if (prevState && prevState !== issue.state) {
-            if (issue.state === 'pr' || issue.state === 'blocked') notifyStateChange(issue);
+          prevBlockedRef.current.set(issue.id, nowBlocked);
+          const stateChanged = prevState !== undefined && prevState !== issue.state;
+          // Notify on a state transition into `pr` or when a card newly needs
+          // input (including develop-stage failures, where the state itself
+          // doesn't change).
+          if ((stateChanged && issue.state === 'pr') || (nowBlocked && !prevBlocked)) {
+            notifyStateChange(issue);
           }
           upsert(issue);
         } else if (msg.type === 'action') {
@@ -366,78 +384,41 @@ export default function BoardPage() {
     }
   }, [selectedIds, clearSelection]);
 
-  const validateSelected = useCallback(async () => {
+  const workSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
-    
+
     const total = selectedIds.size;
-    setBatchStatus({ operation: 'validating', total, completed: 0, errors: 0 });
+    setBatchStatus({ operation: 'working', total, completed: 0, errors: 0 });
     setRefreshing(true);
     try {
       const res = await fetch('/api/issues/batch-advance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           issueIds: Array.from(selectedIds),
-          mode: 'validate'
+          mode: 'work'
         }),
       });
-      
-      if (!res.ok) {
-        const data = await res.json() as { error?: string };
-        throw new Error(data.error || `batch validation failed (HTTP ${res.status})`);
-      }
 
-      const result = await res.json() as { results: Array<{ id: number; success: boolean; error?: string }> };
-      const completed = result.results.filter((r) => r.success).length;
-      const errors = result.results.filter((r) => !r.success).length;
-
-      setBatchStatus({ operation: 'validating', total, completed, errors });
-      clearSelection();
-      setRefreshError(null);
-    } catch (err) {
-      setRefreshError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRefreshing(false);
-      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
-      batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
-    }
-  }, [selectedIds, clearSelection]);
-
-  const developSelected = useCallback(async () => {
-    if (selectedIds.size === 0) return;
-    
-    const total = selectedIds.size;
-    setBatchStatus({ operation: 'developing', total, completed: 0, errors: 0 });
-    setRefreshing(true);
-    try {
-      const res = await fetch('/api/issues/batch-advance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          issueIds: Array.from(selectedIds),
-          mode: 'develop'
-        }),
-      });
-      
-      const data = await res.json() as { 
+      const data = await res.json() as {
         ok?: boolean;
         error?: string;
-        results?: Array<{ id: number; success: boolean; error?: string; mode?: string }>;
+        results?: Array<{ id: number; success: boolean; error?: string }>;
       };
 
       if (!res.ok) {
-        throw new Error(data.error || `batch develop failed (HTTP ${res.status})`);
+        throw new Error(data.error || `batch work failed (HTTP ${res.status})`);
       }
-      
+
       const succeeded = data.results?.filter((r) => r.success).length ?? 0;
       const failed = data.results?.filter((r) => !r.success) ?? [];
 
-      setBatchStatus({ operation: 'developing', total, completed: succeeded, errors: failed.length });
+      setBatchStatus({ operation: 'working', total, completed: succeeded, errors: failed.length });
       const summary = failed.length > 0
-        ? `Develop started for ${succeeded} issue(s), ${failed.length} failed: ${failed.map((f) => `#${f.id} (${f.error})`).join(', ')}`
-        : `Develop started for ${succeeded} issue(s)`;
-      
-      setRefreshError(failed.length > 0 ? summary : null);
+        ? `Work started for ${succeeded} issue(s), ${failed.length} failed: ${failed.map((f) => `#${f.id} (${f.error})`).join(', ')}`
+        : null;
+
+      setRefreshError(summary);
       clearSelection();
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : String(err));
@@ -629,17 +610,10 @@ export default function BoardPage() {
             <div className="batch-actions">
               <button
                 className="develop-batch-btn"
-                onClick={developSelected}
+                onClick={workSelected}
                 disabled={refreshing}
               >
-                Develop selected ({selectedIds.size})
-              </button>
-              <button
-                className="validate-btn"
-                onClick={validateSelected}
-                disabled={refreshing}
-              >
-                Validate selected ({selectedIds.size})
+                Work on selected ({selectedIds.size})
               </button>
               <button
                 className="advance-btn"
@@ -769,11 +743,15 @@ export default function BoardPage() {
           />
         )}
         {/* Mobile renders a single column (the active tab); desktop shows all
-            five columns side by side with scroll-sync to the status strip. */}
+            four columns side by side with scroll-sync to the status strip. */}
         {(isMobile ? [activeColumn] : COLUMNS).map((col) => {
           const items = issues
             .filter((i) => i.state === col && matchesIssue(i, query) && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter))
             .sort((a, b) => {
+              // Cards needing input float to the top of their column.
+              if (Boolean(a.blockedReason) !== Boolean(b.blockedReason)) {
+                return a.blockedReason ? -1 : 1;
+              }
               const dir = sorts[col] === 'oldest' ? 1 : -1;
               return a.updatedAt.localeCompare(b.updatedAt) * dir;
             });
@@ -1072,8 +1050,7 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
     models,
     selectedModel,
     setSelectedModel,
-    develop,
-    stagedDevelop,
+    start,
     transition,
   } = useCardActions(issue.id);
 
@@ -1118,10 +1095,12 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
           PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
         </div>
       )}
-      {issue.state === 'blocked' && issue.resultText && (
-        <div className="result">{excerpt(issue.resultText)}</div>
+      {issue.blockedReason && (
+        <div className="card-blocked" role="alert">
+          <strong>Needs input:</strong> {excerpt(issue.blockedReason)}
+        </div>
       )}
-      {issue.state === 'refinement' && issue.resultText && (
+      {issue.state === 'refinement' && !issue.blockedReason && issue.resultText && (
         <div className="result">
           <strong>Validation:</strong> {excerpt(issue.resultText)}
         </div>
@@ -1138,18 +1117,10 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
             Back to backlog
           </button>
         )}
-        {(issue.state === 'backlog' || issue.state === 'refinement' || issue.state === 'blocked') && (
-          <>
-            <button className="develop-btn" onClick={openModal}>
-              Develop this
-            </button>
-            <button className="validate-btn" onClick={() => {
-              setCommand('');
-              openModal();
-            }}>
-              Develop (with validation)
-            </button>
-          </>
+        {isWorkable(issue) && (
+          <button className="develop-btn" onClick={openModal}>
+            Work
+          </button>
         )}
       </div>
       {error && (
@@ -1160,10 +1131,12 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
       )}
       <div className="recap-row">
         <Link href={`/issues/${issue.id}`} className="recap-link">
-          {developing ? 'Recap (live)' : 'Recap'}
+          {developing && !issue.blockedReason ? 'Recap (live)' : 'Recap'}
         </Link>
       </div>
-      {developing && <div className="result developing">developing{issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)</div>}
+      {developing && !issue.blockedReason && (
+        <div className="result developing">developing{issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)</div>
+      )}
 
       {modalOpen && (
         <DevelopModal
@@ -1175,8 +1148,7 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
           onSelectedModelChange={setSelectedModel}
           busy={busy}
           onCancel={closeModal}
-          onDevelop={develop}
-          onStagedDevelop={stagedDevelop}
+          onStart={start}
         />
       )}
     </div>
@@ -1191,10 +1163,10 @@ function MobileCardWithActions({
   onOpenActions: () => void;
 }) {
   const color = repoColor(`${issue.owner}/${issue.repo}`);
-  const { busy, develop } = useCardActions(issue.id);
+  const { busy, start } = useCardActions(issue.id);
 
   return (
-    <MobileCard issue={issue} color={color} busy={busy} onPrimaryAction={develop} onOpenActions={onOpenActions} />
+    <MobileCard issue={issue} color={color} busy={busy} onPrimaryAction={start} onOpenActions={onOpenActions} />
   );
 }
 
@@ -1216,14 +1188,13 @@ function CardActionsSheetWithActions({
     models,
     selectedModel,
     setSelectedModel,
-    develop,
-    stagedDevelop,
+    start,
     transition,
   } = useCardActions(issue.id);
 
   const handleSelect = (id: CardActionId) => {
     switch (id) {
-      case 'develop-validated':
+      case 'work':
         openModal();
         return;
       case 'to-refinement':
@@ -1257,12 +1228,8 @@ function CardActionsSheetWithActions({
         onSelectedModelChange={setSelectedModel}
         busy={busy}
         onCancel={onClose}
-        onDevelop={() => {
-          void develop();
-          onClose();
-        }}
-        onStagedDevelop={() => {
-          void stagedDevelop();
+        onStart={() => {
+          void start();
           onClose();
         }}
       />

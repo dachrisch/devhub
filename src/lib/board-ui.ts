@@ -1,4 +1,4 @@
-import type { Issue, IssueState } from './types';
+import type { Issue } from './types';
 
 export const REPO_COLORS = [
   '#58a6ff',
@@ -94,7 +94,7 @@ export function closedReasonLabel(reason: string | null): string {
 }
 
 export type CardActionId =
-  | 'develop-validated'
+  | 'work'
   | 'to-refinement'
   | 'to-backlog'
   | 'recap'
@@ -106,15 +106,23 @@ export interface CardAction {
   label: string;
 }
 
-const DEVELOPABLE: ReadonlySet<IssueState> = new Set(['backlog', 'refinement', 'blocked']);
+// A card is workable in backlog/refinement, or in developing after a failed
+// run (blocked_reason set) — never while a develop session is still live.
+export function isWorkable(issue: Pick<Issue, 'state' | 'blockedReason'>): boolean {
+  return (
+    issue.state === 'backlog' ||
+    issue.state === 'refinement' ||
+    (issue.state === 'developing' && Boolean(issue.blockedReason))
+  );
+}
 
 // Drives the mobile card-actions sheet. Mirrors the conditionals already on
-// desktop's Card component (Refine/Back-to-backlog, Develop this/Develop
-// with validation, always-present Recap) — see CardActionsSheet.
-export function cardActions(issue: Pick<Issue, 'state'>): CardAction[] {
+// desktop's Card component (Refine/Back-to-backlog, Work, always-present
+// Recap) — see CardActionsSheet.
+export function cardActions(issue: Pick<Issue, 'state' | 'blockedReason'>): CardAction[] {
   const actions: CardAction[] = [];
-  if (DEVELOPABLE.has(issue.state)) {
-    actions.push({ id: 'develop-validated', label: 'Develop (with validation)' });
+  if (isWorkable(issue)) {
+    actions.push({ id: 'work', label: 'Work' });
   }
   if (issue.state === 'backlog') {
     actions.push({ id: 'to-refinement', label: 'Move to refinement' });
@@ -122,7 +130,10 @@ export function cardActions(issue: Pick<Issue, 'state'>): CardAction[] {
   if (issue.state === 'refinement') {
     actions.push({ id: 'to-backlog', label: 'Move to backlog' });
   }
-  actions.push({ id: 'recap', label: issue.state === 'developing' ? 'Recap (live)' : 'Recap' });
+  actions.push({
+    id: 'recap',
+    label: issue.state === 'developing' && !issue.blockedReason ? 'Recap (live)' : 'Recap',
+  });
   actions.push({ id: 'select-batch', label: 'Select for batch' });
   actions.push({ id: 'open-github', label: 'Open on GitHub' });
   return actions;
@@ -130,11 +141,11 @@ export function cardActions(issue: Pick<Issue, 'state'>): CardAction[] {
 
 export interface PrimaryCardAction {
   label: string;
-  kind: 'develop' | 'recap';
+  kind: 'work' | 'recap';
 }
 
-export function primaryCardAction(issue: Pick<Issue, 'state'>): PrimaryCardAction {
+export function primaryCardAction(issue: Pick<Issue, 'state' | 'blockedReason'>): PrimaryCardAction {
+  if (isWorkable(issue)) return { label: 'Work', kind: 'work' };
   if (issue.state === 'developing') return { label: 'Recap (live)', kind: 'recap' };
-  if (DEVELOPABLE.has(issue.state)) return { label: 'Develop', kind: 'develop' };
   return { label: 'Recap', kind: 'recap' };
 }
