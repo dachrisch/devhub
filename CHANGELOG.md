@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.16.2](https://github.com/dachrisch/devhub/compare/v1.16.1...v1.16.2) (2026-09-03)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @types/react-dom to v19.2.7 ([#140](https://github.com/dachrisch/devhub/issues/140)) ([1aa5e33](https://github.com/dachrisch/devhub/commit/1aa5e33a0d9a6afe310118dbd8a4811d905edace))
+* **deps:** update dependency vitest to v5 ([#141](https://github.com/dachrisch/devhub/issues/141)) ([c7f4f6e](https://github.com/dachrisch/devhub/commit/c7f4f6ef4d9748cf9ed2e52dbce4e97e74ec837a))
+* offer model override and prompt extension on every Work entry point ([8834f77](https://github.com/dachrisch/devhub/commit/8834f776ae450d00041fd604c1db8836a6b8180a))
+* offer model override and prompt extension on every Work entry point ([d2a7b05](https://github.com/dachrisch/devhub/commit/d2a7b05fa3eceeb7fdf8c85f03031a0f90e9c209))
+
 ## [1.16.1](https://github.com/dachrisch/devhub/compare/v1.16.0...v1.16.1) (2026-09-03)
 
 
