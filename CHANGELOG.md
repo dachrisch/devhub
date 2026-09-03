@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.1](https://github.com/dachrisch/devhub/compare/v1.16.0...v1.16.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @types/react-dom to v19.2.6 ([#136](https://github.com/dachrisch/devhub/issues/136)) ([85abdd2](https://github.com/dachrisch/devhub/commit/85abdd23498827e6fc967b5b2038d31906ea51e3))
+
 ## [1.16.0](https://github.com/dachrisch/devhub/compare/v1.15.8...v1.16.0) (2026-09-03)
 
 
