@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.17.2](https://github.com/dachrisch/devhub/compare/v1.17.1...v1.17.2) (2026-09-04)
+
+
+### Bug Fixes
+
+* **board:** hide Work button the moment work starts, show live/recap ([#147](https://github.com/dachrisch/devhub/issues/147)) ([18a3798](https://github.com/dachrisch/devhub/commit/18a37982924e637ea94daafdc1784855c4b58511))
+* **opencode:** ride out infra restarts instead of blocking cards ([#148](https://github.com/dachrisch/devhub/issues/148)) ([0fd3a50](https://github.com/dachrisch/devhub/commit/0fd3a50ccbb214152f91d41a531b59d468d01c29))
+
 ## [1.17.1](https://github.com/dachrisch/devhub/compare/v1.17.0...v1.17.1) (2026-09-04)
 
 
