@@ -13,8 +13,10 @@ import {
 import {
   buildDevelopPrompt,
   extractPrUrl,
+  getAvailableModels,
   resolveModels,
   runDevelop,
+  sanitizeModels,
   type OpencodeEvent,
   type OpencodeModel,
 } from './opencode';
@@ -22,6 +24,13 @@ import { isIssueClosedOnGitHub, setIssueStateLabels, updateIssueBody } from './g
 import { publishIssue, publishOpencodeEvent } from './sse';
 import { mirrorComment } from './utils';
 import { buildRefinePrompt, parseRefineResult } from './validate';
+import { ENV } from './env';
+
+// Issues with a refinement run currently in flight. `refinement` is a state,
+// not a run marker, so without this a second "Work" click would start a
+// concurrent duplicate run (two assessments racing the same issue, both able
+// to proceed to develop). Process-local: single prod server, fire-and-forget.
+const liveRefinementRuns = new Set<number>();
 
 // Best-effort mirror of DevHub state/notes onto the GitHub issue (labels +
 // a comment). Failures here must never break the develop run.
@@ -50,7 +59,7 @@ export async function startDevelop(
   void mirrorLabels(issue, 'developing', token);
   void mirrorComment(issue, 'DevHub started developing this issue.', token);
 
-  const models = resolveModels(selectedModel);
+  const models = sanitizeModels(resolveModels(selectedModel), await getAvailableModels());
   if (selectedModel?.id) {
     setDefaultModel({ id: selectedModel.id, providerID: selectedModel.providerID });
   }
@@ -112,7 +121,24 @@ export async function startDevelop(
 // Refinement stage: assess the issue with opencode, auto-refine the body when
 // possible, and proceed to develop when ready. On failure the issue stays in
 // `refinement` with a `blocked_reason` — the next "Work" click re-runs this.
+// Only one refinement run per issue at a time; a second "Work" click while a
+// run is live is a no-op.
 async function runRefinement(
+  issue: Issue,
+  command: string,
+  token: string,
+  selectedModel?: OpencodeModel | null
+): Promise<void> {
+  if (liveRefinementRuns.has(issue.id)) return;
+  liveRefinementRuns.add(issue.id);
+  try {
+    await runRefinementInner(issue, command, token, selectedModel);
+  } finally {
+    liveRefinementRuns.delete(issue.id);
+  }
+}
+
+async function runRefinementInner(
   issue: Issue,
   command: string,
   token: string,
@@ -122,11 +148,14 @@ async function runRefinement(
   appendEvent(issue.id, 'refinement', { status: 'started' });
 
   try {
-    const models = resolveModels(selectedModel);
+    const models = sanitizeModels(resolveModels(selectedModel), await getAvailableModels());
     const prompt = buildRefinePrompt(issue);
-    const onEvent = (event: OpencodeEvent) => appendEvent(issue.id, 'refinement-event', event);
+    const onEvent = (event: OpencodeEvent) => {
+      appendEvent(issue.id, 'refinement-event', event);
+      publishOpencodeEvent(issue.id, event);
+    };
 
-    const text = await runDevelop(prompt, onEvent, models);
+    const text = await runDevelop(prompt, onEvent, models, undefined, ENV.opencodeRefinementPollTimeoutMs);
     const result = parseRefineResult(text);
 
     appendEvent(issue.id, 'refinement', {

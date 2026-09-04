@@ -109,7 +109,14 @@ export default function RecapPage() {
     if (e.kind === 'opencode') return !isNoise(e.payload);
     return true;
   }));
-  const latest = feed.find((e) => e.kind === 'opencode');
+  // During refinement the opencode events live on `refinement-event` rows
+  // (filtered out of the digest above), so the live line falls back to the
+  // newest meaningful one — otherwise a refinement run renders as silence.
+  const refinementLatest = [...events].reverse().find(
+    (e) => e.kind === 'refinement-event' && !isNoise(e.payload)
+  );
+  const live = !issue.blockedReason && (issue.state === 'developing' || issue.state === 'refinement');
+  const latest = feed.find((e) => e.kind === 'opencode') ?? (live ? refinementLatest : undefined);
   const modelEvent = events.find((e) => e.kind === 'model');
 
   return (
@@ -140,7 +147,7 @@ export default function RecapPage() {
         </div>
       )}
 
-      {issue.state === 'developing' && !issue.blockedReason && (
+      {live && (
         <div className="recap-live">
           <span className="pulse" /> {latest ? activityLine(latest.payload) : 'Starting agent…'}
           {modelEvent && <div className="recap-model">Model: {modelLabel(modelEvent.payload)}</div>}

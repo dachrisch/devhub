@@ -4,6 +4,7 @@ export interface DevhubEnv {
   opencodeBasicUser: string;
   opencodeBasicPassword: string;
   opencodePollTimeoutMs: number;
+  opencodeRefinementPollTimeoutMs: number;
   githubClientId: string;
   githubClientSecret: string;
   githubRedirectUri: string;
@@ -22,6 +23,13 @@ export const ENV: DevhubEnv = {
   // A full agentic coding+PR run routinely takes 15+ minutes; the old 120s
   // budget made every real develop run "time out" and churn new sessions.
   opencodePollTimeoutMs: parsePositiveInt(process.env.OPENCODE_POLL_TIMEOUT_MS, 30 * 60 * 1000),
+  // The refinement assessment is a short JSON-only reply, not an agentic run;
+  // a dead model (admitted prompt, server-side failure with no message row)
+  // must surface within minutes, not after the full 30-minute develop budget.
+  opencodeRefinementPollTimeoutMs: parsePositiveInt(
+    process.env.OPENCODE_REFINEMENT_POLL_TIMEOUT_MS,
+    10 * 60 * 1000
+  ),
   githubClientId: process.env.GITHUB_CLIENT_ID ?? '',
   githubClientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
   githubRedirectUri: process.env.GITHUB_REDIRECT_URI ?? 'http://localhost:3000/api/auth/callback',
