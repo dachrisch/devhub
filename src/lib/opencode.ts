@@ -37,6 +37,10 @@ function authHeaders(): Record<string, string> {
 export interface OpencodeModel {
   id: string;
   providerID: string;
+  // Registry metadata (present only when discovery supplies it): `active`
+  // models are servable; `deprecated` ones are scheduled for removal.
+  status?: string;
+  enabled?: boolean;
 }
 
 export function modelKey(model: OpencodeModel): string {
@@ -54,12 +58,13 @@ export interface OpencodeEvent {
 // the next on the same provider. This list is the last-resort fallback for
 // the model picker (and the develop failover chain); discovery of the full
 // server model list is preferred and includes paid/non-free models too.
+// Only ids that still exist under the `opencode` provider are pinned — a
+// stale pin (e.g. deepseek-v4-flash, now served only as opencode-go) makes
+// every run fail server-side after the prompt is admitted, invisibly.
 const MODEL_TIERS: OpencodeModel[] = [
   { id: 'mimo-v2.5-free', providerID: 'opencode' },
-  { id: 'deepseek-v4-flash', providerID: 'opencode' },
   { id: 'big-pickle', providerID: 'opencode' },
   { id: 'nemotron-3.5-lightning-free', providerID: 'opencode' },
-  { id: 'laguna-s-2.1-free', providerID: 'opencode' },
 ];
 
 export function defaultModels(): OpencodeModel[] {
@@ -151,21 +156,53 @@ export function resolveModels(selected?: OpencodeModel | null): OpencodeModel[] 
   return [selected, ...MODEL_TIERS.filter((m) => modelKey(m) !== key)];
 }
 
+// Drops chain models the server cannot currently serve, keeping order. A model
+// missing from the registry (renamed, moved to another provider, retired) or
+// marked deprecated/disabled fails server-side only AFTER the prompt is
+// admitted — the failure never reaches the message poll or the session SSE
+// (the server logs it, DevHub never sees it), so each attempt would silently
+// burn its whole poll budget. Skipping such models up front lets failover
+// reach a servable model in seconds. If discovery yielded nothing usable, the
+// chain is returned unchanged.
+export function sanitizeModels(models: OpencodeModel[], available: OpencodeModel[]): OpencodeModel[] {
+  const usable = new Set(
+    available
+      .filter((m) => (m.status === undefined || m.status === 'active') && m.enabled !== false)
+      .map(modelKey)
+  );
+  if (usable.size === 0) return models;
+  const kept = models.filter((m) => usable.has(modelKey(m)));
+  return kept.length > 0 ? kept : models;
+}
+
 // Pulls every listed model (any provider, free or paid). The picker should
 // offer whatever the server exposes — filtering to free-only hid useful
 // options (e.g. DeepSeek V4 Flash).
 function extractModels(json: unknown): OpencodeModel[] {
   const list = resolveModelList(json);
   if (!list) return [];
-  return list.map((m) => ({ id: String(m.id), providerID: String(m.providerID) }));
+  return list.map((m) => {
+    const model: OpencodeModel = { id: String(m.id), providerID: String(m.providerID) };
+    if (typeof m.status === 'string') model.status = m.status;
+    if (typeof m.enabled === 'boolean') model.enabled = m.enabled;
+    return model;
+  });
 }
 
-function resolveModelList(json: unknown): Array<{ id?: string; providerID?: string }> | null {
-  if (Array.isArray(json)) return json as Array<{ id?: string; providerID?: string }>;
+function resolveModelList(
+  json: unknown
+): Array<{ id?: string; providerID?: string; status?: unknown; enabled?: unknown }> | null {
+  if (Array.isArray(json)) {
+    return json as Array<{ id?: string; providerID?: string; status?: unknown; enabled?: unknown }>;
+  }
   if (json && typeof json === 'object') {
     const obj = json as Record<string, unknown>;
-    if (Array.isArray(obj.data)) return obj.data as Array<{ id?: string; providerID?: string }>;
-    if (Array.isArray(obj.models)) return obj.models as Array<{ id?: string; providerID?: string }>;
+    if (Array.isArray(obj.data)) {
+      return obj.data as Array<{ id?: string; providerID?: string; status?: unknown; enabled?: unknown }>;
+    }
+    if (Array.isArray(obj.models)) {
+      return obj.models as Array<{ id?: string; providerID?: string; status?: unknown; enabled?: unknown }>;
+    }
   }
   return null;
 }

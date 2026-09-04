@@ -54,8 +54,11 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
   (`src/lib/transitions.ts`, `POST /api/issues/[id]/transition`).
 - `src/lib/opencode.ts` — opencode driver. Auth header `X-Api-Key`. Model picker lists
   **all** server models (free + paid, e.g. DeepSeek V4 Flash) via `GET .../api/model`;
-  pinned tiers `mimo-v2.5-free` → `deepseek-v4-flash` → `big-pickle` (provider `opencode`)
-  are the fallback/failover chain with retry/backoff.
+  pinned tiers `mimo-v2.5-free` → `big-pickle` → `nemotron-3.5-lightning-free` (provider `opencode`)
+  are the fallback/failover chain with retry/backoff; the chain is sanitized
+  against the server model registry before each run (missing/deprecated models
+  are skipped), and refinement uses a shorter poll budget
+  (`OPENCODE_REFINEMENT_POLL_TIMEOUT_MS`, default 10 min).
   Polling `GET .../message` is the completion signal; `GET .../event` SSE is streamed for the
   UI. `buildDevelopPrompt` expects repos already checked out at `WORKSPACE_ROOT/<owner>/<repo>`
   (no cloning). Final assistant message must end in a PR URL or `CANNOT FULFILL: <reason>`.

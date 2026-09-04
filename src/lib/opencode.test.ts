@@ -10,7 +10,7 @@ vi.mock('undici', () => {
   };
 });
 
-const { runDevelop, extractPrUrl, buildDevelopPrompt, defaultModels, discoverModels, getAvailableModels, resolveModels, cancelSession, createSession, OpencodeUnavailableError } =
+const { runDevelop, extractPrUrl, buildDevelopPrompt, defaultModels, discoverModels, getAvailableModels, resolveModels, sanitizeModels, cancelSession, createSession, OpencodeUnavailableError } =
   await import('./opencode.js');
 
 function jsonRes(body: unknown, ok = true) {
@@ -133,9 +133,38 @@ describe('opencode client', () => {
     ]);
   }, 20_000);
 
-  it('pins known-good model tiers including DeepSeek V4 Flash', () => {
+  it('pins known-good model tiers that the server can still serve', () => {
     expect(defaultModels()[0]).toEqual({ id: 'mimo-v2.5-free', providerID: 'opencode' });
-    expect(defaultModels()).toContainEqual({ id: 'deepseek-v4-flash', providerID: 'opencode' });
+    // deepseek-v4-flash moved to the opencode-go provider; pinning it under
+    // `opencode` made every run fail server-side after prompt admission.
+    expect(defaultModels()).not.toContainEqual({ id: 'deepseek-v4-flash', providerID: 'opencode' });
+    expect(defaultModels()).toContainEqual({ id: 'big-pickle', providerID: 'opencode' });
+  });
+
+  it('sanitizeModels drops models the registry no longer offers, keeping order', () => {
+    const available = [
+      { id: 'mimo-v2.5-free', providerID: 'opencode' },
+      { id: 'deepseek-v4-flash', providerID: 'opencode-go', status: 'active', enabled: true },
+      { id: 'old-free', providerID: 'opencode', status: 'deprecated', enabled: true },
+      { id: 'disabled', providerID: 'opencode', status: 'active', enabled: false },
+    ];
+    const chain = [
+      { id: 'deepseek-v4-flash', providerID: 'opencode' },
+      { id: 'old-free', providerID: 'opencode' },
+      { id: 'disabled', providerID: 'opencode' },
+      { id: 'deepseek-v4-flash', providerID: 'opencode-go' },
+      { id: 'mimo-v2.5-free', providerID: 'opencode' },
+    ];
+    expect(sanitizeModels(chain, available)).toEqual([
+      { id: 'deepseek-v4-flash', providerID: 'opencode-go' },
+      { id: 'mimo-v2.5-free', providerID: 'opencode' },
+    ]);
+  });
+
+  it('sanitizeModels falls back to the original chain when nothing is usable', () => {
+    const chain = [{ id: 'x', providerID: 'opencode' }];
+    expect(sanitizeModels(chain, [])).toEqual(chain);
+    expect(sanitizeModels(chain, [{ id: 'y', providerID: 'opencode', status: 'deprecated' }])).toEqual(chain);
   });
 
   it('discoverModels returns every listed model (free and paid) from the models endpoint', async () => {
@@ -245,7 +274,8 @@ describe('opencode client', () => {
   it('resolveModels heads the list with the selected model and keeps tiers as failover', () => {
     const picked = resolveModels({ id: 'laguna-s-2.1-free', providerID: 'opencode' });
     expect(picked[0]).toEqual({ id: 'laguna-s-2.1-free', providerID: 'opencode' });
-    expect(picked).toHaveLength(defaultModels().length);
+    // Selected model heads the chain; the tiers follow unchanged behind it.
+    expect(picked).toHaveLength(defaultModels().length + 1);
     expect(picked).toContainEqual({ id: 'mimo-v2.5-free', providerID: 'opencode' });
     expect(resolveModels(null)).toEqual(defaultModels());
     expect(resolveModels(undefined)).toEqual(defaultModels());
@@ -293,7 +323,7 @@ describe('opencode client', () => {
     fakeFetch.mockImplementation(async (url: string, opts: { method?: string }) => {
       if (opts?.method === 'POST' && String(url).endsWith('/api/session')) {
         createAttempts++;
-        // First model (mimo) always fails; second model (deepseek-v4-flash) succeeds.
+        // First tier (mimo) always fails; the next tier succeeds.
         if (createAttempts <= 3) {
           return { ok: false, status: 503, json: async () => ({}), text: async () => '' };
         }
