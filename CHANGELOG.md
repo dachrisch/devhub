@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.17.4](https://github.com/dachrisch/devhub/compare/v1.17.3...v1.17.4) (2026-09-04)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @types/react-dom to v19.2.7 ([d555801](https://github.com/dachrisch/devhub/commit/d5558019f22edf60f467b64df88815f6347b6aa9))
+* **deps:** update dependency undici to v8.10.2 ([8992024](https://github.com/dachrisch/devhub/commit/8992024153d3e4bd3d9deb2a12c96f3221f401e8))
+* **deps:** update dependency undici to v8.10.2 ([7f3ed28](https://github.com/dachrisch/devhub/commit/7f3ed28e85a5ff859a7e2b3c7947e3a65bc32595))
+* **opencode:** surface dead-model refinement failures instead of silent stalls ([15429a7](https://github.com/dachrisch/devhub/commit/15429a73e2bc09908eab7ba173f356b014eabbdb))
+* **opencode:** surface dead-model refinement failures instead of silent stalls ([88d0c3a](https://github.com/dachrisch/devhub/commit/88d0c3a775d34ab6883be17991116b1ca7b12f87))
+
 ## [1.17.3](https://github.com/dachrisch/devhub/compare/v1.17.2...v1.17.3) (2026-09-04)
 
 
