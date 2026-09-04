@@ -2402,3 +2402,48 @@ button:disabled {
     font-size: 16px;
   }
 }
+
+.error-boundary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  padding: 24px;
+}
+
+.error-boundary-panel {
+  max-width: 420px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px 28px;
+}
+
+.error-boundary-panel h1 {
+  font-size: 18px;
+  margin: 0 0 8px;
+}
+
+.error-boundary-panel .muted {
+  color: var(--muted);
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.error-boundary-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.ghost-link {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text);
+  font-size: 14px;
+  text-decoration: underline;
+}
