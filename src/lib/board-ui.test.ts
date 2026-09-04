@@ -87,6 +87,15 @@ describe('cardActions', () => {
       'open-github',
     ]);
   });
+
+  it('drops work + stage moves and labels recap live when a run was just started', () => {
+    for (const state of ['backlog', 'refinement', 'developing'] as const) {
+      const blocked = state === 'developing' ? 'CANNOT FULFILL: x' : null;
+      const actions = cardActions(issue({ state, blockedReason: blocked }), true);
+      expect(actions.map((a) => a.id)).toEqual(['recap', 'select-batch', 'open-github']);
+      expect(actions.find((a) => a.id === 'recap')?.label).toBe('Recap (live)');
+    }
+  });
 });
 
 describe('closedReasonLabel', () => {
@@ -120,6 +129,16 @@ describe('primaryCardAction', () => {
     expect(primaryCardAction(issue({ state: 'pr' }))).toEqual({ label: 'Recap', kind: 'recap' });
     expect(primaryCardAction(issue({ state: 'rollout' }))).toEqual({ label: 'Recap', kind: 'recap' });
     expect(primaryCardAction(issue({ state: 'closed' }))).toEqual({ label: 'Recap', kind: 'recap' });
+  });
+
+  it('is Recap (live) for a just-started run, even on a failed developing retry', () => {
+    for (const state of ['backlog', 'refinement', 'developing'] as const) {
+      const blocked = state === 'developing' ? 'needs input' : null;
+      expect(primaryCardAction(issue({ state, blockedReason: blocked }), true)).toEqual({
+        label: 'Recap (live)',
+        kind: 'recap',
+      });
+    }
   });
 });
 

@@ -1,7 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IssueState, ModelOption } from '@/lib/types';
+
+export interface UseCardActionsOptions {
+  // Called once the server accepted a develop start (202) — the run is now
+  // owned by the server and its state arrives via SSE.
+  onStarted?: () => void;
+  // Called when the start request failed so any optimistic "just started"
+  // UI can be rolled back and the Work button restored.
+  onStartFailed?: () => void;
+}
 
 export interface UseCardActionsResult {
   busy: boolean;
@@ -18,13 +27,18 @@ export interface UseCardActionsResult {
   transition: (target: IssueState) => Promise<void>;
 }
 
-export function useCardActions(issueId: number): UseCardActionsResult {
+export function useCardActions(issueId: number, options: UseCardActionsOptions = {}): UseCardActionsResult {
   const [command, setCommand] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState<ModelOption | null>(null);
+  // Latest callbacks without re-creating `start` on every render.
+  const optionsRef = useRef(options);
+  useEffect(() => {
+    optionsRef.current = options;
+  });
 
   useEffect(() => {
     if (!error) return;
@@ -74,11 +88,14 @@ export function useCardActions(issueId: number): UseCardActionsResult {
           detail = data.error ?? '';
         } catch { /* non-JSON */ }
         setError(detail || `develop failed (HTTP ${res.status})`);
+        optionsRef.current.onStartFailed?.();
         return;
       }
       setModalOpen(false);
+      optionsRef.current.onStarted?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      optionsRef.current.onStartFailed?.();
     } finally {
       setBusy(false);
     }
