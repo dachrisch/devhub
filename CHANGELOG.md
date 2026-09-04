@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.1](https://github.com/dachrisch/devhub/compare/v1.17.0...v1.17.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* add error boundary so failed navigations don't leave a blank page ([#145](https://github.com/dachrisch/devhub/issues/145)) ([ef3d452](https://github.com/dachrisch/devhub/commit/ef3d452a5dbcd44b1ba4fe4ff22809a53d2213db))
+
 ## [1.17.0](https://github.com/dachrisch/devhub/compare/v1.16.2...v1.17.0) (2026-09-03)
 
 
