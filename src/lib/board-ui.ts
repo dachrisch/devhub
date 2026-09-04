@@ -118,21 +118,26 @@ export function isWorkable(issue: Pick<Issue, 'state' | 'blockedReason'>): boole
 
 // Drives the mobile card-actions sheet. Mirrors the conditionals already on
 // desktop's Card component (Refine/Back-to-backlog, Work, always-present
-// Recap) — see CardActionsSheet.
-export function cardActions(issue: Pick<Issue, 'state' | 'blockedReason'>): CardAction[] {
+// Recap) — see CardActionsSheet. `live` covers a run started from this client
+// that no server broadcast has confirmed yet: the Work button and manual
+// stage moves must go away the moment work starts.
+export function cardActions(
+  issue: Pick<Issue, 'state' | 'blockedReason'>,
+  live = false
+): CardAction[] {
   const actions: CardAction[] = [];
-  if (isWorkable(issue)) {
+  if (!live && isWorkable(issue)) {
     actions.push({ id: 'work', label: 'Work' });
   }
-  if (issue.state === 'backlog') {
+  if (!live && issue.state === 'backlog') {
     actions.push({ id: 'to-refinement', label: 'Move to refinement' });
   }
-  if (issue.state === 'refinement') {
+  if (!live && issue.state === 'refinement') {
     actions.push({ id: 'to-backlog', label: 'Move to backlog' });
   }
   actions.push({
     id: 'recap',
-    label: issue.state === 'developing' && !issue.blockedReason ? 'Recap (live)' : 'Recap',
+    label: live || (issue.state === 'developing' && !issue.blockedReason) ? 'Recap (live)' : 'Recap',
   });
   actions.push({ id: 'select-batch', label: 'Select for batch' });
   actions.push({ id: 'open-github', label: 'Open on GitHub' });
@@ -144,8 +149,13 @@ export interface PrimaryCardAction {
   kind: 'work' | 'recap';
 }
 
-export function primaryCardAction(issue: Pick<Issue, 'state' | 'blockedReason'>): PrimaryCardAction {
-  if (isWorkable(issue)) return { label: 'Work', kind: 'work' };
-  if (issue.state === 'developing') return { label: 'Recap (live)', kind: 'recap' };
+export function primaryCardAction(
+  issue: Pick<Issue, 'state' | 'blockedReason'>,
+  live = false
+): PrimaryCardAction {
+  if (!live && isWorkable(issue)) return { label: 'Work', kind: 'work' };
+  if (live || (issue.state === 'developing' && !issue.blockedReason)) {
+    return { label: 'Recap (live)', kind: 'recap' };
+  }
   return { label: 'Recap', kind: 'recap' };
 }

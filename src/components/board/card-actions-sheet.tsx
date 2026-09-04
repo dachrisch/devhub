@@ -6,12 +6,15 @@ import { cardActions, type CardActionId } from '@/lib/board-ui';
 
 interface CardActionsSheetProps {
   issue: Issue;
+  // Run started from this client (or confirmed developing): drop Work and
+  // stage moves from the sheet, label the recap row as live.
+  live?: boolean;
   onClose: () => void;
   onSelect: (id: CardActionId) => void;
 }
 
-export function CardActionsSheet({ issue, onClose, onSelect }: CardActionsSheetProps) {
-  const actions = cardActions(issue);
+export function CardActionsSheet({ issue, live = false, onClose, onSelect }: CardActionsSheetProps) {
+  const actions = cardActions(issue, live);
 
   return (
     <div className="card-sheet-backdrop" onClick={onClose}>

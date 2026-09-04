@@ -7,6 +7,9 @@ import { cardActions, type CardActionId } from '@/lib/board-ui';
 
 interface CardActionsMenuProps {
   issue: Issue;
+  // Run started from this client (or confirmed developing): drop Work and
+  // stage moves from the menu, label the recap item as live.
+  live?: boolean;
   onSelect: (id: CardActionId) => void;
 }
 
@@ -16,7 +19,7 @@ interface CardActionsMenuProps {
 // doesn't need a full-screen sheet. 'work' is filtered out because it's
 // already the card's primary footer button; 'select-batch' is filtered out
 // because desktop cards keep a persistent checkbox instead.
-export function CardActionsMenu({ issue, onSelect }: CardActionsMenuProps) {
+export function CardActionsMenu({ issue, live = false, onSelect }: CardActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -36,7 +39,7 @@ export function CardActionsMenu({ issue, onSelect }: CardActionsMenuProps) {
     };
   }, [open]);
 
-  const actions = cardActions(issue).filter((a) => a.id !== 'work' && a.id !== 'select-batch');
+  const actions = cardActions(issue, live).filter((a) => a.id !== 'work' && a.id !== 'select-batch');
 
   return (
     <div className="card-menu" ref={ref}>

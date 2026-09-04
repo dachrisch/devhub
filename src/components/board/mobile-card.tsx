@@ -8,13 +8,16 @@ interface MobileCardProps {
   issue: Issue;
   color: string;
   busy: boolean;
+  // A run started from this client whose server-side state hasn't arrived via
+  // SSE yet: the card must show live/recap affordances, never the Work button.
+  justStarted?: boolean;
   onPrimaryAction: () => void;
   onOpenActions: () => void;
 }
 
-export function MobileCard({ issue, color, busy, onPrimaryAction, onOpenActions }: MobileCardProps) {
-  const developing = issue.state === 'developing';
-  const primary = primaryCardAction(issue);
+export function MobileCard({ issue, color, busy, justStarted = false, onPrimaryAction, onOpenActions }: MobileCardProps) {
+  const live = justStarted || (issue.state === 'developing' && !issue.blockedReason);
+  const primary = primaryCardAction(issue, live);
 
   return (
     <div className="mobile-card">
@@ -31,13 +34,15 @@ export function MobileCard({ issue, color, busy, onPrimaryAction, onOpenActions 
           <span className="mobile-card-title">{issue.title}</span>
           {issue.body && <div className="mobile-card-excerpt">{excerpt(issue.body)}</div>}
         </Link>
-        {developing && !issue.blockedReason && (
+        {live && (
           <div className="mobile-card-status">
             <span className="mobile-card-status-dot" />
-            developing{issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)
+            {issue.state === 'developing'
+              ? `developing${issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)`
+              : 'working… (live via opencode)'}
           </div>
         )}
-        {issue.blockedReason && (
+        {issue.blockedReason && !justStarted && (
           <div className="card-blocked" role="alert">
             <strong>Needs input:</strong> {excerpt(issue.blockedReason)}
           </div>

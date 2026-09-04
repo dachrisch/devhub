@@ -50,6 +50,23 @@ function fmtTime(d: Date): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+// A "just started" flag outlives the initial click: the develop route returns
+// 202 before startWork broadcasts anything, and a backlog card's first
+// broadcast (backlog → refinement) still leaves the run live. The flag is
+// dropped only when a broadcast shows the server has taken over with its own
+// live signal or the run has stopped:
+//   developing            → run confirmed live (or failed — blocked drives UI)
+//   pr/rollout/closed     → run finished
+//   blocked_reason set    → run stopped, "Needs input" + Work must return
+// A bare refinement/backlog broadcast (the initial stage move, session-id
+// updates) leaves the flag in place — the run is still going.
+function runSupersededByBroadcast(issue: Pick<Issue, 'state' | 'blockedReason'>): boolean {
+  if (issue.state === 'developing' || issue.state === 'pr' || issue.state === 'rollout' || issue.state === 'closed') {
+    return true;
+  }
+  return Boolean(issue.blockedReason);
+}
+
 // Fire a browser notification when a card lands in a state that needs the
 // operator's attention (PR opened = success, blocked_reason = needs input).
 // Only fires for changes seen live over SSE; existing cards on load are not
@@ -95,6 +112,29 @@ export default function BoardPage() {
   const prevStatesRef = useRef<Map<number, IssueState>>(new Map());
   const prevBlockedRef = useRef<Map<number, boolean>>(new Map());
   const batchStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Runs started from this client whose confirmation hasn't arrived via SSE
+  // yet (the develop route is fire-and-forget: 202 first, broadcast later).
+  // While an id is set here its card must show live/recap affordances instead
+  // of the Work button — see runSupersededByBroadcast for when the server's
+  // own state takes over again.
+  const [justStartedIds, setJustStartedIds] = useState<Set<number>>(new Set());
+  const markJustStarted = useCallback((id: number) => {
+    setJustStartedIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+  const clearJustStarted = useCallback((id: number) => {
+    setJustStartedIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
   // Batch selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -210,6 +250,9 @@ export default function BoardPage() {
         if (active) {
           setIssues(data.issues);
           setLastRefreshed(new Date());
+          // Server state is authoritative on (re)load — drop any optimistic
+          // just-started flags from before.
+          setJustStartedIds(new Set());
           const prevState = prevStatesRef.current;
           const prevBlocked = prevBlockedRef.current;
           for (const i of data.issues) {
@@ -240,6 +283,7 @@ export default function BoardPage() {
           if ((stateChanged && issue.state === 'pr') || (nowBlocked && !prevBlocked)) {
             notifyStateChange(issue);
           }
+          if (runSupersededByBroadcast(issue)) clearJustStarted(issue.id);
           upsert(issue);
         } else if (msg.type === 'action') {
           const actionId = Number(msg.actionId);
@@ -280,7 +324,7 @@ export default function BoardPage() {
       active = false;
       es.close();
     };
-  }, [signedIn, upsert, hydrateAction]);
+  }, [signedIn, upsert, hydrateAction, clearJustStarted]);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -408,7 +452,7 @@ export default function BoardPage() {
       const data = await res.json() as {
         ok?: boolean;
         error?: string;
-        results?: Array<{ id: number; success: boolean; error?: string }>;
+        results?: Array<{ id: number; success: boolean; error?: string; mode?: string }>;
       };
 
       if (!res.ok) {
@@ -417,6 +461,11 @@ export default function BoardPage() {
 
       const succeeded = data.results?.filter((r) => r.success).length ?? 0;
       const failed = data.results?.filter((r) => !r.success) ?? [];
+      // Optimistically flip successful starts to their live/recap card state;
+      // SSE broadcasts (and runSupersededByBroadcast) take over from here.
+      for (const r of data.results ?? []) {
+        if (r.success && r.mode === 'working') markJustStarted(r.id);
+      }
 
       setBatchStatus({ operation: 'working', total, completed: succeeded, errors: failed.length });
       const summary = failed.length > 0
@@ -432,7 +481,7 @@ export default function BoardPage() {
       if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
       batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
     }
-  }, [selectedIds, clearSelection]);
+  }, [selectedIds, clearSelection, markJustStarted]);
 
   // Keyboard shortcuts for batch operations
   useEffect(() => {
@@ -823,22 +872,31 @@ export default function BoardPage() {
               {items.length === 0 ? (
                 <div className="empty">nothing here</div>
               ) : (
-                items.map((issue) =>
-                  isMobile ? (
+                items.map((issue) => {
+                  const justStarted = justStartedIds.has(issue.id);
+                  const onStarted = () => markJustStarted(issue.id);
+                  const onStartFailed = () => clearJustStarted(issue.id);
+                  return isMobile ? (
                     <MobileCardWithActions
                       key={issue.id}
                       issue={issue}
+                      justStarted={justStarted}
+                      onStarted={onStarted}
+                      onStartFailed={onStartFailed}
                       onOpenActions={() => setOpenActionsFor(issue)}
                     />
                   ) : (
                     <Card
                       key={issue.id}
                       issue={issue}
+                      justStarted={justStarted}
+                      onStarted={onStarted}
+                      onStartFailed={onStartFailed}
                       selected={selectedIds.has(issue.id)}
                       onToggleSelection={toggleSelection}
                     />
-                  )
-                )
+                  );
+                })
               )}
             </section>
           );
@@ -847,7 +905,12 @@ export default function BoardPage() {
 
       {openActionsFor && isMobile && (
         <CardActionsSheetWithActions
-          issue={openActionsFor}
+          // Render from the live issue list, not the snapshot taken at open
+          // time, so a run started elsewhere flips the sheet to live/recap.
+          issue={issues.find((i) => i.id === openActionsFor.id) ?? openActionsFor}
+          justStarted={justStartedIds.has(openActionsFor.id)}
+          onStarted={() => markJustStarted(openActionsFor.id)}
+          onStartFailed={() => clearJustStarted(openActionsFor.id)}
           onClose={() => setOpenActionsFor(null)}
           onToggleSelection={toggleSelection}
         />
@@ -1052,13 +1115,16 @@ function RecentlyClosed({ issues }: { issues: Issue[] }) {
 
 interface CardProps {
   issue: Issue;
+  justStarted: boolean;
+  onStarted: () => void;
+  onStartFailed: () => void;
   selected: boolean;
   onToggleSelection: (issueId: number) => void;
 }
 
-function Card({ issue, selected, onToggleSelection }: CardProps) {
+function Card({ issue, justStarted, onStarted, onStartFailed, selected, onToggleSelection }: CardProps) {
   const color = repoColor(`${issue.owner}/${issue.repo}`);
-  const developing = issue.state === 'developing';
+  const live = justStarted || (issue.state === 'developing' && !issue.blockedReason);
   const {
     busy,
     error,
@@ -1072,18 +1138,18 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
     setSelectedModel,
     start,
     transition,
-  } = useCardActions(issue.id);
+  } = useCardActions(issue.id, { onStarted, onStartFailed });
 
   const isAuthError = error && (/401/.test(error) || /403/.test(error) || /auth/i.test(error));
-  const primary = primaryCardAction(issue);
+  const primary = primaryCardAction(issue, live);
 
   const handleMenuSelect = (id: CardActionId) => {
     switch (id) {
       case 'to-refinement':
-        if (!busy) void transition('refinement');
+        if (!busy && !live) void transition('refinement');
         break;
       case 'to-backlog':
-        if (!busy) void transition('backlog');
+        if (!busy && !live) void transition('backlog');
         break;
       case 'open-github':
         window.open(issue.htmlUrl, '_blank', 'noopener,noreferrer');
@@ -1125,7 +1191,7 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
             PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
           </div>
         )}
-        {issue.blockedReason && (
+        {issue.blockedReason && !justStarted && (
           <div className="card-blocked" role="alert">
             <strong>Needs input:</strong> {excerpt(issue.blockedReason)}
           </div>
@@ -1141,8 +1207,12 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
             {isAuthError && <a href="/api/auth/login" className="card-error-login">log in again</a>}
           </div>
         )}
-        {developing && !issue.blockedReason && (
-          <div className="result developing">developing{issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)</div>
+        {live && (
+          <div className="result developing">
+            {issue.state === 'developing'
+              ? `developing${issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)`
+              : 'working… (live via opencode)'}
+          </div>
         )}
       </div>
 
@@ -1156,7 +1226,7 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
             {primary.label}
           </Link>
         )}
-        <CardActionsMenu issue={issue} onSelect={handleMenuSelect} />
+        <CardActionsMenu issue={issue} live={live} onSelect={handleMenuSelect} />
       </div>
 
       {modalOpen && (
@@ -1179,9 +1249,15 @@ function Card({ issue, selected, onToggleSelection }: CardProps) {
 
 function MobileCardWithActions({
   issue,
+  justStarted,
+  onStarted,
+  onStartFailed,
   onOpenActions,
 }: {
   issue: Issue;
+  justStarted: boolean;
+  onStarted: () => void;
+  onStartFailed: () => void;
   onOpenActions: () => void;
 }) {
   const color = repoColor(`${issue.owner}/${issue.repo}`);
@@ -1197,11 +1273,18 @@ function MobileCardWithActions({
     selectedModel,
     setSelectedModel,
     start,
-  } = useCardActions(issue.id);
+  } = useCardActions(issue.id, { onStarted, onStartFailed });
 
   return (
     <>
-      <MobileCard issue={issue} color={color} busy={busy} onPrimaryAction={openModal} onOpenActions={onOpenActions} />
+      <MobileCard
+        issue={issue}
+        color={color}
+        busy={busy}
+        justStarted={justStarted}
+        onPrimaryAction={openModal}
+        onOpenActions={onOpenActions}
+      />
       {modalOpen && (
         <DevelopModal
           issue={issue}
@@ -1222,13 +1305,20 @@ function MobileCardWithActions({
 
 function CardActionsSheetWithActions({
   issue,
+  justStarted,
+  onStarted,
+  onStartFailed,
   onClose,
   onToggleSelection,
 }: {
   issue: Issue;
+  justStarted: boolean;
+  onStarted: () => void;
+  onStartFailed: () => void;
   onClose: () => void;
   onToggleSelection: (issueId: number) => void;
 }) {
+  const live = justStarted || (issue.state === 'developing' && !issue.blockedReason);
   const {
     busy,
     error,
@@ -1241,7 +1331,7 @@ function CardActionsSheetWithActions({
     setSelectedModel,
     start,
     transition,
-  } = useCardActions(issue.id);
+  } = useCardActions(issue.id, { onStarted, onStartFailed });
 
   const handleSelect = (id: CardActionId) => {
     switch (id) {
@@ -1288,5 +1378,5 @@ function CardActionsSheetWithActions({
     );
   }
 
-  return <CardActionsSheet issue={issue} onClose={onClose} onSelect={handleSelect} />;
+  return <CardActionsSheet issue={issue} live={live} onClose={onClose} onSelect={handleSelect} />;
 }
