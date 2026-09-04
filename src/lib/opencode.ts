@@ -20,11 +20,6 @@ const insecureDispatcher: Dispatcher | undefined =
 // explore, implement, lint, commit, push and open a PR — measured in tens of
 // minutes, not seconds (see devhub#102). Overridable via
 // OPENCODE_POLL_TIMEOUT_MS for per-deployment tuning.
-const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS = ENV.opencodePollTimeoutMs;
-const MAX_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 1000;
-
 // code.lehel.xyz fronts opencode with Basic auth (user `opencode`, password =
 // the server password). Local opencode servers may instead use an `X-Api-Key`.
 // Prefer Basic when a password is configured, otherwise fall back to the key.
@@ -72,9 +67,17 @@ export function defaultModels(): OpencodeModel[] {
 }
 
 const MODELS_TTL_MS = 10 * 60 * 1000; // re-discover so new models show up without a restart
+// How long a failed discovery suppresses re-probing. A failure must NOT be
+// cached as truth for the full TTL: a seconds-long opencode outage (watchtower
+// image update) otherwise left the model picker offering only the pinned
+// tiers for ten minutes while the server exposed 200+ models.
+const MODELS_FAILURE_TTL_MS = 30 * 1000;
 
-let cachedModels: OpencodeModel[] | null = null;
-let cachedAtMs = 0;
+// Last server-verified model list: served with the full TTL and kept (even
+// stale) during discovery failures in preference to the pinned tiers.
+let lastGoodModels: OpencodeModel[] | null = null;
+let lastGoodAtMs = 0;
+let lastFailureAtMs = 0;
 
 function dedupeModels(models: OpencodeModel[]): OpencodeModel[] {
   const seen = new Set<string>();
@@ -88,10 +91,10 @@ function dedupeModels(models: OpencodeModel[]): OpencodeModel[] {
   return out;
 }
 
-// Best-effort model discovery. If the listing endpoint path differs or is
-// unavailable, fall back to the pinned known-good tiers (open item #3 in the
-// plan). Never throws.
-export async function discoverModels(): Promise<OpencodeModel[]> {
+// Best-effort discovery of the *full* server model list (any provider, free
+// or paid). Resolves null when the listing endpoints are unavailable —
+// callers decide the fallback. Never throws.
+export async function discoverModels(): Promise<OpencodeModel[] | null> {
   const candidates = [
     `${ENV.opencodeBaseUrl}/api/model`,
     `${ENV.opencodeBaseUrl}/api/config`,
@@ -111,22 +114,32 @@ export async function discoverModels(): Promise<OpencodeModel[]> {
       // try next candidate
     }
   }
-  return MODEL_TIERS;
+  return null;
 }
 
 // Returns the discovered models (ordered, deduped), cached for MODELS_TTL_MS
-// and refreshed from time to time. Falls back to the pinned tiers when
-// discovery fails or returns nothing. Never throws.
+// and refreshed periodically. A failed discovery is never cached as truth:
+// the last good list (even stale) is served in preference to the pinned
+// tiers, and re-probing is suppressed only for MODELS_FAILURE_TTL_MS. Never
+// throws.
 export async function getAvailableModels(): Promise<OpencodeModel[]> {
-  if (cachedModels && Date.now() - cachedAtMs < MODELS_TTL_MS) return cachedModels;
-  try {
-    const discovered = dedupeModels(await discoverModels());
-    cachedModels = discovered.length > 0 ? discovered : MODEL_TIERS;
-  } catch {
-    cachedModels = MODEL_TIERS;
+  const now = Date.now();
+  if (lastGoodModels && now - lastGoodAtMs < MODELS_TTL_MS) return lastGoodModels;
+  if (lastFailureAtMs && now - lastFailureAtMs < MODELS_FAILURE_TTL_MS) {
+    return lastGoodModels ?? MODEL_TIERS;
   }
-  cachedAtMs = Date.now();
-  return cachedModels;
+  try {
+    const discovered = await discoverModels();
+    if (discovered && discovered.length > 0) {
+      lastGoodModels = dedupeModels(discovered);
+      lastGoodAtMs = now;
+      return lastGoodModels;
+    }
+  } catch {
+    // fall through to failure handling
+  }
+  lastFailureAtMs = now;
+  return lastGoodModels ?? MODEL_TIERS;
 }
 
 // Builds the model list for a develop run. A user-selected model heads the list
@@ -157,30 +170,71 @@ function resolveModelList(json: unknown): Array<{ id?: string; providerID?: stri
   return null;
 }
 
-export async function createSession(model: OpencodeModel): Promise<string> {
-  const res = await undiciFetch(`${ENV.opencodeBaseUrl}/api/session`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ model }),
-    dispatcher: insecureDispatcher,
-  });
+const POLL_INTERVAL_MS = 1000;
+const POLL_TIMEOUT_MS = ENV.opencodePollTimeoutMs;
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1000;
+// Infra-level unavailability (server restarting / edge lost the upstream) is
+// not a model problem: retry gaps are stretched so the chain can ride out a
+// container restart window (~10-30s with watchtower + traefik registration)
+// instead of burning all failover models in a few seconds.
+const INFRA_RETRY_FACTOR = 4;
+
+// The edge (traefik) answered with its Go default "404 page not found", the
+// upstream returned 5xx, or the connection was refused — the opencode server
+// is briefly unavailable. Transient by nature (container restarts, e.g.
+// watchtower image updates); see dontforget#142: a mid-run watchtower update
+// killed the poll and the fast retry loop blocked the card within ~20s.
+export class OpencodeUnavailableError extends Error {}
+
+function isEdgeNotFound(status: number, body: string): boolean {
+  return status === 404 && /page not found/i.test(body);
+}
+
+async function tagTransport(fetchCall: () => Promise<{ status: number; text: () => Promise<string> }>): Promise<{ status: number; body: string }> {
+  let res;
+  try {
+    res = await fetchCall();
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new OpencodeUnavailableError(`opencode server unreachable: ${reason}`);
+  }
   const body = await res.text();
-  if (!res.ok) {
-    throw new Error(`opencode session create failed: ${res.status}: ${body.slice(0, 200)}`);
+  if (res.status >= 500 || isEdgeNotFound(res.status, body)) {
+    throw new OpencodeUnavailableError(
+      `opencode server unavailable: ${res.status}: ${body.trim().slice(0, 120)} (likely restarting — click Work to retry)`
+    );
+  }
+  return { status: res.status, body };
+}
+
+export async function createSession(model: OpencodeModel): Promise<string> {
+  const { status, body } = await tagTransport(() =>
+    undiciFetch(`${ENV.opencodeBaseUrl}/api/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ model }),
+      dispatcher: insecureDispatcher,
+    })
+  );
+  if (status !== 200) {
+    throw new Error(`opencode session create failed: ${status}: ${body.slice(0, 200)}`);
   }
   const data = JSON.parse(body) as { data: { id: string } };
   return data.data.id;
 }
 
 export async function sendPrompt(sessionId: string, text: string): Promise<void> {
-  const res = await undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/prompt`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ prompt: { text } }),
-    dispatcher: insecureDispatcher,
-  });
-  if (!res.ok) {
-    throw new Error(`opencode prompt failed: ${res.status}`);
+  const { status } = await tagTransport(() =>
+    undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ prompt: { text } }),
+      dispatcher: insecureDispatcher,
+    })
+  );
+  if (status !== 200) {
+    throw new Error(`opencode prompt failed: ${status}`);
   }
 }
 
@@ -242,14 +296,16 @@ function lastAssistantText(messages: OpencodeMessage[]): string {
 export async function pollForFinish(sessionId: string, timeoutMs: number = POLL_TIMEOUT_MS): Promise<{ text: string; finish: string }> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const res = await undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/message`, {
-      headers: { ...authHeaders() },
-      dispatcher: insecureDispatcher,
-    });
-    if (!res.ok) {
-      throw new Error(`opencode message poll failed: ${res.status}`);
+    const { status, body } = await tagTransport(() =>
+      undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/message`, {
+        headers: { ...authHeaders() },
+        dispatcher: insecureDispatcher,
+      })
+    );
+    if (status !== 200) {
+      throw new Error(`opencode message poll failed: ${status}: ${body.slice(0, 200)}`);
     }
-    const data = (await res.json()) as { data: OpencodeMessage[] };
+    const data = JSON.parse(body) as { data: OpencodeMessage[] };
     const latest = data.data[0];
     if (latest?.type === 'assistant' && latest.finish) {
       // Only treat terminal finishes as done; tool-calls means the agent
@@ -363,7 +419,8 @@ export async function runDevelop(
         lastError = err;
         if (sessionId) await cancelSession(sessionId);
         if (attempt < MAX_ATTEMPTS) {
-          await sleep(RETRY_DELAY_MS * 2 ** (attempt - 1));
+          const infraRetry = err instanceof OpencodeUnavailableError;
+          await sleep(RETRY_DELAY_MS * 2 ** (attempt - 1) * (infraRetry ? INFRA_RETRY_FACTOR : 1));
         }
       }
     }

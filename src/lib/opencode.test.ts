@@ -10,12 +10,12 @@ vi.mock('undici', () => {
   };
 });
 
-const { runDevelop, extractPrUrl, buildDevelopPrompt, defaultModels, discoverModels, getAvailableModels, resolveModels, cancelSession } =
+const { runDevelop, extractPrUrl, buildDevelopPrompt, defaultModels, discoverModels, getAvailableModels, resolveModels, cancelSession, createSession, OpencodeUnavailableError } =
   await import('./opencode.js');
 
 function jsonRes(body: unknown, ok = true) {
   const text = JSON.stringify(body);
-  return { ok, json: async () => body, text: async () => text };
+  return { ok, status: ok ? 200 : 500, json: async () => body, text: async () => text };
 }
 
 function emptyStreamRes() {
@@ -162,10 +162,56 @@ describe('opencode client', () => {
     ]);
   });
 
-  it('discoverModels falls back to pinned tiers when the endpoint is unavailable', async () => {
+  it('discoverModels resolves null when the listing endpoints are unavailable', async () => {
     fakeFetch.mockReset();
     fakeFetch.mockImplementation(async () => jsonRes({}, false));
-    expect(await discoverModels()).toEqual(defaultModels());
+    expect(await discoverModels()).toBeNull();
+  });
+
+  it('getAvailableModels returns the pinned tiers when discovery fails with no good list', async () => {
+    vi.resetModules();
+    const fresh = (await import('./opencode.js')) as typeof import('./opencode.js');
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async () => jsonRes({}, false));
+    expect(await fresh.getAvailableModels()).toEqual(fresh.defaultModels());
+  });
+
+  it('getAvailableModels keeps serving the last good list during discovery failure and re-probes after the failure window', async () => {
+    vi.resetModules();
+    const fresh = (await import('./opencode.js')) as typeof import('./opencode.js');
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/api/model')) {
+        return jsonRes({ data: [{ id: 'good-model', providerID: 'opencode' }] });
+      }
+      return jsonRes({}, false);
+    });
+    const good = await fresh.getAvailableModels();
+    expect(good).toEqual([{ id: 'good-model', providerID: 'opencode' }]);
+
+    vi.useFakeTimers();
+    try {
+      // Age the good list past the full TTL so the next call must probe.
+      vi.advanceTimersByTime(10 * 60 * 1000 + 1);
+      fakeFetch.mockReset();
+      fakeFetch.mockImplementation(async () => jsonRes({}, false));
+      const during = await fresh.getAvailableModels();
+      // A stale *real* list beats the pinned tiers, and the failure is not
+      // cached as truth for the full TTL.
+      expect(during).toEqual([{ id: 'good-model', providerID: 'opencode' }]);
+      const fetchesDuringFailure = fakeFetch.mock.calls.length;
+
+      vi.advanceTimersByTime(1000);
+      await fresh.getAvailableModels();
+      expect(fakeFetch.mock.calls.length).toBe(fetchesDuringFailure);
+
+      // Past the failure window the probe is attempted again.
+      vi.advanceTimersByTime(30 * 1000);
+      await fresh.getAvailableModels();
+      expect(fakeFetch.mock.calls.length).toBeGreaterThan(fetchesDuringFailure);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('getAvailableModels dedupes discovered models and serves them from cache', async () => {
@@ -267,5 +313,75 @@ describe('opencode client', () => {
     expect(text).toContain('CANNOT FULFILL');
     // 3 attempts on model 1 (all failed) + 1 attempt on model 2 = 4 session creates.
     expect(createAttempts).toBe(4);
+  }, 30_000);
+
+  it('createSession tags edge 404 page-not-found as server unavailability, not an API error', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+      text: async () => '404 page not found\n',
+    }));
+    await expect(createSession(defaultModels()[0])).rejects.toThrowError(OpencodeUnavailableError);
+    await expect(createSession(defaultModels()[0])).rejects.toThrow(/opencode server unavailable: 404/);
   });
+
+  it('createSession keeps plain API 404s as ordinary errors', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+      text: async () => '{"_tag":"NotFoundError"}',
+    }));
+    await expect(createSession(defaultModels()[0])).rejects.toThrow(/^opencode session create failed: 404/);
+  });
+
+  it('runDevelop rides out a mid-run edge 404 (server restart) and recovers', async () => {
+    fakeFetch.mockReset();
+    let polls = 0;
+    fakeFetch.mockImplementation(async (url: string, opts: { method?: string }) => {
+      if (opts?.method === 'POST' && String(url).endsWith('/api/session')) {
+        return jsonRes({ data: { id: 'ses_1' } });
+      }
+      if (String(url).includes('/abort') || (opts?.method === 'DELETE' && String(url).includes('/session/'))) {
+        return jsonRes({});
+      }
+      if (String(url).includes('/prompt')) return jsonRes({ data: { id: 'msg_1' } });
+      if (String(url).includes('/event')) return emptyStreamRes();
+      if (String(url).includes('/message')) {
+        // First poll hits the watchtower restart window at the edge; the next
+        // one finds the run finished.
+        polls++;
+        if (polls === 1) {
+          return { ok: false, status: 404, json: async () => ({}), text: async () => '404 page not found' };
+        }
+        return jsonRes({
+          data: [{ type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'recovered -> https://github.com/dachrisch/widget/pull/7' }] }],
+        });
+      }
+      return jsonRes({}, false);
+    });
+
+    const text = await runDevelop('x', () => {}, [{ id: 'test-model', providerID: 'opencode' }]);
+    expect(text).toContain('https://github.com/dachrisch/widget/pull/7');
+    expect(polls).toBe(2);
+  }, 20_000);
+
+  it('runDevelop surfaces server unavailability clearly when the outage persists', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async (url: string, opts: { method?: string }) => {
+      if (opts?.method === 'POST' && String(url).endsWith('/api/session')) {
+        return { ok: false, status: 404, json: async () => ({}), text: async () => '404 page not found' };
+      }
+      if (String(url).includes('/abort')) return jsonRes({});
+      if (opts?.method === 'DELETE') return jsonRes({});
+      return jsonRes({}, false);
+    });
+
+    await expect(runDevelop('x', () => {}, [{ id: 'test-model', providerID: 'opencode' }])).rejects.toThrow(
+      /opencode server unavailable: 404: 404 page not found/
+    );
+  }, 30_000);
 });
