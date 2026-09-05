@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.18.0](https://github.com/dachrisch/devhub/compare/v1.17.4...v1.18.0) (2026-09-05)
+
+
+### Features
+
+* **cockpit:** full prompt+output visibility, model switch, rerun ([2ad01d6](https://github.com/dachrisch/devhub/commit/2ad01d63e40af92d19f989c18bdff77bd73a4d3b))
+* **cockpit:** full prompt+output visibility, model switch, rerun with adjusted prompt ([d707146](https://github.com/dachrisch/devhub/commit/d7071460960d4f9a286e2c619e6bec2dcadb6756))
+
 ## [1.17.4](https://github.com/dachrisch/devhub/compare/v1.17.3...v1.17.4) (2026-09-04)
 
 
