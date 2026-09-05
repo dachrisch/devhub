@@ -58,8 +58,8 @@ const ISSUES = [
   // devhub#132: failed develop runs stay in `developing` with a reason — this
   // row is the "Work retries a failed run" fixture.
   { owner: 'dachrisch', repo: 'devhub', number: 105, title: 'Trim log noise in develop runs', state: 'developing', blockedReason: 'CANNOT FULFILL: simulated previous run failure (seeded retry fixture)' },
-  { owner: 'dachrisch', repo: 'devhub', number: 106, title: 'Support repo filter on mobile search', state: 'pr', pr: 'https://github.com/dachrisch/devhub/pull/206' },
-  { owner: 'dachrisch', repo: 'devhub', number: 99, title: 'Ship WAL checkpoint tuning', state: 'rollout', releaseTag: 'v1.11.0' },
+  { owner: 'dachrisch', repo: 'devhub', number: 106, title: 'Support repo filter on mobile search', state: 'pr', pr: 'https://github.com/dachrisch/devhub/pull/206', resultText: 'All done. Let me provide the summary.\n\n## Summary\n\nImplemented the repo filter for mobile search:\n\n- **`src/components/board/mobile-search-sheet.tsx`** — new `repo:` token in the query parser\n- **`src/lib/board-ui.ts`** — `matchesIssue` now filters on `issue.repo`\n\n```ts\nconst repos = new Set(issues.map((i) => `${i.owner}/${i.repo}`));\n```\n\nOpened PR #206: https://github.com/dachrisch/devhub/pull/206' },
+  { owner: 'dachrisch', repo: 'devhub', number: 99, title: 'Ship WAL checkpoint tuning', state: 'rollout', releaseTag: 'v1.11.0', resultText: '## Released\n\nWAL checkpoint tuning shipped in **v1.11.0**:\n\n1. Lower `wal_autocheckpoint` to 512 pages\n2. Run `PRAGMA wal_checkpoint(TRUNCATE)` on a timer' },
   { owner: 'bumbleflies', repo: 'warehouse', number: 101, title: 'Polish board card hover states', state: 'backlog' },
   { owner: 'bumbleflies', repo: 'warehouse', number: 102, title: 'Add keyboard shortcut cheat sheet', state: 'backlog' },
   { owner: 'bumbleflies', repo: 'warehouse', number: 103, title: 'Cache model list for 5 minutes', state: 'backlog' },
@@ -109,7 +109,7 @@ export function seedDevDb(dbPath) {
         state: i.state,
         sessionId: i.session ?? null,
         prUrl: i.pr ?? null,
-        resultText: i.session ? 'Mock develop run in progress.' : null,
+        resultText: i.session ? 'Mock develop run in progress.' : (i.resultText ?? null),
         blockedReason: i.blockedReason ?? null,
         releaseTag: i.releaseTag ?? null,
       });

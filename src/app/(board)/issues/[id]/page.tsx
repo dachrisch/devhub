@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import type { Issue, IssueEvent } from '@/lib/types';
 import { relTime } from '@/lib/board-ui';
 import { activityLine, condense, eventSnippet, isNoise } from '@/lib/recap';
+import { Markdown } from '@/components/markdown';
 import { useAuth } from '@/components/use-auth';
 import { WelcomeScreen } from '@/components/auth-ui';
 
@@ -189,7 +190,7 @@ export default function RecapPage() {
               Closed on GitHub as <span className="release-tag">{issue.stateReason}</span>
             </p>
           )}
-          {issue.resultText && <pre className="recap-text">{issue.resultText}</pre>}
+          {issue.resultText && <Markdown text={issue.resultText} />}
         </div>
       )}
 
