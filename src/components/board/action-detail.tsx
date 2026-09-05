@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ModelOption } from '@/lib/types';
 import { statusLabel, fmtDuration } from '@/components/board/action-status-strip';
+import { Markdown } from '@/components/markdown';
 
 // Full detail view for one cockpit action: the only place where the prompt,
 // the result/error and the live opencode transcript are fully readable.
@@ -199,7 +200,17 @@ export function ActionDetail({
                 {copied === 'result' ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <div className={`action-detail-text ${status === 'failed' ? 'error' : ''}`}>{detailLine}</div>
+            <div
+              className={
+                status === 'failed'
+                  ? 'action-detail-text error'
+                  : liveDetail
+                    ? 'action-detail-text'
+                    : 'action-detail-md'
+              }
+            >
+              {status === 'failed' || liveDetail ? detailLine : <Markdown text={detailLine} />}
+            </div>
           </section>
         )}
 
