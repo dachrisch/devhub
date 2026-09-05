@@ -57,7 +57,7 @@ export function mergeAction(existing: CockpitAction, row: ApiActionRow): Cockpit
   return merged;
 }
 
-function statusLabel(status: string): string {
+export function statusLabel(status: string): string {
   switch (status) {
     case 'pending':
       return 'queued';
@@ -72,7 +72,7 @@ function statusLabel(status: string): string {
   }
 }
 
-function fmtDuration(ms: number): string {
+export function fmtDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const secs = ms / 1000;
   if (secs < 60) return `${secs.toFixed(secs < 10 ? 1 : 0)}s`;
@@ -84,7 +84,16 @@ function fmtDuration(ms: number): string {
 // collapse behind the "+N more" toggle, mirroring the released strip.
 const DONE_CAP = 3;
 
-export function ActionStatusStrip({ actions }: { actions: CockpitAction[] }) {
+export function ActionStatusStrip({
+  actions,
+  onSelect,
+}: {
+  actions: CockpitAction[];
+  // When provided, every strip item becomes a button opening the action's
+  // detail view (full input/result/transcript) — the only place where long
+  // prompts and errors are readable.
+  onSelect?: (actionId: number) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   if (actions.length === 0) return null;
 
@@ -98,10 +107,10 @@ export function ActionStatusStrip({ actions }: { actions: CockpitAction[] }) {
       <span className="released-label">Cockpit</span>
       <div className="action-strip-list">
         {live.map((a) => (
-          <ActionItem key={a.id} action={a} />
+          <ActionItem key={a.id} action={a} onOpen={onSelect ? () => onSelect(a.id) : undefined} />
         ))}
         {visibleDone.map((a) => (
-          <ActionItem key={a.id} action={a} />
+          <ActionItem key={a.id} action={a} onOpen={onSelect ? () => onSelect(a.id) : undefined} />
         ))}
         {done.length > DONE_CAP && (
           <button className="released-toggle" onClick={() => setExpanded((e) => !e)}>
@@ -113,7 +122,7 @@ export function ActionStatusStrip({ actions }: { actions: CockpitAction[] }) {
   );
 }
 
-function ActionItem({ action }: { action: CockpitAction }) {
+function ActionItem({ action, onOpen }: { action: CockpitAction; onOpen?: () => void }) {
   const label = action.detail ?? statusLabel(action.status);
   const title = [
     action.input,
@@ -123,11 +132,28 @@ function ActionItem({ action }: { action: CockpitAction }) {
   ]
     .filter(Boolean)
     .join(' — ');
-  return (
-    <span className={`action-item ${action.status}`} title={title}>
+  const content = (
+    <>
       <span className="action-dot" aria-hidden="true" />
       <span className="action-item-input">{action.input || `Action #${action.id}`}</span>
       <span className="action-item-status">{label}</span>
-    </span>
+      {onOpen && (
+        <span className="action-item-chevron" aria-hidden="true">
+          ›
+        </span>
+      )}
+    </>
+  );
+  if (!onOpen) {
+    return (
+      <span className={`action-item ${action.status}`} title={title}>
+        {content}
+      </span>
+    );
+  }
+  return (
+    <button type="button" className={`action-item ${action.status}`} title={title} onClick={onOpen}>
+      {content}
+    </button>
   );
 }

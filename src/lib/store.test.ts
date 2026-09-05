@@ -281,4 +281,14 @@ describe('actions', () => {
     const list = store.getActions(5);
     expect(list.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('persists the transcript on the row but keeps it out of list payloads', () => {
+    const action = store.appendAction('transcript-me', 'launch', {});
+    store.setActionTranscript(action.id, 'line one\nline two');
+    const one = store.getAction(action.id);
+    expect(one?.transcript).toBe('line one\nline two');
+
+    const list = store.getActions(50);
+    expect(list.find((r) => r.id === action.id)?.transcript).toBeNull();
+  });
 });

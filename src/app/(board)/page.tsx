@@ -9,6 +9,10 @@ import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
 import { useCardActions } from '@/components/board/use-card-actions';
 import { DevelopModal } from '@/components/board/develop-modal';
+import { CockpitComposer } from '@/components/board/cockpit-composer';
+import { ActionDetail } from '@/components/board/action-detail';
+import { useKeyboardInset } from '@/components/board/use-keyboard-inset';
+import type { ModelOption } from '@/lib/types';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
 import { MobileCard } from '@/components/board/mobile-card';
 import { CardActionsSheet } from '@/components/board/card-actions-sheet';
@@ -145,9 +149,17 @@ export default function BoardPage() {
     errors: number;
   } | null>(null);
 
-  // Cockpit input bar
+  // Cockpit input bar — one shared composer (multiline prompt + model
+  // override) rendered in both shells: the mobile FAB bottom sheet and the
+  // desktop expanded form. Submitting keeps the shell open and the text
+  // intact on failure; on success the detail view opens for the new action.
   const [actionInput, setActionInput] = useState('');
   const [cockpitOpen, setCockpitOpen] = useState(false);
+  const [submittingAction, setSubmittingAction] = useState(false);
+  const [cockpitModel, setCockpitModel] = useState<ModelOption | null>(null);
+  // Lineage for a rerun: seeds POST /api/action params so the new row is
+  // traceable to the action whose prompt was adjusted.
+  const [retryOfId, setRetryOfId] = useState<number | null>(null);
   // Desktop cockpit starts collapsed to a trigger pill, same instinct as
   // mobile's FAB+sheet: don't spend fixed vertical space until it's wanted.
   const [desktopCockpitOpen, setDesktopCockpitOpen] = useState(false);
@@ -156,8 +168,15 @@ export default function BoardPage() {
   // GET /api/action/[id] for summary/duration when we lack the row.
   const [actions, setActions] = useState<CockpitAction[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Currently-open action detail view (null = closed). The strip items, the
+  // error banner's "Details" affordance and a successful submit all open it.
+  const [detailActionId, setDetailActionId] = useState<number | null>(null);
+  // Model picker data for the cockpit (shared with the develop modal's
+  // endpoint): the list plus the operator's last-used default.
+  const [models, setModels] = useState<ModelOption[]>([]);
   const knownActionIdsRef = useRef<Set<number>>(new Set());
   const actionDetailFetchedRef = useRef<Set<string>>(new Set());
+  const keyboardInset = useKeyboardInset();
 
   const toggleSelection = useCallback((issueId: number) => {
     setSelectedIds((prev) => {
@@ -351,19 +370,51 @@ export default function BoardPage() {
     };
   }, []);
 
+  // Model list for the cockpit picker. The endpoint returns the full server
+  // registry plus the operator's last-used default (set by a develop run or a
+  // cockpit run with an override).
+  useEffect(() => {
+    if (!signedIn) return;
+    let active = true;
+    fetch('/api/models')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { models?: ModelOption[]; default?: ModelOption | null } | null) => {
+        if (!active) return;
+        if (data?.models) setModels(data.models);
+        if (data?.default !== undefined) setCockpitModel(data.default ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [signedIn]);
+
   const submitAction = useCallback(async () => {
     const input = actionInput.trim();
     if (!input) return;
+    setSubmittingAction(true);
     try {
+      const body: {
+        input: string;
+        params?: Record<string, unknown>;
+        modelId?: string;
+        providerID?: string;
+      } = { input };
+      if (retryOfId != null) body.params = { retryOf: retryOfId };
+      if (cockpitModel) {
+        body.modelId = cockpitModel.id;
+        body.providerID = cockpitModel.providerID;
+      }
       const res = await fetch('/api/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input }),
+        body: JSON.stringify(body),
       });
       const data = (await res.json().catch(() => null)) as
         | { ok?: boolean; actionId?: number; error?: string }
         | null;
       if (!res.ok || !data?.ok || typeof data.actionId !== 'number') {
+        // The prompt stays in the composer for adjustment (rerun-ready).
         setActionError(data?.error ?? `action failed (HTTP ${res.status})`);
         return;
       }
@@ -376,12 +427,33 @@ export default function BoardPage() {
           ? prev
           : [{ id: actionId, input, status: 'pending', detail: null, durationMs: null }, ...prev]
       );
+      // Success: clear the composer and hand over to the detail view so the
+      // prompt, result and transcript stay fully visible while the run goes.
       setActionInput('');
+      setRetryOfId(null);
+      setCockpitOpen(false);
       setDesktopCockpitOpen(false);
+      setDetailActionId(actionId);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmittingAction(false);
     }
-  }, [actionInput]);
+  }, [actionInput, cockpitModel, retryOfId]);
+
+  // Rerun: seed the composer with the old prompt + its model override, mark
+  // the lineage, and let the next submit create a fresh action.
+  const rerunAction = useCallback(
+    (input: string, model: ModelOption | null, retryOf: number) => {
+      setActionInput(input);
+      setCockpitModel(model);
+      setRetryOfId(retryOf);
+      setDetailActionId(null);
+      if (isMobile) setCockpitOpen(true);
+      else setDesktopCockpitOpen(true);
+    },
+    [isMobile]
+  );
 
   useEffect(() => {
     if (!searchHelp) return;
@@ -724,8 +796,10 @@ export default function BoardPage() {
       )}
 
       {/* Live status for cockpit submissions (pending → running → done/failed)
-          plus recent history, fed by SSE + GET /api/action. */}
-      <ActionStatusStrip actions={actions} />
+          plus recent history, fed by SSE + GET /api/action. Each item opens
+          the full detail view — the only place long prompts/errors are
+          readable. */}
+      <ActionStatusStrip actions={actions} onSelect={(id) => setDetailActionId(id)} />
 
       {!isMobile && !desktopCockpitOpen && (
         <div className="cockpit-collapsed-wrap">
@@ -741,33 +815,18 @@ export default function BoardPage() {
 
       {!isMobile && desktopCockpitOpen && (
         <div className="cockpit-expanded-wrap">
-          <form
-            className="cockpit-expanded-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void submitAction();
-            }}
-          >
-            <input
-              type="text"
-              value={actionInput}
-              onChange={(e) => setActionInput(e.target.value)}
-              placeholder='Tell me what you want... (e.g. "Launch a new API", "Fix issue #42")'
-              className="cockpit-expanded-input"
-              autoFocus
-            />
-            <button type="submit" className="cockpit-expanded-go" disabled={!actionInput.trim()}>
-              Go
-            </button>
-            <button
-              type="button"
-              className="cockpit-expanded-close"
-              onClick={() => setDesktopCockpitOpen(false)}
-              aria-label="Collapse command input"
-            >
-              ×
-            </button>
-          </form>
+          <CockpitComposer
+            input={actionInput}
+            onInputChange={setActionInput}
+            models={models}
+            selectedModel={cockpitModel}
+            onSelectedModelChange={setCockpitModel}
+            onSubmit={() => void submitAction()}
+            busy={submittingAction}
+            autoFocus
+            onCancel={() => setDesktopCockpitOpen(false)}
+            closable
+          />
         </div>
       )}
 
@@ -929,7 +988,9 @@ export default function BoardPage() {
       )}
 
       {/* Mobile: the cockpit collapses to a FAB + bottom sheet so the input
-          bar doesn't consume fixed chrome above the first card. */}
+          bar doesn't consume fixed chrome above the first card. The sheet
+          lifts above the on-screen keyboard (iOS has no
+          interactive-widget=resizes-content, hence the inline offset). */}
       {isMobile && (
         <button
           className="cockpit-fab"
@@ -950,32 +1011,35 @@ export default function BoardPage() {
             role="dialog"
             aria-modal="true"
             aria-label="Command input"
+            style={{ bottom: keyboardInset }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="card-sheet-handle" />
-            <form
-              className="cockpit-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void submitAction();
-                setCockpitOpen(false);
-              }}
-            >
-              <input
-                className="cockpit-input"
-                type="text"
-                value={actionInput}
-                onChange={(e) => setActionInput(e.target.value)}
-                placeholder='Tell me what you want…'
-                autoFocus
-              />
-              <button type="submit" className="cockpit-go" disabled={!actionInput.trim()}>
-                Go
-              </button>
-            </form>
-            <div className="cockpit-hint">e.g. “Launch a new API”, “Fix issue #42”</div>
+            <CockpitComposer
+              input={actionInput}
+              onInputChange={setActionInput}
+              models={models}
+              selectedModel={cockpitModel}
+              onSelectedModelChange={setCockpitModel}
+              onSubmit={() => void submitAction()}
+              busy={submittingAction}
+              autoFocus
+              placeholder='Tell me what you want…'
+              onCancel={() => setCockpitOpen(false)}
+            />
           </div>
         </div>
+      )}
+
+      {detailActionId !== null && (
+        <ActionDetail
+          actionId={detailActionId}
+          liveStatus={actions.find((a) => a.id === detailActionId)?.status ?? null}
+          liveDetail={actions.find((a) => a.id === detailActionId)?.detail ?? null}
+          isMobile={isMobile}
+          onClose={() => setDetailActionId(null)}
+          onRerun={rerunAction}
+        />
       )}
       </main>
     </div>

@@ -141,6 +141,14 @@ function migrate(database: Database.Database): void {
   if (!hasSessionCol('token_expires_at')) {
     database.exec(`ALTER TABLE auth_sessions ADD COLUMN token_expires_at TEXT`);
   }
+
+  // One-time migration: rolling opencode output per cockpit action, persisted
+  // while the run is live so a client opening the detail view mid-run (or
+  // reloading the page) sees the transcript so far.
+  const actionCols = database.prepare('PRAGMA table_info(actions)').all() as { name: string }[];
+  if (!actionCols.some((c) => c.name === 'transcript')) {
+    database.exec(`ALTER TABLE actions ADD COLUMN transcript TEXT`);
+  }
 }
 
 export interface UpsertIssueInput {
@@ -437,6 +445,7 @@ export interface ActionRow {
   status: string;
   result: string | null;
   sessionIds: string;
+  transcript: string | null;
   durationMs: number | null;
   createdAt: string;
   updatedAt: string;
@@ -485,6 +494,7 @@ export function getAction(id: number): ActionRow | null {
     status: row.status as string,
     result: row.result as string | null,
     sessionIds: row.session_ids as string,
+    transcript: (row.transcript as string | null) ?? null,
     durationMs: row.duration_ms as number | null,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
@@ -509,8 +519,14 @@ export function appendSessionId(actionId: number, sessionId: string): void {
 }
 
 export function getActions(limit = 20): ActionRow[] {
+  // The transcript is excluded from list payloads (potentially tens of KB per
+  // row); the detail endpoint serves it via getAction.
   const rows = getDb()
-    .prepare('SELECT * FROM actions ORDER BY created_at DESC LIMIT ?')
+    .prepare(
+      `SELECT id, input, action, params, skill_id, status, result, session_ids,
+              NULL AS transcript, duration_ms, created_at, updated_at
+       FROM actions ORDER BY created_at DESC LIMIT ?`
+    )
     .all(limit) as Record<string, unknown>[];
   return rows.map((r) => ({
     id: r.id as number,
@@ -521,10 +537,19 @@ export function getActions(limit = 20): ActionRow[] {
     status: r.status as string,
     result: r.result as string | null,
     sessionIds: r.session_ids as string,
+    transcript: (r.transcript as string | null) ?? null,
     durationMs: r.duration_ms as number | null,
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
   }));
+}
+
+// Persists the rolling opencode output captured during a cockpit run. Called
+// on a throttle (~1/s) while the action runs and once at its terminal state.
+export function setActionTranscript(id: number, transcript: string): void {
+  getDb()
+    .prepare(`UPDATE actions SET transcript = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(transcript, id);
 }
 
 export interface ServiceRow {
