@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.18.1](https://github.com/dachrisch/devhub/compare/v1.18.0...v1.18.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **recap:** render agent result as styled markdown instead of plain pre ([6434b26](https://github.com/dachrisch/devhub/commit/6434b26c7bdfdbd6d1196340779e82577b905bb7))
+* **recap:** render agent result as styled markdown instead of plain pre ([7509b27](https://github.com/dachrisch/devhub/commit/7509b27c94155bdb90eccafe302dabdf9583a999)), closes [#157](https://github.com/dachrisch/devhub/issues/157)
+
 ## [1.18.0](https://github.com/dachrisch/devhub/compare/v1.17.4...v1.18.0) (2026-09-05)
 
 
