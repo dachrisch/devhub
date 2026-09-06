@@ -1647,6 +1647,13 @@ button:disabled {
   font-size: 12.5px;
 }
 
+/* Markdown inside the live snippet renders inline in the digest: reset the
+   block top margin and keep pre-wrap off so lists/code parse normally. */
+.recap-snippet .md {
+  margin-top: 4px;
+  white-space: normal;
+}
+
 .recap-model {
   color: var(--accent);
   font-size: 12.5px;
@@ -1681,14 +1688,6 @@ button:disabled {
 .recap-result h3 {
   margin: 0 0 8px;
   font-size: 15px;
-}
-
-.recap-text {
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 12.5px;
-  color: var(--muted);
-  margin: 8px 0 0;
 }
 
 /* Styled markdown (agent result text). Rendered as React elements only —
@@ -1811,6 +1810,21 @@ button:disabled {
   margin-top: 4px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Styled markdown inside feed payloads: the parser owns line breaks, so
+   switch off the plain-text pre-wrap; plain fallbacks keep it. */
+.recap-event-payload .md {
+  margin-top: 4px;
+  white-space: normal;
+}
+
+.recap-event-payload .md-p:first-child {
+  margin-top: 0;
+}
+
+.recap-event-payload .md-p:last-child {
+  margin-bottom: 0;
 }
 
 .pulse {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activityLine, condense, eventSnippet, isNoise } from './recap';
+import { activityLine, condense, eventSnippet, eventText, isNoise, truncateText } from './recap';
 import type { IssueEvent } from './types';
 
 function ev(payload: unknown, kind = 'opencode'): IssueEvent {
@@ -40,6 +40,24 @@ describe('recap helpers', () => {
       'nested'
     );
     expect(eventSnippet({ type: 'x' })).toBe('');
+  });
+
+  it('extracts markdown-preserving text with newlines intact', () => {
+    const md = '## Summary\n\n- one\n- two\n\n```ts\nconst x = 1;\n```';
+    expect(eventText({ type: 'text', data: { text: md } })).toBe(md);
+    expect(eventText({ type: 'message.part.updated', properties: { part: { type: 'text', text: md } } })).toBe(md);
+    expect(eventText({ type: 'step', data: { title: 'Set up worktree' } })).toBe('Set up worktree');
+    expect(eventText({ type: 'x' })).toBe('');
+    // CRLF normalized, trailing spaces stripped, 3+ blank lines collapsed.
+    expect(eventText({ type: 'text', data: { text: 'a  \r\n\r\n\r\nb   ' } })).toBe('a\n\nb');
+  });
+
+  it('truncates long text safely with an ellipsis marker', () => {
+    expect(truncateText('short', 2000)).toBe('short');
+    expect(truncateText('a'.repeat(2000), 2000)).toBe('a'.repeat(2000));
+    const out = truncateText('a'.repeat(2005), 2000);
+    expect(out.length).toBeLessThan(2005);
+    expect(out.endsWith('…')).toBe(true);
   });
 
   it('condenses consecutive identical opencode events but keeps non-opencode', () => {
