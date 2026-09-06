@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import type { Issue, IssueEvent } from '@/lib/types';
 import { relTime } from '@/lib/board-ui';
-import { activityLine, condense, eventSnippet, isNoise } from '@/lib/recap';
+import { activityLine, condense, eventText, isNoise, truncateText } from '@/lib/recap';
 import { Markdown } from '@/components/markdown';
 import { useAuth } from '@/components/use-auth';
 import { WelcomeScreen } from '@/components/auth-ui';
@@ -31,6 +31,35 @@ function validationLabel(payload: unknown): string {
   const ready = p.ready === true;
   const summary = typeof p.summary === 'string' ? p.summary : '';
   return summary ? `Refinement ${ready ? 'passed' : 'needs input'}: ${summary}` : `Refinement ${ready ? 'passed' : 'needs input'}`;
+}
+
+// Agent/error/validation text renders as styled markdown via <Markdown>;
+// short identifiers and raw JSON debug fallbacks stay plain text.
+function feedContent(e: IssueEvent): { markdown: string } | { plain: string } {
+  if (e.kind === 'opencode') {
+    const text = truncateText(eventText(e.payload));
+    return { markdown: text || activityLine(e.payload) };
+  }
+  if (e.kind === 'error' || e.kind === 'validation-error' || e.kind === 'refinement-error') {
+    const msg =
+      typeof e.payload === 'object' && e.payload !== null && 'message' in e.payload
+        ? String((e.payload as { message: unknown }).message)
+        : JSON.stringify(e.payload).slice(0, 200);
+    return { markdown: msg };
+  }
+  if (e.kind === 'validation' || e.kind === 'refinement') {
+    return { markdown: validationLabel(e.payload) };
+  }
+  if (e.kind === 'model') {
+    return { plain: modelLabel(e.payload) };
+  }
+  return { plain: JSON.stringify(e.payload).slice(0, 200) };
+}
+
+function FeedPayload({ event }: { event: IssueEvent }) {
+  const content = feedContent(event);
+  if ('markdown' in content) return <Markdown text={content.markdown} />;
+  return <>{content.plain}</>;
 }
 
 export default function RecapPage() {
@@ -119,6 +148,7 @@ export default function RecapPage() {
   const live = !issue.blockedReason && (issue.state === 'developing' || issue.state === 'refinement');
   const latest = feed.find((e) => e.kind === 'opencode') ?? (live ? refinementLatest : undefined);
   const modelEvent = events.find((e) => e.kind === 'model');
+  const latestText = latest ? truncateText(eventText(latest.payload)) : '';
 
   return (
     <main className="recap-wrap">
@@ -152,8 +182,10 @@ export default function RecapPage() {
         <div className="recap-live">
           <span className="pulse" /> {latest ? activityLine(latest.payload) : 'Starting agent…'}
           {modelEvent && <div className="recap-model">Model: {modelLabel(modelEvent.payload)}</div>}
-          {latest && eventSnippet(latest.payload) && (
-            <div className="recap-snippet">{eventSnippet(latest.payload)}</div>
+          {latestText && (
+            <div className="recap-snippet">
+              <Markdown text={latestText} />
+            </div>
           )}
         </div>
       )}
@@ -161,7 +193,7 @@ export default function RecapPage() {
       {issue.blockedReason && (
         <div className="recap-result blocked" role="alert">
           <h3>Needs input</h3>
-          <pre className="recap-text">{issue.blockedReason}</pre>
+          <Markdown text={issue.blockedReason} />
         </div>
       )}
 
@@ -202,15 +234,7 @@ export default function RecapPage() {
             <span className="recap-event-type">{e.kind === 'opencode' ? activityLine(e.payload) : e.kind === 'model' ? 'Model' : e.kind === 'error' || e.kind === 'validation-error' || e.kind === 'refinement-error' ? 'Error' : e.kind === 'validation' ? 'Validation' : e.kind === 'refinement' ? 'Refinement' : e.kind}</span>
             <span className="recap-event-time" title={e.ts}>{relTime(e.ts)}</span>
             <div className="recap-event-payload">
-              {e.kind === 'opencode'
-                ? eventSnippet(e.payload) || activityLine(e.payload)
-                : e.kind === 'model'
-                  ? modelLabel(e.payload)
-                  : e.kind === 'error' || e.kind === 'validation-error' || e.kind === 'refinement-error'
-                    ? (typeof e.payload === 'object' && e.payload !== null && 'message' in e.payload ? String((e.payload as { message: unknown }).message) : JSON.stringify(e.payload).slice(0, 200))
-                    : e.kind === 'validation' || e.kind === 'refinement'
-                      ? validationLabel(e.payload)
-                      : JSON.stringify(e.payload).slice(0, 200)}
+              <FeedPayload event={e} />
             </div>
           </div>
         ))}
