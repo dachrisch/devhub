@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.2](https://github.com/dachrisch/devhub/compare/v1.19.1...v1.19.2) (2026-09-06)
+
+
+### Bug Fixes
+
+* **recap:** render blocked, live and feed output as styled markdown ([#165](https://github.com/dachrisch/devhub/issues/165)) ([5bb8c34](https://github.com/dachrisch/devhub/commit/5bb8c3401e4b9040d607bba73ca2485e9062f0a7)), closes [#160](https://github.com/dachrisch/devhub/issues/160)
+
 ## [1.19.1](https://github.com/dachrisch/devhub/compare/v1.19.0...v1.19.1) (2026-09-06)
 
 
