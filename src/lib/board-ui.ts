@@ -144,6 +144,17 @@ export function cardActions(
   return actions;
 }
 
+// Staleness tier for a card, based on time since last update. Used as a
+// lightweight urgency cue for triaging a crowded backlog.
+export function urgencyTier(iso: string): 'fresh' | 'aging' | 'stale' {
+  const then = new Date(iso.replace(' ', 'T') + 'Z').getTime();
+  if (Number.isNaN(then)) return 'fresh';
+  const days = (Date.now() - then) / 86400000;
+  if (days >= 14) return 'stale';
+  if (days >= 4) return 'aging';
+  return 'fresh';
+}
+
 export interface PrimaryCardAction {
   label: string;
   kind: 'work' | 'recap';

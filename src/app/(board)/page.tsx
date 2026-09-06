@@ -1,26 +1,22 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import type { Issue, IssueState } from '@/lib/types';
-import { countRepos, closedReasonLabel, excerpt, matchesIssue, primaryCardAction, relTime, repoColor } from '@/lib/board-ui';
+import { countRepos, matchesIssue } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
-import { useCardActions } from '@/components/board/use-card-actions';
-import { DevelopModal } from '@/components/board/develop-modal';
 import { CockpitComposer } from '@/components/board/cockpit-composer';
 import { ActionDetail } from '@/components/board/action-detail';
 import { useKeyboardInset } from '@/components/board/use-keyboard-inset';
 import type { ModelOption } from '@/lib/types';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
-import { MobileCard } from '@/components/board/mobile-card';
-import { CardActionsSheet } from '@/components/board/card-actions-sheet';
-import { CardActionsMenu } from '@/components/board/card-actions-menu';
 import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
 import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
 import { ProjectsHome } from '@/components/board/projects-home';
-import type { CardActionId } from '@/lib/board-ui';
+import { BoardToolbar } from '@/components/board/board-toolbar';
+import { RecentlyClosed, RecentlyReleased } from '@/components/board/released-strips';
+import { IssueCard, IssueCardSheet, MobileIssueCard } from '@/components/board/issue-card';
 import {
   ActionStatusStrip,
   actionFromApi,
@@ -31,29 +27,6 @@ import {
 } from '@/components/board/action-status-strip';
 
 const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr'];
-
-// Released tickets are shown in a slim strip under the header, capped so the
-// strip stays compact.
-const RELEASED_CAP = 5;
-
-// Similarly-capped strip for issues reconciled to the `closed` terminal state
-// (closed on GitHub outside DevHub's own pipeline).
-const CLOSED_CAP = 5;
-
-// Staleness tier for a card, based on time since last update. Used as a
-// lightweight urgency cue for triaging a crowded backlog.
-function urgencyTier(iso: string): 'fresh' | 'aging' | 'stale' {
-  const then = new Date(iso.replace(' ', 'T') + 'Z').getTime();
-  if (Number.isNaN(then)) return 'fresh';
-  const days = (Date.now() - then) / 86400000;
-  if (days >= 14) return 'stale';
-  if (days >= 4) return 'aging';
-  return 'fresh';
-}
-
-function fmtTime(d: Date): string {
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
 
 // A "just started" flag outlives the initial click: the develop route returns
 // 202 before startWork broadcasts anything, and a backlog card's first
@@ -967,7 +940,7 @@ export default function BoardPage() {
                   const onStarted = () => markJustStarted(issue.id);
                   const onStartFailed = () => clearJustStarted(issue.id);
                   return isMobile ? (
-                    <MobileCardWithActions
+                    <MobileIssueCard
                       key={issue.id}
                       issue={issue}
                       justStarted={justStarted}
@@ -976,7 +949,7 @@ export default function BoardPage() {
                       onOpenActions={() => setOpenActionsFor(issue)}
                     />
                   ) : (
-                    <Card
+                    <IssueCard
                       key={issue.id}
                       issue={issue}
                       justStarted={justStarted}
@@ -994,7 +967,7 @@ export default function BoardPage() {
       </div>
 
       {openActionsFor && isMobile && (
-        <CardActionsSheetWithActions
+        <IssueCardSheet
           // Render from the live issue list, not the snapshot taken at open
           // time, so a run started elsewhere flips the sheet to live/recap.
           issue={issues.find((i) => i.id === openActionsFor.id) ?? openActionsFor}
@@ -1075,403 +1048,4 @@ export default function BoardPage() {
       </main>
     </div>
   );
-}
-
-interface BoardToolbarProps {
-  repos: string[];
-  repoFilter: string | null;
-  onRepoFilterChange: (repo: string | null) => void;
-  lastRefreshed: Date | null;
-  refreshing: boolean;
-  onRefresh: () => void;
-  showLastRefreshed: boolean;
-}
-
-// Repo filter chips + manual refresh. On desktop it sits above the board;
-// on mobile it renders inside the scroll container (see BoardPage) and the
-// "Last refreshed" stamp is dropped — SSE live updates make it redundant.
-function BoardToolbar({
-  repos,
-  repoFilter,
-  onRepoFilterChange,
-  lastRefreshed,
-  refreshing,
-  onRefresh,
-  showLastRefreshed,
-}: BoardToolbarProps) {
-  return (
-    <div className="board-toolbar">
-      {repos.length > 1 && (
-        <div className="repo-chips" role="group" aria-label="Filter by repo">
-          <button
-            className={`repo-chip${repoFilter === null ? ' active' : ''}`}
-            onClick={() => onRepoFilterChange(null)}
-          >
-            All
-          </button>
-          {repos.map((r) => {
-            const color = repoColor(r);
-            return (
-              <button
-                key={r}
-                className={`repo-chip${repoFilter === r ? ' active' : ''}`}
-                onClick={() => onRepoFilterChange(repoFilter === r ? null : r)}
-                style={{ '--chip-color': color } as React.CSSProperties}
-              >
-                <span className="repo-chip-dot" />
-                {r}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      <div className="toolbar-actions">
-        {showLastRefreshed && lastRefreshed && (
-          <span className="last-refreshed">Last refreshed {fmtTime(lastRefreshed)}</span>
-        )}
-        <button className="refresh-btn" onClick={onRefresh} disabled={refreshing} aria-label="Refresh issues">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={refreshing ? 'spin' : ''}>
-            <path d="M8 2.5a5.487 5.487 0 00-4.131 1.869l1.204 1.204A.25.25 0 014.896 6H1.25A.25.25 0 011 5.75V2.104a.25.25 0 01.427-.177l1.38 1.38A7.001 7.001 0 0114.95 7.16a.75.75 0 01-1.49.178A5.501 5.501 0 008 2.5zM1.705 8.005a.75.75 0 01.834.656 5.501 5.501 0 009.592 2.97l-1.204-1.204a.25.25 0 01.177-.427h3.646a.25.25 0 01.25.25v3.646a.25.25 0 01-.427.177l-1.38-1.38A7.001 7.001 0 011.05 8.84a.75.75 0 01.656-.834z"/>
-          </svg>
-          {refreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function RecentlyReleased({ issues }: { issues: Issue[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const rolled = useMemo(
-    () =>
-      issues
-        .filter((i) => i.state === 'rollout')
-        .sort((a, b) => (b.releasedAt ?? '').localeCompare(a.releasedAt ?? '')),
-    [issues]
-  );
-  if (rolled.length === 0) return null;
-  const visible = expanded ? rolled : rolled.slice(0, RELEASED_CAP);
-  return (
-    <div className="released-strip">
-      <span className="released-label">Released</span>
-      <div className="released-list">
-        {visible.map((issue) => (
-          <Link key={issue.id} href={`/issues/${issue.id}`} className="released-item">
-            <span className="released-tag">{issue.releaseTag ?? '?'}</span>
-            <span className="released-title">
-              {issue.owner}/{issue.repo} #{issue.number}: {issue.title}
-            </span>
-            <span className="released-time">{relTime(issue.releasedAt ?? issue.updatedAt)}</span>
-          </Link>
-        ))}
-      </div>
-      {rolled.length > RELEASED_CAP && (
-        <button className="released-toggle" onClick={() => setExpanded((e) => !e)}>
-          {expanded ? 'Collapse' : `+${rolled.length - RELEASED_CAP} more`}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function RecentlyClosed({ issues }: { issues: Issue[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const closed = useMemo(
-    () =>
-      issues
-        .filter((i) => i.state === 'closed')
-        .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')),
-    [issues]
-  );
-  if (closed.length === 0) return null;
-  const visible = expanded ? closed : closed.slice(0, CLOSED_CAP);
-  return (
-    <div className="closed-strip">
-      <span className="released-label">Closed</span>
-      <div className="released-list">
-        {visible.map((issue) => (
-          <Link key={issue.id} href={`/issues/${issue.id}`} className="released-item">
-            <span className="released-tag">{closedReasonLabel(issue.stateReason)}</span>
-            <span className="released-title">
-              {issue.owner}/{issue.repo} #{issue.number}: {issue.title}
-            </span>
-            <span className="released-time">{relTime(issue.updatedAt)}</span>
-          </Link>
-        ))}
-      </div>
-      {closed.length > CLOSED_CAP && (
-        <button className="released-toggle" onClick={() => setExpanded((e) => !e)}>
-          {expanded ? 'Collapse' : `+${closed.length - CLOSED_CAP} more`}
-        </button>
-      )}
-    </div>
-  );
-}
-
-interface CardProps {
-  issue: Issue;
-  justStarted: boolean;
-  onStarted: () => void;
-  onStartFailed: () => void;
-  selected: boolean;
-  onToggleSelection: (issueId: number) => void;
-}
-
-function Card({ issue, justStarted, onStarted, onStartFailed, selected, onToggleSelection }: CardProps) {
-  const color = repoColor(`${issue.owner}/${issue.repo}`);
-  const live = justStarted || (issue.state === 'developing' && !issue.blockedReason);
-  const {
-    busy,
-    error,
-    modalOpen,
-    openModal,
-    closeModal,
-    command,
-    setCommand,
-    models,
-    selectedModel,
-    setSelectedModel,
-    start,
-    transition,
-  } = useCardActions(issue.id, { onStarted, onStartFailed });
-
-  const isAuthError = error && (/401/.test(error) || /403/.test(error) || /auth/i.test(error));
-  const primary = primaryCardAction(issue, live);
-
-  const handleMenuSelect = (id: CardActionId) => {
-    switch (id) {
-      case 'to-refinement':
-        if (!busy && !live) void transition('refinement');
-        break;
-      case 'to-backlog':
-        if (!busy && !live) void transition('backlog');
-        break;
-      case 'open-github':
-        window.open(issue.htmlUrl, '_blank', 'noopener,noreferrer');
-        break;
-    }
-  };
-
-  return (
-    <div className="card">
-      <div className="card-strip" style={{ background: `${color}22` }}>
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={() => onToggleSelection(issue.id)}
-          className="card-checkbox"
-          aria-label={`Select issue ${issue.owner}/${issue.repo} #${issue.number} for batch actions`}
-        />
-        <span className="card-strip-dot" style={{ background: color }} />
-        <span className="card-strip-repo" style={{ color }}>
-          {issue.owner}/{issue.repo}
-        </span>
-        <span className="card-strip-number">#{issue.number}</span>
-        <span className={`card-strip-age age ${urgencyTier(issue.updatedAt)}`}>{relTime(issue.updatedAt)}</span>
-      </div>
-
-      <div className="card-body">
-        <Link href={`/issues/${issue.id}`} className="title-link">
-          <div className="title">{issue.title}</div>
-          {issue.body && <div className="excerpt">{excerpt(issue.body)}</div>}
-        </Link>
-
-        {issue.linkedPrUrl && issue.state !== 'pr' && (
-          <div className="result">
-            PR: <a href={issue.linkedPrUrl}>{issue.linkedPrUrl}</a>
-          </div>
-        )}
-        {issue.state === 'pr' && issue.resultPrUrl && (
-          <div className="result">
-            PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
-          </div>
-        )}
-        {issue.blockedReason && !justStarted && (
-          <div className="card-blocked" role="alert">
-            <strong>Needs input:</strong> {excerpt(issue.blockedReason)}
-          </div>
-        )}
-        {issue.state === 'refinement' && !issue.blockedReason && issue.resultText && (
-          <div className="result">
-            <strong>Validation:</strong> {excerpt(issue.resultText)}
-          </div>
-        )}
-        {error && (
-          <div className="card-error" role="alert">
-            <span>{isAuthError ? 'Session expired — ' : `${error}`}</span>
-            {isAuthError && <a href="/api/auth/login" className="card-error-login">log in again</a>}
-          </div>
-        )}
-        {live && (
-          <div className="result developing">
-            {issue.state === 'developing'
-              ? `developing${issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)`
-              : 'working… (live via opencode)'}
-          </div>
-        )}
-      </div>
-
-      <div className="card-footer">
-        {primary.kind === 'work' ? (
-          <button className="card-primary" onClick={openModal} disabled={busy}>
-            {primary.label}
-          </button>
-        ) : (
-          <Link href={`/issues/${issue.id}`} className="card-primary card-primary-link">
-            {primary.label}
-          </Link>
-        )}
-        <CardActionsMenu issue={issue} live={live} onSelect={handleMenuSelect} />
-      </div>
-
-      {modalOpen && (
-        <DevelopModal
-          issue={issue}
-          command={command}
-          onCommandChange={setCommand}
-          models={models}
-          selectedModel={selectedModel}
-          onSelectedModelChange={setSelectedModel}
-          busy={busy}
-          error={error}
-          onCancel={closeModal}
-          onStart={start}
-        />
-      )}
-    </div>
-  );
-}
-
-function MobileCardWithActions({
-  issue,
-  justStarted,
-  onStarted,
-  onStartFailed,
-  onOpenActions,
-}: {
-  issue: Issue;
-  justStarted: boolean;
-  onStarted: () => void;
-  onStartFailed: () => void;
-  onOpenActions: () => void;
-}) {
-  const color = repoColor(`${issue.owner}/${issue.repo}`);
-  const {
-    busy,
-    error,
-    modalOpen,
-    openModal,
-    closeModal,
-    command,
-    setCommand,
-    models,
-    selectedModel,
-    setSelectedModel,
-    start,
-  } = useCardActions(issue.id, { onStarted, onStartFailed });
-
-  return (
-    <>
-      <MobileCard
-        issue={issue}
-        color={color}
-        busy={busy}
-        justStarted={justStarted}
-        onPrimaryAction={openModal}
-        onOpenActions={onOpenActions}
-      />
-      {modalOpen && (
-        <DevelopModal
-          issue={issue}
-          command={command}
-          onCommandChange={setCommand}
-          models={models}
-          selectedModel={selectedModel}
-          onSelectedModelChange={setSelectedModel}
-          busy={busy}
-          error={error}
-          onCancel={closeModal}
-          onStart={start}
-        />
-      )}
-    </>
-  );
-}
-
-function CardActionsSheetWithActions({
-  issue,
-  justStarted,
-  onStarted,
-  onStartFailed,
-  onClose,
-  onToggleSelection,
-}: {
-  issue: Issue;
-  justStarted: boolean;
-  onStarted: () => void;
-  onStartFailed: () => void;
-  onClose: () => void;
-  onToggleSelection: (issueId: number) => void;
-}) {
-  const live = justStarted || (issue.state === 'developing' && !issue.blockedReason);
-  const {
-    busy,
-    error,
-    modalOpen,
-    openModal,
-    command,
-    setCommand,
-    models,
-    selectedModel,
-    setSelectedModel,
-    start,
-    transition,
-  } = useCardActions(issue.id, { onStarted, onStartFailed });
-
-  const handleSelect = (id: CardActionId) => {
-    switch (id) {
-      case 'work':
-        openModal();
-        return;
-      case 'to-refinement':
-        void transition('refinement');
-        break;
-      case 'to-backlog':
-        void transition('backlog');
-        break;
-      case 'select-batch':
-        onToggleSelection(issue.id);
-        break;
-      case 'open-github':
-        window.open(issue.htmlUrl, '_blank', 'noopener,noreferrer');
-        break;
-      case 'recap':
-        // Recap navigates via its own Link in the sheet row — the sheet's
-        // row onClick already closed it. Nothing to do here.
-        return;
-    }
-    onClose();
-  };
-
-  if (modalOpen) {
-    return (
-      <DevelopModal
-        issue={issue}
-        command={command}
-        onCommandChange={setCommand}
-        models={models}
-        selectedModel={selectedModel}
-        onSelectedModelChange={setSelectedModel}
-        busy={busy}
-        error={error}
-        onCancel={onClose}
-        onStart={() => {
-          void start();
-          onClose();
-        }}
-      />
-    );
-  }
-
-  return <CardActionsSheet issue={issue} live={live} onClose={onClose} onSelect={handleSelect} />;
 }
