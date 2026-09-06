@@ -17,6 +17,8 @@ function arg(flag, fallback) {
 }
 
 let base = arg('--url', 'http://localhost:3000').replace(/\/$/, '');
+// Optional app path to load (e.g. --path /projects/1); defaults to the root.
+const appPath = arg('--path', '/');
 // Next 16 dev blocks "cross-origin" dev resources (the HMR websocket) for
 // non-localhost hosts, which stalls hydration — force localhost.
 base = new URL(Object.assign(new URL(base), { hostname: 'localhost' })).toString().replace(/\/$/, '');
@@ -158,7 +160,7 @@ async function main() {
     await cdp.send('Network.setCookie', { name: 'devhub_session', value: session, url: base }, sessionId);
 
     const loaded = cdp.waitForEvent('Page.loadEventFired');
-    await cdp.send('Page.navigate', { url: base }, sessionId);
+    await cdp.send('Page.navigate', { url: base + appPath }, sessionId);
     await loaded;
     // let the client hydrate and pull /api/auth/me + /api/issues + SSE
     await wait(6000);

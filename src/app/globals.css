@@ -2930,3 +2930,120 @@ button.project-card-new.open {
     padding: 8px 12px;
   }
 }
+
+/* Project board route (devhub#167): topics rail + domain line. */
+.project-domain-line {
+  padding: 6px 24px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.topics-rail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  min-height: 44px;
+  flex-wrap: wrap;
+}
+
+.topics-groups {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.topics-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.topics-group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.topics-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.topic-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topic-chip:hover {
+  border-color: var(--accent);
+}
+
+.topic-chip.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.topics-empty {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.topics-idea-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.topics-idea-form .search {
+  width: 220px;
+}
+
+@media (max-width: 640px) {
+  .project-domain-line,
+  .topics-rail {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .topics-idea-form .search {
+    width: 140px;
+  }
+}
+
+/* Recap breadcrumb: project / topic above the feed. */
+.recap-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.recap-crumb-sep {
+  color: var(--muted);
+}
+
+.recap-crumb-topic {
+  color: var(--muted);
+}

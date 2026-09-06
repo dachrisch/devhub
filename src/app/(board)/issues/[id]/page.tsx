@@ -68,6 +68,7 @@ export default function RecapPage() {
   const [issue, setIssue] = useState<Issue | null>(null);
   const [events, setEvents] = useState<IssueEvent[]>([]);
   const [connected, setConnected] = useState(false);
+  const [breadcrumb, setBreadcrumb] = useState<{ projectName: string; topicTitle: string | null } | null>(null);
   const { user } = useAuth();
   const signedIn = Boolean(user);
 
@@ -88,6 +89,28 @@ export default function RecapPage() {
         if (!active) return;
         setIssue(data.issue);
         setEvents(data.events);
+        // Project + topic breadcrumb (devhub#167): both lookups are optional
+        // and best-effort — a missing row just hides the crumb.
+        const pid = data.issue.projectId;
+        if (typeof pid === 'number') {
+          fetch(`/api/projects/${pid}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((p: { project?: { name?: string } } | null) => {
+              if (!active || !p?.project?.name) return;
+              setBreadcrumb((prev) => ({ projectName: p.project!.name!, topicTitle: prev?.topicTitle ?? null }));
+            })
+            .catch(() => {});
+        }
+        const tid = data.issue.topicId;
+        if (typeof tid === 'number') {
+          fetch(`/api/topics/${tid}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((t: { topic?: { title?: string } } | null) => {
+              if (!active || !t?.topic?.title) return;
+              setBreadcrumb((prev) => ({ projectName: prev?.projectName ?? '', topicTitle: t.topic!.title! }));
+            })
+            .catch(() => {});
+        }
       })
       .catch(() => {});
 
@@ -168,6 +191,18 @@ export default function RecapPage() {
           {issue.owner}/{issue.repo} #{issue.number}: {issue.title}
         </a>
       </div>
+
+      {breadcrumb && (breadcrumb.projectName || breadcrumb.topicTitle) && (
+        <div className="recap-breadcrumb">
+          {breadcrumb.projectName && (
+            <Link href={`/projects/${issue.projectId}`} className="recap-link">
+              {breadcrumb.projectName}
+            </Link>
+          )}
+          {breadcrumb.projectName && breadcrumb.topicTitle && <span className="recap-crumb-sep">/</span>}
+          {breadcrumb.topicTitle && <span className="recap-crumb-topic">{breadcrumb.topicTitle}</span>}
+        </div>
+      )}
 
       {issue.linkedPrUrl && issue.state !== 'pr' && (
         <div className="recap-result pr">

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Issue, IssueState } from '@/lib/types';
-import { countRepos, matchesIssue } from '@/lib/board-ui';
+import { matchesIssue, notifyStateChange, runSupersededByBroadcast } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
@@ -11,12 +11,11 @@ import { ActionDetail } from '@/components/board/action-detail';
 import { useKeyboardInset } from '@/components/board/use-keyboard-inset';
 import type { ModelOption } from '@/lib/types';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
-import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
 import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
 import { ProjectsHome } from '@/components/board/projects-home';
 import { BoardToolbar } from '@/components/board/board-toolbar';
 import { RecentlyClosed, RecentlyReleased } from '@/components/board/released-strips';
-import { IssueCard, IssueCardSheet, MobileIssueCard } from '@/components/board/issue-card';
+import { KanbanBoard } from '@/components/board/kanban-board';
 import {
   ActionStatusStrip,
   actionFromApi,
@@ -25,46 +24,6 @@ import {
   type ApiActionRow,
   type CockpitAction,
 } from '@/components/board/action-status-strip';
-
-const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr'];
-
-// A "just started" flag outlives the initial click: the develop route returns
-// 202 before startWork broadcasts anything, and a backlog card's first
-// broadcast (backlog → refinement) still leaves the run live. The flag is
-// dropped only when a broadcast shows the server has taken over with its own
-// live signal or the run has stopped:
-//   developing            → run confirmed live (or failed — blocked drives UI)
-//   pr/rollout/closed     → run finished
-//   blocked_reason set    → run stopped, "Needs input" + Work must return
-// A bare refinement/backlog broadcast (the initial stage move, session-id
-// updates) leaves the flag in place — the run is still going.
-function runSupersededByBroadcast(issue: Pick<Issue, 'state' | 'blockedReason'>): boolean {
-  if (issue.state === 'developing' || issue.state === 'pr' || issue.state === 'rollout' || issue.state === 'closed') {
-    return true;
-  }
-  return Boolean(issue.blockedReason);
-}
-
-// Fire a browser notification when a card lands in a state that needs the
-// operator's attention (PR opened = success, blocked_reason = needs input).
-// Only fires for changes seen live over SSE; existing cards on load are not
-// re-notified.
-function notifyStateChange(issue: Issue): void {
-  if (typeof window === 'undefined' || !('Notification' in window)) return;
-  if (Notification.permission !== 'granted') return;
-  const blocked = Boolean(issue.blockedReason);
-  const title = blocked
-    ? 'DevHub: needs input'
-    : issue.state === 'pr'
-      ? 'DevHub: pull request opened'
-      : `DevHub: ${issue.state}`;
-  const body = `${issue.owner}/${issue.repo} #${issue.number}: ${issue.title}`;
-  try {
-    new Notification(title, { body, tag: `devhub-${issue.id}-${blocked ? 'blocked' : issue.state}` });
-  } catch {
-    // ignore
-  }
-}
 
 export default function BoardPage() {
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -78,13 +37,8 @@ export default function BoardPage() {
   const [projectFilter, setProjectFilter] = useState<number | null>(null);
   // Bumped on refresh + live issue SSE so the project cards re-fetch.
   const [projectTick, setProjectTick] = useState(0);
-  const [sorts, setSorts] = useState<Partial<Record<IssueState, 'newest' | 'oldest'>>>({});
   const [searchHelp, setSearchHelp] = useState(false);
-  const [activeColumn, setActiveColumn] = useState<IssueState>('backlog');
-  const [openActionsFor, setOpenActionsFor] = useState<Issue | null>(null);
   const [searchSheetOpen, setSearchSheetOpen] = useState(false);
-  const boardRef = useRef<HTMLDivElement>(null);
-  const columnRefs = useRef<Map<IssueState, HTMLElement>>(new Map());
   const helpRef = useRef<HTMLDivElement>(null);
   const { user, loading, denied, logout } = useAuth();
   const isMobile = useMediaQuery(MOBILE_QUERY);
@@ -599,42 +553,6 @@ export default function BoardPage() {
     }
   }, []);
 
-  useEffect(() => {
-    // Tab state on mobile is driven directly by the status strip (only one
-    // column is ever rendered), so the scroll-position sync below is only
-    // needed on desktop where all five columns share the screen.
-    if (typeof window === 'undefined' || isMobile) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        let best: { col: IssueState; ratio: number } | null = null;
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          let col: IssueState | null = null;
-          for (const [c, el] of columnRefs.current.entries()) {
-            if (el === entry.target) {
-              col = c;
-              break;
-            }
-          }
-          if (col && (!best || entry.intersectionRatio > best.ratio)) {
-            best = { col, ratio: entry.intersectionRatio };
-          }
-        }
-        if (best) setActiveColumn(best.col);
-      },
-      // Shrink the board viewport to a center band so a column counts as
-      // active when it crosses the middle of the screen rather than when 50%
-      // of its (potentially much taller) total height is visible. Per-batch
-      // max-ratio selection avoids callbacks clobbering each other mid-swipe.
-      { root: boardRef.current, rootMargin: '-45% 0px -45% 0px', threshold: 0 }
-    );
-
-    columnRefs.current.forEach((el) => observer.observe(el));
-
-    return () => observer.disconnect();
-  }, [signedIn, isMobile]);
-
   if (!signedIn) {
     return (
       <div className="page-wrap">
@@ -837,33 +755,12 @@ export default function BoardPage() {
         </div>
       )}
 
-      {!isMobile && (
-        <BoardToolbar
-          repos={repos}
-          repoFilter={repoFilter}
-          onRepoFilterChange={setRepoFilter}
-          lastRefreshed={lastRefreshed}
-          refreshing={refreshing}
-          onRefresh={refresh}
-          showLastRefreshed
-        />
-      )}
-
-      {isMobile && (
-        <MobileStatusStrip
-          columns={COLUMNS}
-          counts={Object.fromEntries(
-            COLUMNS.map((c) => [c, scopedIssues.filter((i) => i.state === c).length])
-          ) as Record<IssueState, number>}
-          active={activeColumn}
-          onSelect={setActiveColumn}
-        />
-      )}
-
-      <div className="board" ref={boardRef}>
-        {/* On mobile the toolbar lives inside the scroll container so it scrolls
-            away with the board instead of eating into the fixed chrome. */}
-        {isMobile && (
+      <KanbanBoard
+        issues={scopedIssues}
+        query={query}
+        repoFilter={repoFilter}
+        isMobile={isMobile}
+        toolbar={
           <BoardToolbar
             repos={repos}
             repoFilter={repoFilter}
@@ -871,113 +768,15 @@ export default function BoardPage() {
             lastRefreshed={lastRefreshed}
             refreshing={refreshing}
             onRefresh={refresh}
-            showLastRefreshed={false}
+            showLastRefreshed={!isMobile}
           />
-        )}
-        {/* Mobile renders a single column (the active tab); desktop shows all
-            four columns side by side with scroll-sync to the status strip. */}
-        {(isMobile ? [activeColumn] : COLUMNS).map((col) => {
-          const items = scopedIssues
-            .filter((i) => i.state === col && matchesIssue(i, query) && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter))
-            .sort((a, b) => {
-              // Cards needing input float to the top of their column.
-              if (Boolean(a.blockedReason) !== Boolean(b.blockedReason)) {
-                return a.blockedReason ? -1 : 1;
-              }
-              const dir = sorts[col] === 'oldest' ? 1 : -1;
-              return a.updatedAt.localeCompare(b.updatedAt) * dir;
-            });
-          return (
-            <section
-              className="column"
-              key={col}
-              id={statusPanelId(col)}
-              role={isMobile ? 'tabpanel' : undefined}
-              aria-labelledby={isMobile ? statusTabId(col) : undefined}
-              tabIndex={isMobile ? 0 : undefined}
-              ref={(el) => {
-                if (el) columnRefs.current.set(col, el);
-              }}
-            >
-              {isMobile ? (
-                <div className="column-meta">
-                  <span>
-                    {items.length} issues · {countRepos(items)} repos
-                  </span>
-                  <button
-                    className="sort-toggle"
-                    onClick={() =>
-                      setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
-                    }
-                    title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                    aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                  >
-                    {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
-                  </button>
-                </div>
-              ) : (
-                <div className="column-head">
-                  <span className={`dot ${col}`} />
-                  {col}
-                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({items.length})</span>
-                  <button
-                    className="sort-toggle"
-                    onClick={() =>
-                      setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
-                    }
-                    title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                    aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                  >
-                    {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
-                  </button>
-                </div>
-              )}
-              {items.length === 0 ? (
-                <div className="empty">nothing here</div>
-              ) : (
-                items.map((issue) => {
-                  const justStarted = justStartedIds.has(issue.id);
-                  const onStarted = () => markJustStarted(issue.id);
-                  const onStartFailed = () => clearJustStarted(issue.id);
-                  return isMobile ? (
-                    <MobileIssueCard
-                      key={issue.id}
-                      issue={issue}
-                      justStarted={justStarted}
-                      onStarted={onStarted}
-                      onStartFailed={onStartFailed}
-                      onOpenActions={() => setOpenActionsFor(issue)}
-                    />
-                  ) : (
-                    <IssueCard
-                      key={issue.id}
-                      issue={issue}
-                      justStarted={justStarted}
-                      onStarted={onStarted}
-                      onStartFailed={onStartFailed}
-                      selected={selectedIds.has(issue.id)}
-                      onToggleSelection={toggleSelection}
-                    />
-                  );
-                })
-              )}
-            </section>
-          );
-        })}
-      </div>
-
-      {openActionsFor && isMobile && (
-        <IssueCardSheet
-          // Render from the live issue list, not the snapshot taken at open
-          // time, so a run started elsewhere flips the sheet to live/recap.
-          issue={issues.find((i) => i.id === openActionsFor.id) ?? openActionsFor}
-          justStarted={justStartedIds.has(openActionsFor.id)}
-          onStarted={() => markJustStarted(openActionsFor.id)}
-          onStartFailed={() => clearJustStarted(openActionsFor.id)}
-          onClose={() => setOpenActionsFor(null)}
-          onToggleSelection={toggleSelection}
-        />
-      )}
+        }
+        justStartedIds={justStartedIds}
+        markJustStarted={markJustStarted}
+        clearJustStarted={clearJustStarted}
+        selectedIds={selectedIds}
+        toggleSelection={toggleSelection}
+      />
 
       {searchSheetOpen && isMobile && (
         <MobileSearchSheet

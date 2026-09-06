@@ -42,10 +42,25 @@ chips, Ctrl+A) via `issue.projectId`, with a filter banner to clear.
 Verified live against mocked GitHub (headless PASS + API smoke: idea, assign,
 create, services-compat).
 
-Phase 2 remainder: `/projects/[id]` board route (kanban moves into
-`src/components/board/`), topics rail, SSE `topic`/`project`/`run` events
-(home currently re-fetches on issue SSE + refresh), remove flat board, global
-search, mobile home.
+Also on this branch:
+
+- SSE `project`/`topic`/`run` id-notifications (`sse.ts` + publish on
+  project/topic CRUD, issue assign; the home re-fetches on them).
+- Kanban extracted into shared components (`issue-card.tsx`,
+  `kanban-board.tsx`, `board-toolbar.tsx`, `released-strips.tsx`;
+  `runSupersededByBroadcast`/`notifyStateChange`/`KANBAN_COLUMNS` live in
+  `board-ui.ts`) — reused by both boards.
+- `/projects/[id]` board route: header (back, name, status badge, search,
+  live dot), topics rail (idea/active/shipped chips filter the kanban,
+  inline Add idea), kanban via `KanbanBoard`, batch ops + shortcuts scoped,
+  SSE-scoped updates. `headless-check.mjs` gains `--path` to verify
+  sub-routes (project board + topic chip PASS).
+- Recap breadcrumb: project / topic crumbs above the feed, fetched
+  best-effort from `/api/projects/[id]` + `/api/topics/[id]`.
+
+Phase 2 remainder: remove the flat board (make `/` projects-first with the
+kanban only under `/projects/[id]`), global search (across projects with
+jump), mobile home layout polish, `run` SSE wiring in develop.
 
 ## Goal
 
