@@ -1,6 +1,6 @@
-import { loadSkills } from './skills';
 import { runDevelop, type OpencodeEvent, type OpencodeModel } from './opencode';
 import type { ActionType } from './skills/types';
+import { getRouterLearnings } from './learning';
 
 export interface ActionIntent {
   action: ActionType | 'unknown';
@@ -30,11 +30,20 @@ Rules:
 - If ambiguous, set confidence < 0.5 and action "unknown"
 - Extract key parameters: name, framework, host, issueId, topic, etc.
 - "unknown" action for unrecognized inputs
-
-User input: `;
+`;
 
 export function buildRouterPrompt(userInput: string): string {
-  return ROUTER_PROMPT + userInput;
+  // Self-learning: past teach-by-rerun corrections bias the next
+  // classification. Best-effort — recall never throws, and an empty block
+  // leaves the prompt identical to the ungrounded version.
+  let learnings = '';
+  try {
+    learnings = getRouterLearnings(userInput);
+  } catch {
+    learnings = '';
+  }
+  const grounding = learnings ? `\n${learnings}\n` : '';
+  return `${ROUTER_PROMPT}${grounding}\nUser input: ${userInput}`;
 }
 
 export function parseIntent(raw: string): ActionIntent {
