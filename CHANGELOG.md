@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.0](https://github.com/dachrisch/devhub/compare/v1.18.1...v1.19.0) (2026-09-06)
+
+
+### Features
+
+* **cockpit:** self-learning router with correction memory and unknown clustering ([#161](https://github.com/dachrisch/devhub/issues/161)) ([1621288](https://github.com/dachrisch/devhub/commit/1621288c73d9822852d26df03e89e2d42b9cd704))
+
 ## [1.18.1](https://github.com/dachrisch/devhub/compare/v1.18.0...v1.18.1) (2026-09-05)
 
 
