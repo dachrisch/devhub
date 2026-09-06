@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.1](https://github.com/dachrisch/devhub/compare/v1.19.0...v1.19.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* **cockpit:** parse fenced router JSON and add create-issue skill ([#163](https://github.com/dachrisch/devhub/issues/163)) ([636ed9a](https://github.com/dachrisch/devhub/commit/636ed9afe1b68644ba70a520a476cc6a29fe6490))
+
 ## [1.19.0](https://github.com/dachrisch/devhub/compare/v1.18.1...v1.19.0) (2026-09-06)
 
 
