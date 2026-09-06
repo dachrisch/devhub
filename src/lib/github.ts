@@ -1,5 +1,5 @@
 import { ENV } from './env';
-import { appendEvent, deleteIssueByGithub, getIssueByGithub, getIssues, reopenIssue, setClosed, setLinkedPrUrl, setRollout, upsertIssue } from './store';
+import { appendEvent, assignIssue, deleteIssueByGithub, ensureProjectForRepo, getIssueByGithub, getIssues, reopenIssue, setClosed, setLinkedPrUrl, setRollout, upsertIssue } from './store';
 import { publishIssue } from './sse';
 import type { IssueState } from './types';
 
@@ -440,6 +440,12 @@ export async function refreshIssues(token: string, fetchFn: FetchFn = fetch): Pr
       });
       const stored = getIssueByGithub(repo.owner.login, repo.name, issue.number);
       if (stored) {
+        // Repo → project resolution: auto-create a skeleton project on first
+        // sight so the board can stay project-scoped (devhub#167).
+        if (stored.projectId === null) {
+          const project = ensureProjectForRepo(repo.owner.login, repo.name);
+          if (project) assignIssue(stored.id, { projectId: project.id });
+        }
         const linkedPrUrl = await findLinkedPr(repo.owner.login, repo.name, issue.number, token, fetchFn);
         setLinkedPrUrl(stored.id, linkedPrUrl);
         if (linkedPrUrl) await new Promise((r) => setTimeout(r, SEARCH_DELAY_MS));

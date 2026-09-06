@@ -1,4 +1,10 @@
+export interface RepoSpec {
+  owner: string;
+  name: string;
+}
+
 export interface DevhubEnv {
+  infraRepo: RepoSpec | null;
   opencodeBaseUrl: string;
   opencodeApiKey: string;
   opencodeBasicUser: string;
@@ -16,6 +22,9 @@ export interface DevhubEnv {
 }
 
 export const ENV: DevhubEnv = {
+  // Shared infra repo (e.g. the ansible/server config repo) that project work
+  // may also need to touch. Format: "owner/name".
+  infraRepo: parseRepoSpec(process.env.INFRA_REPO),
   opencodeBaseUrl: (process.env.OPENCODE_BASE_URL ?? 'https://code.lehel.xyz').replace(/\/$/, ''),
   opencodeApiKey: process.env.OPENCODE_API_KEY ?? '',
   opencodeBasicUser: process.env.OPENCODE_BASIC_USER ?? 'opencode',
@@ -48,4 +57,11 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+// Parses "owner/name" into a repo spec; anything else → null.
+function parseRepoSpec(raw: string | undefined): RepoSpec | null {
+  if (!raw) return null;
+  const [owner, name] = raw.split('/').map((p) => p.trim());
+  return owner && name ? { owner, name } : null;
 }
