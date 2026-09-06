@@ -1,6 +1,6 @@
 import type { OpencodeEvent, OpencodeModel } from '../opencode';
 
-export type ActionType = 'launch' | 'fix' | 'write' | 'show';
+export type ActionType = 'launch' | 'fix' | 'create' | 'write' | 'show';
 
 export interface SkillManifest {
   id: string;

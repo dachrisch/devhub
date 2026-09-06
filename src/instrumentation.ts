@@ -9,5 +9,6 @@ export async function register() {
     // Register cockpit skills
     await import('./lib/skills/fix');
     await import('./lib/skills/launch');
+    await import('./lib/skills/create-issue');
   }
 }
