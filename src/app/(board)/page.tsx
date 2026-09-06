@@ -19,6 +19,7 @@ import { CardActionsSheet } from '@/components/board/card-actions-sheet';
 import { CardActionsMenu } from '@/components/board/card-actions-menu';
 import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
 import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
+import { ProjectsHome } from '@/components/board/projects-home';
 import type { CardActionId } from '@/lib/board-ui';
 import {
   ActionStatusStrip,
@@ -100,6 +101,10 @@ export default function BoardPage() {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [repoFilter, setRepoFilter] = useState<string | null>(null);
+  // Projects home (devhub#167): scoping the kanban to one project. Null = all.
+  const [projectFilter, setProjectFilter] = useState<number | null>(null);
+  // Bumped on refresh + live issue SSE so the project cards re-fetch.
+  const [projectTick, setProjectTick] = useState(0);
   const [sorts, setSorts] = useState<Partial<Record<IssueState, 'newest' | 'oldest'>>>({});
   const [searchHelp, setSearchHelp] = useState(false);
   const [activeColumn, setActiveColumn] = useState<IssueState>('backlog');
@@ -196,11 +201,19 @@ export default function BoardPage() {
 
   const signedIn = Boolean(user);
 
+  // Issues scoped to the selected project card (the Released/Closed strips
+  // below stay global; the kanban columns, counts, repo chips and Ctrl+A
+  // follow the selection).
+  const scopedIssues = useMemo(
+    () => (projectFilter == null ? issues : issues.filter((i) => i.projectId === projectFilter)),
+    [issues, projectFilter]
+  );
+
   const repos = useMemo(() => {
     const set = new Set<string>();
-    for (const i of issues) set.add(`${i.owner}/${i.repo}`);
+    for (const i of scopedIssues) set.add(`${i.owner}/${i.repo}`);
     return Array.from(set).sort();
-  }, [issues]);
+  }, [scopedIssues]);
 
   const upsert = useCallback((issue: Issue) => {
     setIssues((prev) => {
@@ -304,6 +317,7 @@ export default function BoardPage() {
           }
           if (runSupersededByBroadcast(issue)) clearJustStarted(issue.id);
           upsert(issue);
+          setProjectTick((t) => t + 1);
         } else if (msg.type === 'action') {
           const actionId = Number(msg.actionId);
           const status = String(msg.status);
@@ -564,7 +578,7 @@ export default function BoardPage() {
       // Ctrl/Cmd + A to select all visible issues (skip when in a text input)
       if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !isInput) {
         e.preventDefault();
-        const visibleIssues = issues.filter((i) => matchesIssue(i, query));
+        const visibleIssues = scopedIssues.filter((i) => matchesIssue(i, query));
         setSelectedIds(new Set(visibleIssues.map((i) => i.id)));
       }
 
@@ -582,7 +596,7 @@ export default function BoardPage() {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [issues, query, selectedIds, clearSelection, advanceSelected]);
+  }, [scopedIssues, query, selectedIds, clearSelection, advanceSelected]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -600,6 +614,7 @@ export default function BoardPage() {
       }
       setRefreshError(null);
       setLastRefreshed(new Date());
+      setProjectTick((t) => t + 1);
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -833,6 +848,18 @@ export default function BoardPage() {
       <RecentlyReleased issues={issues} />
       <RecentlyClosed issues={issues} />
 
+      <ProjectsHome selectedId={projectFilter} onSelect={setProjectFilter} refreshKey={projectTick} />
+      {projectFilter != null && (
+        <div className="project-filter-banner" role="status">
+          <span>
+            Showing <strong>project #{projectFilter}</strong> — the kanban below is filtered.
+          </span>
+          <button className="ghost" onClick={() => setProjectFilter(null)}>
+            Show all
+          </button>
+        </div>
+      )}
+
       {!isMobile && (
         <BoardToolbar
           repos={repos}
@@ -849,7 +876,7 @@ export default function BoardPage() {
         <MobileStatusStrip
           columns={COLUMNS}
           counts={Object.fromEntries(
-            COLUMNS.map((c) => [c, issues.filter((i) => i.state === c).length])
+            COLUMNS.map((c) => [c, scopedIssues.filter((i) => i.state === c).length])
           ) as Record<IssueState, number>}
           active={activeColumn}
           onSelect={setActiveColumn}
@@ -873,7 +900,7 @@ export default function BoardPage() {
         {/* Mobile renders a single column (the active tab); desktop shows all
             four columns side by side with scroll-sync to the status strip. */}
         {(isMobile ? [activeColumn] : COLUMNS).map((col) => {
-          const items = issues
+          const items = scopedIssues
             .filter((i) => i.state === col && matchesIssue(i, query) && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter))
             .sort((a, b) => {
               // Cards needing input float to the top of their column.

@@ -1,6 +1,6 @@
 import { registerSkill } from './index';
 import type { SkillContext, SkillResult } from './types';
-import { upsertService } from '../store';
+import { createProject, getProjectByName, updateProject } from '../store';
 import { remember } from '../knowledge';
 import { runDevelop } from '../opencode';
 
@@ -136,16 +136,19 @@ registerSkill(
       return { success: false, summary: `Deploy failed: ${deployText.slice(0, 500)}`, sessionIds };
     }
 
-    // Step 4: Register and remember
+    // Step 4: Register and remember (projects table is the source of truth;
+    // the legacy services table stays in place, unused, until a later cleanup).
     ctx.onStatus('Registering service...');
 
-    upsertService({
-      name,
+    const projectPatch = {
       deployHost: host,
       deployDir: `/home/cda/dev/${name}`,
       domain: `${name}.${host}`,
       config: { framework, database },
-    });
+    };
+    const existing = getProjectByName(name);
+    if (existing) updateProject(existing.id, projectPatch);
+    else createProject({ name, ...projectPatch });
 
     remember('launch',
       `Launched ${name} (${framework}) on ${host}`,

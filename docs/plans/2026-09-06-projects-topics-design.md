@@ -27,10 +27,25 @@ Phase 1 (data layer) — done on this branch:
 - `INFRA_REPO` env (`owner/name`) in `env.ts` + `.env.example`.
 - Gate green: typecheck, lint (0 errors), full vitest suite.
 
-Phase 1 remainder: switch `launch.ts`/`/api/services` to the projects table;
-store tests for migration/seed/assignment/topics/runs.
+Phase 1 remainder (done on this branch): `launch.ts` registers into the
+projects table (upsert by name); `GET /api/services` is a legacy compat
+endpoint sourced from projects; store tests cover migration seed,
+repo→project assignment, skeleton auto-create, project CRUD + delete guard,
+topic lifecycle + refresh, scope + idempotent run plans.
 
-Then phases 2–6 as listed at the bottom of this doc.
+Phase 2 (in progress on this branch): Projects home section live on `/`
+above the flat board — `ProjectsHome` (`src/components/board/projects-home.tsx`)
+renders status badges, last-shipped, in-flight/pr/idea counts, needs-input,
+repo chips, per-card Add idea, `+ new project`, and the Inbox strip with
+one-click assign; selecting a card scopes the kanban (columns, counts, repo
+chips, Ctrl+A) via `issue.projectId`, with a filter banner to clear.
+Verified live against mocked GitHub (headless PASS + API smoke: idea, assign,
+create, services-compat).
+
+Phase 2 remainder: `/projects/[id]` board route (kanban moves into
+`src/components/board/`), topics rail, SSE `topic`/`project`/`run` events
+(home currently re-fetches on issue SSE + refresh), remove flat board, global
+search, mobile home.
 
 ## Goal
 

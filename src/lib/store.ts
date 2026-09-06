@@ -750,6 +750,10 @@ export interface ServiceRow {
   status: string; lastDeployAt: string | null; config: string; createdAt: string;
 }
 
+// Legacy (pre-#167): the services table is superseded by projects. Kept for
+// the one-time migration seed only — launch.ts and /api/services now read the
+// projects table. Remove with the table in a later cleanup.
+
 export function getServices(): ServiceRow[] {
   const rows = getDb().prepare('SELECT * FROM services ORDER BY name').all() as Record<string, unknown>[];
   return rows.map((r) => ({

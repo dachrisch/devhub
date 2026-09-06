@@ -2706,3 +2706,227 @@ button:disabled {
   font-size: 14px;
   text-decoration: underline;
 }
+
+/* Projects home (devhub#167): cards grid + inbox strip above the board. */
+.projects-home {
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  padding: 12px 24px;
+}
+
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+}
+
+.project-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+button.project-card-new {
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  color: var(--muted);
+  border-style: dashed;
+}
+
+button.project-card-new:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+button.project-card-new.open {
+  cursor: default;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.project-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.project-card-name {
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proj-badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.proj-badge.healthy {
+  color: var(--pr);
+  border-color: var(--pr);
+}
+
+.proj-badge.in-flight {
+  color: var(--developing);
+  border-color: var(--developing);
+}
+
+.proj-badge.stale {
+  color: var(--muted);
+}
+
+.project-card-domain {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-card-meta {
+  font-size: 12px;
+  min-height: 16px;
+}
+
+.project-shipped {
+  color: var(--rollout);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.project-shipped.none {
+  color: var(--muted);
+}
+
+.project-card-counts {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.proj-needs {
+  color: var(--blocked);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.project-card-repos {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.project-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.project-idea-form,
+.project-new-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-new-form .search,
+.project-idea-form .search {
+  width: 100%;
+}
+
+.project-new-repo {
+  display: flex;
+  gap: 8px;
+}
+
+.inbox-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  min-height: 36px;
+}
+
+.inbox-list {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.inbox-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-size: 12px;
+  white-space: nowrap;
+  max-width: 420px;
+}
+
+.inbox-assign {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 2px 6px;
+  max-width: 140px;
+}
+
+.project-filter-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.project-filter-banner strong {
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .projects-home {
+    padding: 10px 12px;
+  }
+  .project-filter-banner {
+    padding: 8px 12px;
+  }
+}
