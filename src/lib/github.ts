@@ -82,6 +82,33 @@ export async function updateIssueBody(
   if (!res.ok) throw new Error(`GitHub issue update failed (${res.status})`);
 }
 
+export interface CreatedGithubIssue {
+  number: number;
+  htmlUrl: string;
+}
+
+// Files a new GitHub issue. The token comes from the session — never from env.
+export async function createGithubIssue(
+  owner: string,
+  repo: string,
+  title: string,
+  body: string | null,
+  token: string,
+  fetchFn: FetchFn = fetch
+): Promise<CreatedGithubIssue> {
+  const res = await fetchFn(`https://api.github.com/repos/${owner}/${repo}/issues`, {
+    method: 'POST',
+    headers: { ...ghHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: title.slice(0, 256), body: (body ?? '').slice(0, 65536) }),
+  });
+  if (!res.ok) throw new Error(`GitHub create issue failed (${res.status})`);
+  const created = (await res.json()) as { number?: number; html_url?: string };
+  if (typeof created.number !== 'number' || typeof created.html_url !== 'string') {
+    throw new Error('GitHub create issue returned an unexpected payload');
+  }
+  return { number: created.number, htmlUrl: created.html_url };
+}
+
 export interface GhRepo {
   name: string;
   full_name: string;

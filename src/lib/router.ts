@@ -10,17 +10,18 @@ export interface ActionIntent {
 
 const ROUTER_PROMPT = `You are a command classifier for DevHub, a development cockpit.
 
-The user can do 4 things:
+The user can do 5 things:
 - launch: Create something new and put it live (new service, new site, new worker)
 - fix: Resolve a problem and open a PR (bugs, issues, errors)
+- create: File a new GitHub issue (create issue, file bug, new issue in <repo>)
 - write: Create content and share it (blog posts, social media, tweets)
 - show: See what's running, what's ready, what's next (status, list, query)
 
-Classify the user's input into one of these 4 actions.
+Classify the user's input into one of these 5 actions.
 
 Respond with ONLY a JSON object (no markdown, no explanation):
 {
-  "action": "<launch|fix|write|show|unknown>",
+  "action": "<launch|fix|create|write|show|unknown>",
   "confidence": <0.0 to 1.0>,
   "params": { extracted parameters }
 }
@@ -28,7 +29,8 @@ Respond with ONLY a JSON object (no markdown, no explanation):
 Rules:
 - If the input clearly matches an action, set confidence > 0.8
 - If ambiguous, set confidence < 0.5 and action "unknown"
-- Extract key parameters: name, framework, host, issueId, topic, etc.
+- Extract key parameters: name, framework, host, issueId, topic, repo, owner, issueTitle, description, etc.
+- "create" needs params.repo + params.issueTitle (params.owner optional, params.description optional)
 - "unknown" action for unrecognized inputs
 `;
 
@@ -47,10 +49,15 @@ export function buildRouterPrompt(userInput: string): string {
 }
 
 export function parseIntent(raw: string): ActionIntent {
+  // Models routinely ignore the "no markdown" rule and wrap the JSON in
+  // ```json fences or prepend chatter (Action #3: confidence 0.85 lost to a
+  // fence). Extract the first {...} block before parsing; fall back to the
+  // raw string so plain JSON keeps working.
+  const cleaned = extractJsonBlock(raw);
   try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
     const action = typeof parsed.action === 'string' ? parsed.action : 'unknown';
-    const validActions: string[] = ['launch', 'fix', 'write', 'show'];
+    const validActions: string[] = ['launch', 'fix', 'create', 'write', 'show'];
     return {
       action: validActions.includes(action) ? action as ActionType : 'unknown',
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,
@@ -61,6 +68,27 @@ export function parseIntent(raw: string): ActionIntent {
   } catch {
     return { action: 'unknown', confidence: 0, params: {} };
   }
+}
+
+function extractJsonBlock(raw: string): string {
+  const withoutFences = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/g, '')
+    .trim();
+  if (withoutFences.startsWith('{')) {
+    try {
+      JSON.parse(withoutFences);
+      return withoutFences;
+    } catch {
+      // fall through to brace matching below
+    }
+  }
+  const start = withoutFences.indexOf('{');
+  const end = withoutFences.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    return withoutFences.slice(start, end + 1);
+  }
+  return raw;
 }
 
 export async function classifyInput(
