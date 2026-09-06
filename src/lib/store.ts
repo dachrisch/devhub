@@ -552,6 +552,25 @@ export function setActionTranscript(id: number, transcript: string): void {
     .run(transcript, id);
 }
 
+// Persists the classified intent so future runs can learn from it
+// (correction pairs, unknown clustering). Best-effort: never throws.
+export function setActionIntent(
+  id: number,
+  action: string,
+  skillId: string | null,
+  params: Record<string, unknown>
+): void {
+  try {
+    getDb()
+      .prepare(
+        `UPDATE actions SET action = ?, skill_id = ?, params = ?, updated_at = datetime('now') WHERE id = ?`
+      )
+      .run(action, skillId, JSON.stringify(params), id);
+  } catch (err) {
+    console.error('[store] setActionIntent failed:', err);
+  }
+}
+
 export interface ServiceRow {
   id: number; name: string; repoOwner: string | null; repoName: string | null;
   deployHost: string | null; deployDir: string | null; domain: string | null;

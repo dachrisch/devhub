@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { appendAction, setActionStatus, getAction, getActions, appendSessionId, setActionTranscript, setDefaultModel } from '@/lib/store';
+import { appendAction, setActionStatus, getActions, appendSessionId, setActionTranscript, setDefaultModel, setActionIntent } from '@/lib/store';
 import { UnauthorizedError, ForbiddenError, GithubUnavailableError, requireMember } from '@/lib/auth';
 import { classifyInput } from '@/lib/router';
+import { learnCorrection, learnUnknown } from '@/lib/learning';
 import { getByAction } from '@/lib/skills';
 import { getAvailableModels, resolveModels, sanitizeModels, type OpencodeEvent, type OpencodeModel } from '@/lib/opencode';
 import { createTranscriptRecorder } from '@/lib/action-transcript';
@@ -101,9 +102,11 @@ async function executeAction(
 
     // Classify what the user wants (its opencode events feed the transcript)
     const intent = await classifyInput(input, models, onEvent);
+    setActionIntent(actionId, intent.action, null, intent.params);
 
     if (intent.confidence < 0.5) {
       recorder.final();
+      learnUnknown(actionId, input, intent.params);
       setActionStatus(actionId, 'failed', `Not sure what you mean. Could you rephrase?`);
       publishAction(actionId, 'failed', 'Could not understand');
       return;
@@ -113,10 +116,12 @@ async function executeAction(
     const skill = intent.action !== 'unknown' ? getByAction(intent.action) : null;
     if (!skill) {
       recorder.final();
+      learnUnknown(actionId, input, intent.params);
       setActionStatus(actionId, 'failed', `I can "${intent.action}" yet — that skill isn't built yet.`);
       publishAction(actionId, 'failed', `Not ready yet: ${intent.action}`);
       return;
     }
+    setActionIntent(actionId, intent.action, skill.manifest.id, intent.params);
 
     publishAction(actionId, 'running', `Working on: ${skill.manifest.name}`);
 
@@ -138,6 +143,15 @@ async function executeAction(
     recorder.final();
     const duration = Date.now() - startTime;
     setActionStatus(actionId, result.success ? 'success' : 'failed', result.summary, duration);
+    // Teach-by-rerun: a successful retry teaches the router what the original
+    // prompt meant. The correction is recalled into future router prompts.
+    if (result.success && typeof params.retryOf === 'number') {
+      try {
+        learnCorrection(actionId, params.retryOf, input, intent.action, intent.params);
+      } catch {
+        /* learning never breaks the run */
+      }
+    }
     publishAction(actionId, result.success ? 'success' : 'failed', result.summary);
 
   } catch (err) {
