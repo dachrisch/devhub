@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createTopic, getProject, getTopics, type Topic } from '@/lib/store';
+import { publishTopic } from '@/lib/sse';
 import { getSession, requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
 import { TOPIC_STATUSES, type TopicStatus } from '@/lib/types';
 
@@ -60,5 +61,6 @@ export async function POST(req: NextRequest): Promise<NextResponse<{ topic: Topi
     area: typeof body.area === 'string' && body.area.trim() ? body.area.trim() : null,
     origin,
   });
+  publishTopic(topic.id);
   return NextResponse.json({ topic });
 }

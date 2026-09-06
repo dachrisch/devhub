@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createProject, getProjectByName, updateProject, type Project } from '@/lib/store';
 import { summarizeProject, type ProjectSummary } from '@/lib/project-status';
 import { getProjects } from '@/lib/store';
+import { publishProject } from '@/lib/sse';
 import { getSession, requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
 import { PROJECT_STATUSES } from '@/lib/types';
 
@@ -74,5 +75,6 @@ export async function POST(req: NextRequest): Promise<NextResponse<{ project: Pr
 
   const existing = getProjectByName(name);
   const project = (existing ? updateProject(existing.id, patch) : createProject({ name, ...patch }))!;
+  publishProject(project.id);
   return NextResponse.json({ project });
 }

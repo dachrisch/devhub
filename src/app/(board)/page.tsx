@@ -318,6 +318,10 @@ export default function BoardPage() {
           if (runSupersededByBroadcast(issue)) clearJustStarted(issue.id);
           upsert(issue);
           setProjectTick((t) => t + 1);
+        } else if (msg.type === 'project' || msg.type === 'topic' || msg.type === 'run') {
+          // Project cockpit id-notification (see sse.ts): the cards + inbox
+          // re-fetch via refreshKey.
+          setProjectTick((t) => t + 1);
         } else if (msg.type === 'action') {
           const actionId = Number(msg.actionId);
           const status = String(msg.status);

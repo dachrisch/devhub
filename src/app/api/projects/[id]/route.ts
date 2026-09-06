@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deleteProject, getProject, updateProject, type Project } from '@/lib/store';
+import { publishProject } from '@/lib/sse';
 import { getSession, requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
 import { PROJECT_STATUSES } from '@/lib/types';
 
@@ -67,6 +68,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
   if (body.config !== undefined) patch.config = body.config;
 
   const project = updateProject(projectId, patch);
+  publishProject(projectId);
   return NextResponse.json({ project: project! });
 }
 
@@ -84,5 +86,6 @@ export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextR
   if (!projectId) return NextResponse.json({ error: 'invalid id' }, { status: 400 });
   const result = deleteProject(projectId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  publishProject(projectId);
   return NextResponse.json({ ok: true });
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { assignIssue, getIssue, getProject, getTopic, refreshTopicStatus, type Issue } from '@/lib/store';
+import { publishIssue, publishProject, publishTopic } from '@/lib/sse';
 import { requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
 
 export const runtime = 'nodejs';
@@ -55,5 +56,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const oldTopicId = issue.topicId ?? null;
   if (newTopicId !== undefined && newTopicId !== null) refreshTopicStatus(newTopicId);
   if (oldTopicId !== null && newTopicId !== oldTopicId) refreshTopicStatus(oldTopicId);
+  // The board card moved projects/topics: push the issue itself plus
+  // id-notifications so project cards and the inbox re-fetch.
+  if (updated) publishIssue(updated);
+  const newProjectId = assignment.projectId;
+  const oldProjectId = issue.projectId ?? null;
+  if (newProjectId !== undefined && newProjectId !== null && newProjectId !== oldProjectId) {
+    publishProject(newProjectId);
+  }
+  if (oldProjectId !== null && newProjectId !== oldProjectId) publishProject(oldProjectId);
+  if (newTopicId !== undefined && newTopicId !== null && newTopicId !== oldTopicId) publishTopic(newTopicId);
+  if (oldTopicId !== null && newTopicId !== oldTopicId) publishTopic(oldTopicId);
   return NextResponse.json({ issue: updated! });
 }

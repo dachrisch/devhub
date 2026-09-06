@@ -5,6 +5,12 @@ export type ServerEvent =
   | { type: 'issue'; issue: Issue }
   | { type: 'opencode-event'; issueId: number; event: OpencodeEvent }
   | { type: 'action'; actionId: number; status: string; detail: string }
+  // Project cockpit (devhub#167): id-notifications, mirroring the `action`
+  // pattern — the client hydrates via GET /api/projects + /api/topics. Run
+  // events land with the Phase 3 orchestration; the helper ships now.
+  | { type: 'project'; projectId: number }
+  | { type: 'topic'; topicId: number }
+  | { type: 'run'; runId: number; issueId: number }
   | { type: 'hello'; now: string };
 
 type Listener = (event: ServerEvent) => void;
@@ -44,4 +50,16 @@ export function publishOpencodeEvent(issueId: number, event: OpencodeEvent): voi
 
 export function publishAction(actionId: number, status: string, detail: string): void {
   broadcaster.publish({ type: 'action', actionId, status, detail });
+}
+
+export function publishProject(projectId: number): void {
+  broadcaster.publish({ type: 'project', projectId });
+}
+
+export function publishTopic(topicId: number): void {
+  broadcaster.publish({ type: 'topic', topicId });
+}
+
+export function publishRun(runId: number, issueId: number): void {
+  broadcaster.publish({ type: 'run', runId, issueId });
 }

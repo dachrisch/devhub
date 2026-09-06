@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deleteTopic, getProject, getTopic, refreshTopicStatus, updateTopic, type Topic } from '@/lib/store';
+import { publishTopic } from '@/lib/sse';
 import { getSession, requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
 import { TOPIC_STATUSES, type TopicStatus } from '@/lib/types';
 
@@ -68,6 +69,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
   // An explicit status change (e.g. drop) wins; only auto-derive otherwise.
   const topic = updateTopic(topicId, patch)!;
   const refreshed = patch.status !== undefined ? topic : (refreshTopicStatus(topicId) ?? topic);
+  publishTopic(topicId);
   return NextResponse.json({ topic: refreshed });
 }
 
@@ -85,5 +87,6 @@ export async function DELETE(req: NextRequest, ctx: RouteContext): Promise<NextR
   if (!topicId) return NextResponse.json({ error: 'invalid id' }, { status: 400 });
   if (!getTopic(topicId)) return NextResponse.json({ error: 'not found' }, { status: 404 });
   deleteTopic(topicId);
+  publishTopic(topicId);
   return NextResponse.json({ ok: true });
 }
