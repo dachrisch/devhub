@@ -1,6 +1,6 @@
 import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici';
 import { ENV } from './env';
-import type { Issue } from './types';
+import type { DevelopRun, Issue, RunRole } from './types';
 
 // opencode on code.lehel.xyz uses a real cert in production; only the opt-in
 // servyy-test deployment needs TLS verification disabled (mirrors dontforget).
@@ -465,10 +465,34 @@ export async function runDevelop(
   throw lastError ?? new Error('opencode develop failed');
 }
 
-export function buildDevelopPrompt(issue: Issue, command: string): string {
-  const repoPath = `${ENV.openWorkspaceRoot}/${issue.repo}`;
-  const worktreePath = `${repoPath}/.worktrees/${issue.id}`;
-  const branch = `devhub/issue-${issue.number}`;
+export interface DevelopRunContext {
+  role: RunRole;
+  repoOwner: string;
+  repoName: string;
+  projectId: number | null;
+}
+
+export interface DevelopCarryOver {
+  prUrl: string;
+  summary: string;
+}
+
+export function buildDevelopPrompt(
+  issue: Issue,
+  command: string,
+  run?: DevelopRun | DevelopRunContext | null,
+  carryOver?: DevelopCarryOver | null
+): string {
+  // Per-repo child run (devhub#167): one session → one repo → one PR. The repo
+  // path, branch and worktree all follow the run's repo; legacy callers pass
+  // no run and keep the single-repo behavior (issue.owner/issue.repo).
+  const repoOwner = run?.repoOwner ?? issue.owner;
+  const repoName = run?.repoName ?? issue.repo;
+  const role = run?.role ?? 'service';
+  const projectSuffix = run && 'projectId' in run && typeof run.projectId === 'number' ? `p${run.projectId}-` : '';
+  const repoPath = `${ENV.openWorkspaceRoot}/${repoName}`;
+  const worktreePath = `${repoPath}/.worktrees/${issue.id}-${role}`;
+  const branch = `devhub/${projectSuffix}i${issue.number}-${role}`;
 
   const parts = [
     `You are implementing a GitHub issue on a personal dev command board (DevHub).`,
@@ -476,8 +500,9 @@ export function buildDevelopPrompt(issue: Issue, command: string): string {
     ``,
     `## Repository`,
     `Checkout (already provisioned — do NOT clone): ${repoPath}`,
-    `Owner: ${issue.owner}   Repo: ${issue.repo}   Issue #${issue.number}`,
+    `Owner: ${repoOwner}   Repo: ${repoName}   Issue #${issue.number}`,
     `Issue URL: ${issue.htmlUrl}`,
+    `Run role: ${role} (this session touches ONLY ${repoOwner}/${repoName})`,
     ``,
     `## Issue`,
     `Title: ${issue.title}`,
@@ -486,6 +511,16 @@ export function buildDevelopPrompt(issue: Issue, command: string): string {
     issue.body?.trim() ? issue.body.trim() : '(no description)',
     ``,
   ];
+
+  if (carryOver?.prUrl) {
+    parts.push(
+      `## Carry-over from the previous run`,
+      `A previous child run in this chain already opened: ${carryOver.prUrl}`,
+      carryOver.summary ? `Summary: ${carryOver.summary}` : '',
+      `Align with it (shared types, naming, migration order) — do not duplicate its changes here.`,
+      '',
+    );
+  }
 
   if (command.trim()) {
     parts.push(`## Additional instructions from the operator`, command.trim(), '');
@@ -502,7 +537,7 @@ export function buildDevelopPrompt(issue: Issue, command: string): string {
     `gh issue view ${issue.number} --repo ${issue.owner}/${issue.repo} --json state,stateReason`,
     `\`\`\``,
     `- If the issue is **closed**, do NOT implement. Clean up any leftover worktree and branch, then end with \`ALREADY RESOLVED: Issue #${issue.number} is already closed\`.`,
-    `- Also search for a linked or merged PR: \`gh pr list --repo ${issue.owner}/${issue.repo} --state all --search "${issue.number} in:title,body"\``,
+    `- Also search for a linked or merged PR: \`gh pr list --repo ${repoOwner}/${repoName} --state all --search "${issue.number} in:title,body"\``,
     `- If a merged PR addresses this issue, end with \`ALREADY RESOLVED: PR already merged for this issue\`.`,
     ``,
     `### 1. Set up an isolated worktree`,
@@ -510,12 +545,12 @@ export function buildDevelopPrompt(issue: Issue, command: string): string {
     `\`\`\`bash`,
     `cd ${repoPath}`,
     `git fetch origin`,
-    `if [ -d ".worktrees/${issue.id}" ]; then`,
-    `  cd .worktrees/${issue.id}`,
+    `if [ -d ".worktrees/${issue.id}-${role}" ]; then`,
+    `  cd .worktrees/${issue.id}-${role}`,
     `  git checkout ${branch} 2>/dev/null || true`,
     `else`,
-    `  git worktree add .worktrees/${issue.id} -b ${branch}`,
-    `  cd .worktrees/${issue.id}`,
+    `  git worktree add .worktrees/${issue.id}-${role} -b ${branch}`,
+    `  cd .worktrees/${issue.id}-${role}`,
     `fi`,
     `\`\`\``,
     ``,
@@ -550,12 +585,12 @@ export function buildDevelopPrompt(issue: Issue, command: string): string {
     `### 7. Clean up the worktree`,
     `\`\`\`bash`,
     `cd ${repoPath}`,
-    `git worktree remove .worktrees/${issue.id}`,
+    `git worktree remove .worktrees/${issue.id}-${role}`,
     `\`\`\``,
     ``,
     `## CRITICAL: Final message format`,
     `End your final message with EXACTLY ONE of:`,
-    `- the full PR URL (e.g. https://github.com/${issue.owner}/${issue.repo}/pull/123), or`,
+    `- the full PR URL (e.g. https://github.com/${repoOwner}/${repoName}/pull/123), or`,
     `- "ALREADY RESOLVED: <reason>" if the issue is already closed or has a merged PR — do NOT attempt implementation,`,
     `- "CANNOT FULFILL: <reason>" if you cannot complete the work.`,
     `Never end without one of these three.`

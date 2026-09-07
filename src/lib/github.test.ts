@@ -14,6 +14,7 @@ const {
   isAllowedMember,
   refreshIssues,
   sweepRollouts,
+  markIssueShipped,
   reconcileClosedIssues,
   setIssueStateLabels,
   commentOnIssue,
@@ -207,6 +208,48 @@ describe('sweepRollouts', () => {
 
     expect(await sweepRollouts('token-abc', fetchFn)).toBe(0);
     expect(store.getIssue(id)?.state).toBe('pr');
+  });
+
+  it('advances per-run PRs and rolls out only when ALL runs released (devhub#167)', async () => {
+    store.upsertIssue({
+      githubIssueId: 800,
+      owner: 'dachrisch',
+      repo: 'matched',
+      number: 40,
+      title: 'two-repo feature',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/matched/issues/40',
+    });
+    const id = store.getIssueByGithub('dachrisch', 'matched', 40)!.id;
+    store.setResult(id, 'pr', 'https://github.com/dachrisch/matched/pull/40', 'two PRs');
+    store.ensureRuns(id, [
+      { role: 'service', repoOwner: 'dachrisch', repoName: 'matched' },
+      { role: 'infra', repoOwner: 'dachrisch', repoName: 'infra' },
+    ]);
+    const runs = store.getRunsForIssue(id);
+    store.updateRun(runs[0].id, { state: 'pr', prUrl: 'https://github.com/dachrisch/matched/pull/40' });
+    store.updateRun(runs[1].id, { state: 'pr', prUrl: 'https://github.com/dachrisch/infra/pull/7' });
+
+    // Only the service PR merged+tagged: run flips to released, issue stays.
+    const fetchFn = (async (url: string) => {
+      if (url.includes('/matched/pulls/40')) return ghResponse({ merged: true, merge_commit_sha: 'aaa' })();
+      if (url.includes('/infra/pulls/7')) return ghResponse({ merged: false, merge_commit_sha: null })();
+      if (url.includes('/matched/tags')) return ghResponse([{ name: 'v3.0.0', commit: { sha: 'aaa' } }])();
+      if (url.includes('/compare/aaa')) return ghResponse({ status: 'identical' })();
+      if (url.includes('/infra/tags')) return ghResponse([])();
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+
+    expect(await sweepRollouts('token-abc', fetchFn)).toBe(0);
+    const mid = store.getRunsForIssue(id);
+    expect(mid.find((r) => r.role === 'service')?.state).toBe('released');
+    expect(mid.find((r) => r.role === 'infra')?.state).toBe('pr');
+    expect(store.getIssue(id)?.state).toBe('pr');
+
+    // Manual Mark shipped wins over the sweep for the pending run.
+    const shipped = markIssueShipped(id, 'manual');
+    expect(shipped?.state).toBe('rollout');
+    expect(store.getRunsForIssue(id).every((r) => r.state === 'released')).toBe(true);
   });
 
   it('promotes a closed card whose PR later got merged + tagged to rollout', async () => {

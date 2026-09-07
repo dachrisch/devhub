@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canDevelop } from './develop.js';
+import { canDevelop, planRunsForIssue } from './develop.js';
 import type { Issue } from './types.js';
 
 function issue(overrides: Partial<Issue> = {}): Issue {
@@ -43,5 +43,23 @@ describe('canDevelop', () => {
     expect(canDevelop(issue({ state: 'pr', resultPrUrl: 'https://github.com/dachrisch/devhub/pull/1' }))).toBe(false);
     expect(canDevelop(issue({ state: 'rollout' }))).toBe(false);
     expect(canDevelop(issue({ state: 'closed' }))).toBe(false);
+  });
+});
+
+describe('planRunsForIssue', () => {
+  it('plans a single service run by default', () => {
+    const plan = planRunsForIssue(issue({ owner: 'dachrisch', repo: 'devhub' }));
+    expect(plan).toEqual([{ role: 'service', repoOwner: 'dachrisch', repoName: 'devhub' }]);
+  });
+
+  it('falls back to service-only when infra is needed but no INFRA_REPO is configured', () => {
+    // The test env has no INFRA_REPO, so infra/both scopes degrade to the
+    // legacy single-PR path instead of planning an unresolvable run.
+    expect(planRunsForIssue(issue({ repoScope: 'infra' }))).toEqual([
+      { role: 'service', repoOwner: 'dachrisch', repoName: 'devhub' },
+    ]);
+    expect(planRunsForIssue(issue({ repoScope: 'both', infraFirst: true }))).toEqual([
+      { role: 'service', repoOwner: 'dachrisch', repoName: 'devhub' },
+    ]);
   });
 });
