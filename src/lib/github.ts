@@ -1,7 +1,8 @@
 import { ENV } from './env';
-import { appendEvent, deleteIssueByGithub, getIssueByGithub, getIssues, reopenIssue, setClosed, setLinkedPrUrl, setRollout, upsertIssue } from './store';
-import { publishIssue } from './sse';
-import type { IssueState } from './types';
+import { appendEvent, assignIssue, deleteIssueByGithub, ensureProjectForRepo, getIssue, getIssueByGithub, getIssues, getProject, getRunsForIssue, refreshTopicStatus, reopenIssue, setClosed, setLinkedPrUrl, setProjectShipped, setRollout, updateRun, upsertIssue } from './store';
+import type { UpsertIssueInput } from './store';
+import { publishIssue, publishRun } from './sse';
+import type { Issue, IssueState } from './types';
 
 // Labels DevHub keeps in sync with its own issue state. Other labels on the
 // issue are preserved.
@@ -232,10 +233,20 @@ async function findReleaseTag(
 // `pr` cards (and `closed` cards still carrying a PR — e.g. reconciled before
 // the tag was cut) to the terminal `rollout` state automatically. Returns the
 // number of cards moved. Runs as part of refresh; failures leave cards put.
+//
+// Phase 3 (devhub#167): per-run sweep. Issues with `develop_runs` advance run
+// by run (`pr` → `merged` → `released`, respecting the project's
+// `release_mode`); the issue reaches `rollout` only when ALL runs are
+// `released`. Issues without runs keep the legacy single-PR path below.
 export async function sweepRollouts(token: string, fetchFn: FetchFn = fetch): Promise<number> {
   const candidates = getIssues().filter((i) => i.state === 'pr' || i.state === 'closed');
   let rolledOut = 0;
   for (const issue of candidates) {
+    const runs = getRunsForIssue(issue.id);
+    if (runs.length > 0) {
+      if (await sweepRunsForIssue(issue, token, fetchFn)) rolledOut++;
+      continue;
+    }
     const prNumber = prNumberFromUrl(issue.resultPrUrl) ?? prNumberFromUrl(issue.linkedPrUrl);
     if (!prNumber) continue;
     try {
@@ -250,6 +261,7 @@ export async function sweepRollouts(token: string, fetchFn: FetchFn = fetch): Pr
       const updated = setRollout(issue.id, releaseTag);
       if (!updated) continue;
       publishIssue(updated);
+      onIssueRolledOut(updated);
       rolledOut++;
       try {
         await setIssueStateLabels(issue.owner, issue.repo, issue.number, 'rollout', token, fetchFn);
@@ -262,6 +274,90 @@ export async function sweepRollouts(token: string, fetchFn: FetchFn = fetch): Pr
   }
   return rolledOut;
 }
+
+async function sweepRunsForIssue(issue: Issue, token: string, fetchFn: FetchFn): Promise<boolean> {
+  const project = issue.projectId != null ? getProject(issue.projectId) : null;
+  const manualOnly = project?.releaseMode === 'manual';
+  let changed = false;
+  const runs = getRunsForIssue(issue.id);
+  for (const run of runs) {
+    if (run.state !== 'pr') continue;
+    const prNumber = prNumberFromUrl(run.prUrl);
+    if (!prNumber) continue;
+    try {
+      const pr = await ghGetJson<GhPull>(
+        `https://api.github.com/repos/${run.repoOwner}/${run.repoName}/pulls/${prNumber}`,
+        token,
+        fetchFn
+      );
+      if (!pr.merged || !pr.merge_commit_sha) continue;
+      const merged = updateRun(run.id, { state: 'merged' });
+      if (merged) publishRun(merged.id, issue.id);
+      changed = true;
+      if (manualOnly) continue; // manual projects advance to released via Mark shipped only
+      const releaseTag = await findReleaseTag(run.repoOwner, run.repoName, pr.merge_commit_sha, token, fetchFn);
+      if (!releaseTag) continue;
+      const released = updateRun(run.id, { state: 'released' });
+      if (released) publishRun(released.id, issue.id);
+      changed = true;
+    } catch {
+      // transient API failure: leave the run for the next sweep
+    }
+  }
+  const finalRuns = getRunsForIssue(issue.id);
+  if (finalRuns.length > 0 && finalRuns.every((r) => r.state === 'released')) {
+    const tag = finalRuns.map((r) => r.prUrl).filter(Boolean).join(', ').slice(0, 120) || 'released';
+    const updated = setRollout(issue.id, tag);
+    if (updated) {
+      publishIssue(updated);
+      onIssueRolledOut(updated);
+      try {
+        await setIssueStateLabels(issue.owner, issue.repo, issue.number, 'rollout', token, fetchFn);
+      } catch {
+        // label mirroring is best-effort
+      }
+      return true;
+    }
+  }
+  return changed && false;
+}
+
+// Aggregates a rollout upward: topic → shipped when all its issues settled,
+// project last-shipped cache update. Best-effort, never throws.
+function onIssueRolledOut(issue: Issue): void {
+  try {
+    if (issue.topicId != null) refreshTopicStatus(issue.topicId);
+    if (issue.projectId != null) {
+      setProjectShipped(issue.projectId, new Date().toISOString().slice(0, 19).replace('T', ' '), issue.title);
+    }
+  } catch {
+    /* non-fatal */
+  }
+}
+
+// Manual "Mark shipped" (always allowed, wins over the sweep): forces the
+// issue's open runs (`pr`|`merged`) to `released` and rolls the issue out.
+// Used for `manual` release-mode projects and config-only infra changes.
+export function markIssueShipped(issueId: number, releaseTag?: string): Issue | null {
+  const issue = getIssue(issueId);
+  if (!issue) return null;
+  const runs = getRunsForIssue(issueId);
+  for (const run of runs) {
+    if (run.state === 'pr' || run.state === 'merged') {
+      const updated = updateRun(run.id, { state: 'released' });
+      if (updated) publishRun(updated.id, issueId);
+    }
+  }
+  const tag = (releaseTag ?? '').trim() || 'manual';
+  const updated = setRollout(issueId, tag);
+  if (updated) {
+    publishIssue(updated);
+    onIssueRolledOut(updated);
+  }
+  return updated;
+}
+
+export type { UpsertIssueInput };
 
 // States re-checked against GitHub on every refresh. `developing` is left to
 // the live run and `rollout` is DevHub's own terminal pipeline state; every
@@ -440,6 +536,12 @@ export async function refreshIssues(token: string, fetchFn: FetchFn = fetch): Pr
       });
       const stored = getIssueByGithub(repo.owner.login, repo.name, issue.number);
       if (stored) {
+        // Repo → project resolution: auto-create a skeleton project on first
+        // sight so the board can stay project-scoped (devhub#167).
+        if (stored.projectId === null) {
+          const project = ensureProjectForRepo(repo.owner.login, repo.name);
+          if (project) assignIssue(stored.id, { projectId: project.id });
+        }
         const linkedPrUrl = await findLinkedPr(repo.owner.login, repo.name, issue.number, token, fetchFn);
         setLinkedPrUrl(stored.id, linkedPrUrl);
         if (linkedPrUrl) await new Promise((r) => setTimeout(r, SEARCH_DELAY_MS));

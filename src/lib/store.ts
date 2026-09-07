@@ -1,8 +1,42 @@
 import Database from 'better-sqlite3';
 import { ENV } from './env';
-import { serializeIssue, type Issue, type IssueEvent, type IssueRow, type IssueState } from './types';
+import {
+  serializeIssue,
+  serializeProject,
+  serializeRun,
+  serializeTopic,
+  type DevelopRun,
+  type DevelopRunRow,
+  type Issue,
+  type IssueEvent,
+  type IssueRow,
+  type IssueState,
+  type Project,
+  type ProjectRow,
+  type ProjectStatus,
+  type ReleaseMode,
+  type RepoScope,
+  type RunRole,
+  type RunState,
+  type Topic,
+  type TopicRow,
+  type TopicStatus,
+} from './types';
 
-export type { Issue, IssueEvent, IssueState } from './types';
+export type {
+  DevelopRun,
+  Issue,
+  IssueEvent,
+  IssueState,
+  Project,
+  ProjectStatus,
+  RepoScope,
+  RunRole,
+  RunState,
+  Topic,
+  TopicStatus,
+  ReleaseMode,
+} from './types';
 
 let db: Database.Database | null = null;
 
@@ -95,6 +129,51 @@ function migrate(database: Database.Database): void {
       config TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS projects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      service_repo_owner TEXT,
+      service_repo_name TEXT,
+      domain TEXT,
+      deploy_host TEXT,
+      deploy_dir TEXT,
+      infra_dir TEXT,
+      status TEXT,
+      status_override TEXT,
+      last_shipped_at TEXT,
+      last_shipped_title TEXT,
+      release_mode TEXT NOT NULL DEFAULT 'tag',
+      config TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS topics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+      area TEXT,
+      title TEXT NOT NULL,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'idea',
+      origin TEXT NOT NULL DEFAULT 'manual',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_topics_project ON topics(project_id);
+    CREATE TABLE IF NOT EXISTS develop_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      seq INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      repo_owner TEXT NOT NULL,
+      repo_name TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'pending',
+      session_id TEXT,
+      pr_url TEXT,
+      result_text TEXT,
+      blocked_reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_develop_runs_issue ON develop_runs(issue_id);
   `);
 
   // One-time migration: rollout metadata for the terminal "released" state.
@@ -149,6 +228,99 @@ function migrate(database: Database.Database): void {
   if (!actionCols.some((c) => c.name === 'transcript')) {
     database.exec(`ALTER TABLE actions ADD COLUMN transcript TEXT`);
   }
+
+  // Projects & Topics reorganization (devhub#167): issues carry project/topic
+  // assignment plus the refinement-decided repo scope. Columns stay nullable
+  // in the schema (SQLite cannot ADD COLUMN NOT NULL without a default for
+  // this backfill); every issue gets an assignment below and every ingest
+  // path assigns on creation, so nulls never occur after migration.
+  if (!hasColumn('project_id')) {
+    database.exec(`ALTER TABLE issues ADD COLUMN project_id INTEGER REFERENCES projects(id)`);
+  }
+  if (!hasColumn('topic_id')) {
+    database.exec(`ALTER TABLE issues ADD COLUMN topic_id INTEGER REFERENCES topics(id)`);
+  }
+  if (!hasColumn('repo_scope')) {
+    database.exec(`ALTER TABLE issues ADD COLUMN repo_scope TEXT`);
+  }
+  if (!hasColumn('infra_first')) {
+    database.exec(`ALTER TABLE issues ADD COLUMN infra_first INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  // Seed projects from the legacy services table (services stays in place,
+  // unused, until a later cleanup). Idempotent: matched by name.
+  const services = database.prepare('SELECT * FROM services').all() as Record<string, unknown>[];
+  for (const s of services) {
+    const name = s.name as string;
+    const existing = database.prepare('SELECT id FROM projects WHERE name = ?').get(name);
+    if (existing) continue;
+    database
+      .prepare(
+        `INSERT INTO projects (name, service_repo_owner, service_repo_name, domain, deploy_host, deploy_dir, config)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        name,
+        s.repo_owner ?? null,
+        s.repo_name ?? null,
+        s.domain ?? null,
+        s.deploy_host ?? null,
+        s.deploy_dir ?? null,
+        typeof s.config === 'string' ? s.config : '{}'
+      );
+  }
+
+  // Assign every issue to a project: repo → matching project, else a skeleton
+  // project auto-created on first sight. Unsorted only as a last resort.
+  const unassigned = database
+    .prepare('SELECT id, owner, repo FROM issues WHERE project_id IS NULL')
+    .all() as { id: number; owner: string; repo: string }[];
+  for (const row of unassigned) {
+    const project = ensureProjectForRepo(row.owner, row.repo);
+    if (project) {
+      database.prepare(`UPDATE issues SET project_id = ? WHERE id = ?`).run(project.id, row.id);
+    } else {
+      const unsorted = ensureUnsortedProject();
+      database.prepare(`UPDATE issues SET project_id = ? WHERE id = ?`).run(unsorted.id, row.id);
+    }
+  }
+}
+
+// Looks up the project owning a repo, creating a skeleton project when a repo
+// is seen for the first time (migration + ingest). Returns null only when both
+// owner and repo are unusable.
+export function ensureProjectForRepo(owner: string | null, repo: string | null): Project | null {
+  if (!repo) return null;
+  const db = getDb();
+  if (owner) {
+    const byRepo = db
+      .prepare('SELECT * FROM projects WHERE service_repo_owner = ? AND service_repo_name = ?')
+      .get(owner, repo) as ProjectRow | undefined;
+    if (byRepo) return serializeProject(byRepo);
+  }
+  const name = uniqueProjectName(repo);
+  const info = db
+    .prepare(
+      `INSERT INTO projects (name, service_repo_owner, service_repo_name) VALUES (?, ?, ?)`
+    )
+    .run(name, owner, repo);
+  return getProject(Number(info.lastInsertRowid));
+}
+
+// Synthetic last-resort project for issues whose repo can't be resolved.
+function ensureUnsortedProject(): Project {
+  const existing = getProjectByName('Unsorted');
+  if (existing) return existing;
+  const info = getDb().prepare(`INSERT INTO projects (name) VALUES ('Unsorted')`).run();
+  return getProject(Number(info.lastInsertRowid))!;
+}
+
+function uniqueProjectName(base: string): string {
+  const db = getDb();
+  if (!db.prepare('SELECT 1 FROM projects WHERE name = ?').get(base)) return base;
+  let i = 2;
+  while (db.prepare('SELECT 1 FROM projects WHERE name = ?').get(`${base}-${i}`)) i += 1;
+  return `${base}-${i}`;
 }
 
 export interface UpsertIssueInput {
@@ -165,7 +337,7 @@ export interface UpsertIssueInput {
 // (or was reconciled to `closed` — a reopened issue must pick up fresh
 // metadata so the reconcile pass can move it back to the active board).
 // Rows already developing / pr / rollout are never clobbered.
-export function upsertIssue(input: UpsertIssueInput): void {
+export function upsertIssue(input: UpsertIssueInput): Issue {
   getDb()
     .prepare(
       `INSERT INTO issues (github_issue_id, owner, repo, number, title, body, html_url, state)
@@ -179,6 +351,7 @@ export function upsertIssue(input: UpsertIssueInput): void {
        WHERE state = 'backlog' OR state = 'closed'`
     )
     .run(input);
+  return getIssueByGithub(input.owner, input.repo, input.number)!;
 }
 
 export function getIssues(): Issue[] {
@@ -577,6 +750,10 @@ export interface ServiceRow {
   status: string; lastDeployAt: string | null; config: string; createdAt: string;
 }
 
+// Legacy (pre-#167): the services table is superseded by projects. Kept for
+// the one-time migration seed only — launch.ts and /api/services now read the
+// projects table. Remove with the table in a later cleanup.
+
 export function getServices(): ServiceRow[] {
   const rows = getDb().prepare('SELECT * FROM services ORDER BY name').all() as Record<string, unknown>[];
   return rows.map((r) => ({
@@ -620,4 +797,315 @@ export function upsertService(input: { name: string; repoOwner?: string; repoNam
     config: JSON.stringify(input.config ?? {}),
   });
   return getServiceByName(input.name)!;
+}
+
+// ---------------------------------------------------------------------------
+// Projects & Topics (devhub#167)
+// ---------------------------------------------------------------------------
+
+export function getProjects(): Project[] {
+  const rows = getDb().prepare('SELECT * FROM projects ORDER BY name').all() as ProjectRow[];
+  return rows.map(serializeProject);
+}
+
+export function getProject(id: number): Project | null {
+  const row = getDb().prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined;
+  return row ? serializeProject(row) : null;
+}
+
+export function getProjectByName(name: string): Project | null {
+  const row = getDb().prepare('SELECT * FROM projects WHERE name = ?').get(name) as ProjectRow | undefined;
+  return row ? serializeProject(row) : null;
+}
+
+export function getProjectByRepo(owner: string, repo: string): Project | null {
+  const row = getDb()
+    .prepare('SELECT * FROM projects WHERE service_repo_owner = ? AND service_repo_name = ?')
+    .get(owner, repo) as ProjectRow | undefined;
+  return row ? serializeProject(row) : null;
+}
+
+export function createProject(input: {
+  name: string;
+  serviceRepoOwner?: string | null;
+  serviceRepoName?: string | null;
+  domain?: string | null;
+  deployHost?: string | null;
+  deployDir?: string | null;
+  infraDir?: string | null;
+  releaseMode?: ReleaseMode;
+  config?: Record<string, unknown>;
+}): Project {
+  const info = getDb()
+    .prepare(
+      `INSERT INTO projects (name, service_repo_owner, service_repo_name, domain, deploy_host, deploy_dir, infra_dir, release_mode, config)
+       VALUES (@name, @serviceRepoOwner, @serviceRepoName, @domain, @deployHost, @deployDir, @infraDir, @releaseMode, @config)`
+    )
+    .run({
+      name: input.name,
+      serviceRepoOwner: input.serviceRepoOwner ?? null,
+      serviceRepoName: input.serviceRepoName ?? null,
+      domain: input.domain ?? null,
+      deployHost: input.deployHost ?? null,
+      deployDir: input.deployDir ?? null,
+      infraDir: input.infraDir ?? null,
+      releaseMode: input.releaseMode ?? 'tag',
+      config: JSON.stringify(input.config ?? {}),
+    });
+  return getProject(Number(info.lastInsertRowid))!;
+}
+
+export interface ProjectPatch {
+  name?: string;
+  serviceRepoOwner?: string | null;
+  serviceRepoName?: string | null;
+  domain?: string | null;
+  deployHost?: string | null;
+  deployDir?: string | null;
+  infraDir?: string | null;
+  statusOverride?: ProjectStatus | null;
+  releaseMode?: ReleaseMode;
+  config?: Record<string, unknown>;
+}
+
+export function updateProject(id: number, patch: ProjectPatch): Project | null {
+  const sets: string[] = [];
+  const args: (string | number | null)[] = [];
+  const bind = (column: string, value: string | number | null): void => {
+    sets.push(`${column} = ?`);
+    args.push(value);
+  };
+  if (patch.name !== undefined) bind('name', patch.name);
+  if (patch.serviceRepoOwner !== undefined) bind('service_repo_owner', patch.serviceRepoOwner);
+  if (patch.serviceRepoName !== undefined) bind('service_repo_name', patch.serviceRepoName);
+  if (patch.domain !== undefined) bind('domain', patch.domain);
+  if (patch.deployHost !== undefined) bind('deploy_host', patch.deployHost);
+  if (patch.deployDir !== undefined) bind('deploy_dir', patch.deployDir);
+  if (patch.infraDir !== undefined) bind('infra_dir', patch.infraDir);
+  if (patch.statusOverride !== undefined) bind('status_override', patch.statusOverride);
+  if (patch.releaseMode !== undefined) bind('release_mode', patch.releaseMode);
+  if (patch.config !== undefined) bind('config', JSON.stringify(patch.config));
+  if (sets.length === 0) return getProject(id);
+  args.push(id);
+  getDb().prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...args);
+  return getProject(id);
+}
+
+// Projects with assigned issues cannot be deleted — reassign first.
+export function deleteProject(id: number): { ok: boolean; error?: string } {
+  const count = getDb().prepare('SELECT COUNT(*) AS n FROM issues WHERE project_id = ?').get(id) as { n: number };
+  if (count.n > 0) return { ok: false, error: `project still has ${count.n} issue(s); reassign them first` };
+  getDb().prepare('DELETE FROM topics WHERE project_id = ?').run(id);
+  getDb().prepare('DELETE FROM projects WHERE id = ?').run(id);
+  return { ok: true };
+}
+
+// Recomputes the cached derived status; the override (if any) always wins.
+export function setProjectStatus(id: number, status: ProjectStatus | null): void {
+  getDb().prepare(`UPDATE projects SET status = ? WHERE id = ?`).run(status, id);
+}
+
+export function setProjectShipped(id: number, shippedAt: string, title: string): void {
+  getDb()
+    .prepare(
+      `UPDATE projects SET last_shipped_at = ?, last_shipped_title = ? WHERE id = ?`
+    )
+    .run(shippedAt, title, id);
+}
+
+export function getIssuesByProject(projectId: number): Issue[] {
+  const rows = getDb()
+    .prepare('SELECT * FROM issues WHERE project_id = ? ORDER BY updated_at DESC, id DESC')
+    .all(projectId) as IssueRow[];
+  return rows.map(serializeIssue);
+}
+
+// ---------------------------------------------------------------------------
+// Topics
+// ---------------------------------------------------------------------------
+
+export interface TopicFilter {
+  projectId?: number | null;
+  status?: TopicStatus;
+  area?: string;
+}
+
+export function getTopics(filter: TopicFilter = {}): Topic[] {
+  const clauses: string[] = [];
+  const args: (string | number)[] = [];
+  if (filter.projectId === null) {
+    clauses.push('project_id IS NULL');
+  } else if (filter.projectId !== undefined) {
+    clauses.push('project_id = ?');
+    args.push(filter.projectId);
+  }
+  if (filter.status) {
+    clauses.push('status = ?');
+    args.push(filter.status);
+  }
+  if (filter.area) {
+    clauses.push('area = ?');
+    args.push(filter.area);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const rows = getDb()
+    .prepare(`SELECT * FROM topics ${where} ORDER BY updated_at DESC, id DESC`)
+    .all(...args) as TopicRow[];
+  return rows.map(serializeTopic);
+}
+
+export function getTopic(id: number): Topic | null {
+  const row = getDb().prepare('SELECT * FROM topics WHERE id = ?').get(id) as TopicRow | undefined;
+  return row ? serializeTopic(row) : null;
+}
+
+export function createTopic(input: {
+  title: string;
+  notes?: string | null;
+  projectId?: number | null;
+  area?: string | null;
+  origin?: 'manual' | 'suggested';
+}): Topic {
+  const info = getDb()
+    .prepare(
+      `INSERT INTO topics (title, notes, project_id, area, origin) VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(
+      input.title,
+      input.notes ?? null,
+      input.projectId ?? null,
+      input.area ?? null,
+      input.origin ?? 'manual'
+    );
+  return getTopic(Number(info.lastInsertRowid))!;
+}
+
+export interface TopicPatch {
+  title?: string;
+  notes?: string | null;
+  projectId?: number | null;
+  area?: string | null;
+  status?: TopicStatus;
+}
+
+export function updateTopic(id: number, patch: TopicPatch): Topic | null {
+  const sets: string[] = ["updated_at = datetime('now')"];
+  const args: (string | number | null)[] = [];
+  if (patch.title !== undefined) { sets.push('title = ?'); args.push(patch.title); }
+  if (patch.notes !== undefined) { sets.push('notes = ?'); args.push(patch.notes); }
+  if (patch.projectId !== undefined) { sets.push('project_id = ?'); args.push(patch.projectId); }
+  if (patch.area !== undefined) { sets.push('area = ?'); args.push(patch.area); }
+  if (patch.status !== undefined) { sets.push('status = ?'); args.push(patch.status); }
+  args.push(id);
+  getDb().prepare(`UPDATE topics SET ${sets.join(', ')} WHERE id = ?`).run(...args);
+  return getTopic(id);
+}
+
+export function deleteTopic(id: number): void {
+  // Unlink issues first; the topic itself is history.
+  getDb().prepare('UPDATE issues SET topic_id = NULL WHERE topic_id = ?').run(id);
+  getDb().prepare('DELETE FROM topics WHERE id = ?').run(id);
+}
+
+// Recomputes a topic's status from its linked issues: any unsettled issue →
+// `active`; issues exist and all settled (rollout|closed) → `shipped`; no
+// issues → keep `idea`/`dropped` as-is.
+export function refreshTopicStatus(topicId: number): Topic | null {
+  const topic = getTopic(topicId);
+  if (!topic) return null;
+  const issues = getDb()
+    .prepare('SELECT state FROM issues WHERE topic_id = ?')
+    .all(topicId) as { state: IssueState }[];
+  if (issues.length === 0) return topic;
+  const settled = issues.every((i) => i.state === 'rollout' || i.state === 'closed');
+  const next: TopicStatus = settled ? 'shipped' : 'active';
+  if (next !== topic.status) return updateTopic(topicId, { status: next });
+  return topic;
+}
+
+// ---------------------------------------------------------------------------
+// Develop runs (one session → one repo → one PR)
+// ---------------------------------------------------------------------------
+
+export function getRunsForIssue(issueId: number): DevelopRun[] {
+  const rows = getDb()
+    .prepare('SELECT * FROM develop_runs WHERE issue_id = ? ORDER BY seq ASC, id ASC')
+    .all(issueId) as DevelopRunRow[];
+  return rows.map(serializeRun);
+}
+
+export function getRun(id: number): DevelopRun | null {
+  const row = getDb().prepare('SELECT * FROM develop_runs WHERE id = ?').get(id) as DevelopRunRow | undefined;
+  return row ? serializeRun(row) : null;
+}
+
+// Creates the run plan for an issue, idempotently: a role that already has a
+// run keeps its row (retry must not duplicate or reset completed runs).
+export function ensureRuns(
+  issueId: number,
+  plan: { role: RunRole; repoOwner: string; repoName: string }[]
+): DevelopRun[] {
+  const db = getDb();
+  for (const entry of plan) {
+    const existing = db
+      .prepare('SELECT id FROM develop_runs WHERE issue_id = ? AND role = ?')
+      .get(issueId, entry.role);
+    if (existing) continue;
+    const seqRow = db
+      .prepare('SELECT COALESCE(MAX(seq), 0) AS max FROM develop_runs WHERE issue_id = ?')
+      .get(issueId) as { max: number };
+    db.prepare(
+      `INSERT INTO develop_runs (issue_id, seq, role, repo_owner, repo_name) VALUES (?, ?, ?, ?, ?)`
+    ).run(issueId, seqRow.max + 1, entry.role, entry.repoOwner, entry.repoName);
+  }
+  return getRunsForIssue(issueId);
+}
+
+export interface RunPatch {
+  state?: RunState;
+  sessionId?: string | null;
+  prUrl?: string | null;
+  resultText?: string | null;
+  blockedReason?: string | null;
+}
+
+export function updateRun(id: number, patch: RunPatch): DevelopRun | null {
+  const sets: string[] = ["updated_at = datetime('now')"];
+  const args: (string | number | null)[] = [];
+  if (patch.state !== undefined) { sets.push('state = ?'); args.push(patch.state); }
+  if (patch.sessionId !== undefined) { sets.push('session_id = ?'); args.push(patch.sessionId); }
+  if (patch.prUrl !== undefined) { sets.push('pr_url = ?'); args.push(patch.prUrl); }
+  if (patch.resultText !== undefined) { sets.push('result_text = ?'); args.push(patch.resultText); }
+  if (patch.blockedReason !== undefined) { sets.push('blocked_reason = ?'); args.push(patch.blockedReason); }
+  args.push(id);
+  getDb().prepare(`UPDATE develop_runs SET ${sets.join(', ')} WHERE id = ?`).run(...args);
+  return getRun(id);
+}
+
+// ---------------------------------------------------------------------------
+// Issue assignment + scope (metadata only; board moves stay in transitions.ts)
+// ---------------------------------------------------------------------------
+
+export interface IssueAssignment {
+  projectId?: number | null;
+  topicId?: number | null;
+}
+
+export function assignIssue(id: number, assignment: IssueAssignment): Issue | null {
+  const sets: string[] = ["updated_at = datetime('now')"];
+  const args: (string | number | null)[] = [];
+  if (assignment.projectId !== undefined) { sets.push('project_id = ?'); args.push(assignment.projectId); }
+  if (assignment.topicId !== undefined) { sets.push('topic_id = ?'); args.push(assignment.topicId); }
+  if (sets.length > 0) {
+    args.push(id);
+    getDb().prepare(`UPDATE issues SET ${sets.join(', ')} WHERE id = ?`).run(...args);
+  }
+  return getIssue(id);
+}
+
+export function setIssueScope(id: number, scope: RepoScope, infraFirst: boolean): Issue | null {
+  getDb()
+    .prepare(`UPDATE issues SET repo_scope = ?, infra_first = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(scope, infraFirst ? 1 : 0, id);
+  return getIssue(id);
 }

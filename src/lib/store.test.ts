@@ -292,3 +292,137 @@ describe('actions', () => {
     expect(list.find((r) => r.id === action.id)?.transcript).toBeNull();
   });
 });
+
+describe('projects & topics (devhub#167)', () => {
+  it('seeds projects from the legacy services table on migrate', () => {
+    store.getDb().prepare(
+      `INSERT INTO services (name, repo_owner, repo_name, deploy_host, deploy_dir, domain, config)
+       VALUES ('seed-svc', 'acme', 'seed-repo', 'h', '/d', 'seed-svc.h', '{"framework":"node"}')
+       ON CONFLICT(name) DO UPDATE SET repo_owner = excluded.repo_owner`
+    ).run();
+    store.closeDbForTests();
+    const seeded = store.getProjectByName('seed-svc');
+    expect(seeded).toBeTruthy();
+    expect(seeded?.serviceRepoOwner).toBe('acme');
+    expect(seeded?.serviceRepoName).toBe('seed-repo');
+    expect(seeded?.domain).toBe('seed-svc.h');
+  });
+
+  it('auto-assigns unassigned issues on migrate and resolves repo to project', () => {
+    const project = store.ensureProjectForRepo('acme', 'widget-repo');
+    expect(project).toBeTruthy();
+    store.upsertIssue({
+      githubIssueId: 101,
+      owner: 'acme',
+      repo: 'widget-repo',
+      number: 1,
+      title: 'Needs assignment',
+      body: null,
+      htmlUrl: 'https://github.com/acme/widget-repo/issues/1',
+    });
+    const stored = store.getIssueByGithub('acme', 'widget-repo', 1)!;
+    // upsert itself leaves assignment to the ingest/migration pass
+    const assigned = store.assignIssue(stored.id, { projectId: project!.id });
+    expect(assigned?.projectId).toBe(project!.id);
+    expect(store.getIssuesByProject(project!.id).some((i) => i.id === stored.id)).toBe(true);
+    // Second sight of the same repo resolves to the same project (no dupes).
+    expect(store.ensureProjectForRepo('acme', 'widget-repo')?.id).toBe(project!.id);
+  });
+
+  it('auto-creates a skeleton project per unknown repo', () => {
+    const skeleton = store.ensureProjectForRepo('neworg', 'brand-new-repo');
+    expect(skeleton?.name).toBe('brand-new-repo');
+    expect(skeleton?.serviceRepoOwner).toBe('neworg');
+    expect(skeleton?.serviceRepoName).toBe('brand-new-repo');
+    expect(store.getProjectByRepo('neworg', 'brand-new-repo')?.id).toBe(skeleton!.id);
+  });
+
+  it('creates and patches projects, and blocks delete while issues reference it', () => {
+    const created = store.createProject({ name: 'proj-crud', domain: 'proj.example.com' });
+    expect(created.releaseMode).toBe('tag');
+    const patched = store.updateProject(created.id, { statusOverride: 'healthy', releaseMode: 'manual' })!;
+    expect(patched.statusOverride).toBe('healthy');
+    expect(patched.releaseMode).toBe('manual');
+
+    store.upsertIssue({
+      githubIssueId: 102,
+      owner: 'acme',
+      repo: 'proj-crud-repo',
+      number: 2,
+      title: 'Linked',
+      body: null,
+      htmlUrl: 'https://github.com/acme/proj-crud-repo/issues/2',
+    });
+    const issue = store.getIssueByGithub('acme', 'proj-crud-repo', 2)!;
+    store.assignIssue(issue.id, { projectId: created.id });
+    const blocked = store.deleteProject(created.id);
+    expect(blocked.ok).toBe(false);
+
+    store.assignIssue(issue.id, { projectId: null });
+    expect(store.deleteProject(created.id)).toEqual({ ok: true });
+    expect(store.getProject(created.id)).toBeNull();
+  });
+
+  it('creates, filters, and refreshes topic status from linked issues', () => {
+    const project = store.createProject({ name: 'proj-topics' });
+    const inbox = store.createTopic({ title: 'Inbox idea' });
+    expect(inbox.projectId).toBeNull();
+    expect(inbox.status).toBe('idea');
+
+    const moved = store.updateTopic(inbox.id, { projectId: project.id, area: 'api' })!;
+    expect(moved.projectId).toBe(project.id);
+    expect(store.getTopics({ projectId: null }).some((t) => t.id === inbox.id)).toBe(false);
+    expect(store.getTopics({ projectId: project.id })).toHaveLength(1);
+
+    store.upsertIssue({
+      githubIssueId: 103,
+      owner: 'acme',
+      repo: 'topic-repo',
+      number: 3,
+      title: 'Topic work',
+      body: null,
+      htmlUrl: 'https://github.com/acme/topic-repo/issues/3',
+    });
+    const issue = store.getIssueByGithub('acme', 'topic-repo', 3)!;
+    store.assignIssue(issue.id, { projectId: project.id, topicId: inbox.id });
+    // Open work flips the topic to active.
+    expect(store.refreshTopicStatus(inbox.id)?.status).toBe('active');
+    // Settling every linked issue ships the topic.
+    store.setRollout(issue.id, 'v9.9.9');
+    expect(store.refreshTopicStatus(inbox.id)?.status).toBe('shipped');
+
+    store.deleteTopic(inbox.id);
+    expect(store.getTopic(inbox.id)).toBeNull();
+    expect(store.getIssue(issue.id)?.topicId).toBeNull();
+  });
+
+  it('persists issue scope and manages develop runs idempotently', () => {
+    store.upsertIssue({
+      githubIssueId: 104,
+      owner: 'acme',
+      repo: 'runs-repo',
+      number: 4,
+      title: 'Scoped work',
+      body: null,
+      htmlUrl: 'https://github.com/acme/runs-repo/issues/4',
+    });
+    const issue = store.getIssueByGithub('acme', 'runs-repo', 4)!;
+    expect(store.setIssueScope(issue.id, 'both', true)?.repoScope).toBe('both');
+    expect(store.getIssue(issue.id)?.infraFirst).toBe(true);
+
+    const runs = store.ensureRuns(issue.id, [
+      { role: 'service', repoOwner: 'acme', repoName: 'runs-repo' },
+      { role: 'infra', repoOwner: 'acme', repoName: 'infra-repo' },
+    ]);
+    expect(runs).toHaveLength(2);
+    // Retry must not duplicate or reset completed runs.
+    store.updateRun(runs[0].id, { state: 'pr', prUrl: 'https://github.com/acme/runs-repo/pull/1' });
+    const again = store.ensureRuns(issue.id, [
+      { role: 'service', repoOwner: 'acme', repoName: 'runs-repo' },
+      { role: 'infra', repoOwner: 'acme', repoName: 'infra-repo' },
+    ]);
+    expect(again).toHaveLength(2);
+    expect(again.find((r) => r.role === 'service')?.state).toBe('pr');
+    expect(store.getRunsForIssue(issue.id).map((r) => r.role).sort()).toEqual(['infra', 'service']);
+  });
+});

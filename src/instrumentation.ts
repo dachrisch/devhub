@@ -10,5 +10,8 @@ export async function register() {
     await import('./lib/skills/fix');
     await import('./lib/skills/launch');
     await import('./lib/skills/create-issue');
+    await import('./lib/skills/create-topic');
+    await import('./lib/skills/suggest-feature');
+    await import('./lib/skills/promote-topic');
   }
 }

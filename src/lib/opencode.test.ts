@@ -52,8 +52,8 @@ describe('opencode client', () => {
   it('builds a self-contained develop prompt with repo path and termination rule', () => {
     const prompt = buildDevelopPrompt(sampleIssue as never, 'use vitest');
     expect(prompt).toContain('/root/dev/widget');
-    expect(prompt).toContain('.worktrees/3');
-    expect(prompt).toContain('devhub/issue-5');
+    expect(prompt).toContain('.worktrees/3-service');
+    expect(prompt).toContain('devhub/i5-service');
     expect(prompt).toContain('Issue #5');
     expect(prompt).toContain('use vitest');
     expect(prompt).toContain('CANNOT FULFILL:');
@@ -63,9 +63,22 @@ describe('opencode client', () => {
 
   it('instructs the agent to adopt a leftover worktree instead of failing', () => {
     const prompt = buildDevelopPrompt(sampleIssue as never, '');
-    expect(prompt).toContain('git worktree add .worktrees/3 -b devhub/issue-5');
-    expect(prompt).toContain('if [ -d ".worktrees/3" ]; then');
-    expect(prompt).toContain('git checkout devhub/issue-5');
+    expect(prompt).toContain('git worktree add .worktrees/3-service -b devhub/i5-service');
+    expect(prompt).toContain('if [ -d ".worktrees/3-service" ]; then');
+    expect(prompt).toContain('git checkout devhub/i5-service');
+  });
+
+  it('builds a per-run prompt with the run repo, project branch prefix and carry-over', () => {
+    const prompt = buildDevelopPrompt(
+      sampleIssue as never,
+      '',
+      { role: 'infra', repoOwner: 'dachrisch', repoName: 'infra', projectId: 7 },
+      { prUrl: 'https://github.com/dachrisch/widget/pull/11', summary: 'service PR' }
+    );
+    expect(prompt).toContain('/root/dev/infra');
+    expect(prompt).toContain('devhub/p7-i5-infra');
+    expect(prompt).toContain('https://github.com/dachrisch/widget/pull/11');
+    expect(prompt).toContain('Run role: infra');
   });
 
   it('cancelSession aborts then deletes the session, ignoring failures', async () => {

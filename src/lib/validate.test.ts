@@ -46,7 +46,23 @@ describe('parseRefineResult', () => {
     const result = parseRefineResult(
       '{"ready": true, "summary": "Clear scope", "improvedBody": null, "blockingQuestions": []}'
     );
-    expect(result).toEqual({ ready: true, summary: 'Clear scope', improvedBody: null, blockingQuestions: [] });
+    expect(result).toEqual({ ready: true, summary: 'Clear scope', improvedBody: null, blockingQuestions: [], scope: 'service', infraFirst: false });
+  });
+
+  it('parses scope and run order for multi-repo work', () => {
+    const result = parseRefineResult(
+      '{"ready": true, "summary": "spans both", "improvedBody": null, "blockingQuestions": [], "scope": "both", "infra_first": true}'
+    );
+    expect(result.scope).toBe('both');
+    expect(result.infraFirst).toBe(true);
+  });
+
+  it('falls back to service scope for unknown scope values', () => {
+    const result = parseRefineResult(
+      '{"ready": true, "summary": "x", "improvedBody": null, "blockingQuestions": [], "scope": "nope", "infra_first": true}'
+    );
+    expect(result.scope).toBe('service');
+    expect(result.infraFirst).toBe(false);
   });
 
   it('parses a ready JSON response with an improved body', () => {

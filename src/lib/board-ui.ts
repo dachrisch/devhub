@@ -1,4 +1,4 @@
-import type { Issue } from './types';
+import type { Issue, IssueState } from './types';
 
 export const REPO_COLORS = [
   '#58a6ff',
@@ -142,6 +142,58 @@ export function cardActions(
   actions.push({ id: 'select-batch', label: 'Select for batch' });
   actions.push({ id: 'open-github', label: 'Open on GitHub' });
   return actions;
+}
+
+// The four active kanban columns (rollout/closed render as strips).
+export const KANBAN_COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr'];
+
+// A "just started" flag outlives the initial click: the develop route returns
+// 202 before startWork broadcasts anything, and a backlog card's first
+// broadcast (backlog → refinement) still leaves the run live. The flag is
+// dropped only when a broadcast shows the server has taken over with its own
+// live signal or the run has stopped:
+//   developing            → run confirmed live (or failed — blocked drives UI)
+//   pr/rollout/closed     → run finished
+//   blocked_reason set    → run stopped, "Needs input" + Work must return
+// A bare refinement/backlog broadcast (the initial stage move, session-id
+// updates) leaves the flag in place — the run is still going.
+export function runSupersededByBroadcast(issue: Pick<Issue, 'state' | 'blockedReason'>): boolean {
+  if (issue.state === 'developing' || issue.state === 'pr' || issue.state === 'rollout' || issue.state === 'closed') {
+    return true;
+  }
+  return Boolean(issue.blockedReason);
+}
+
+// Fire a browser notification when a card lands in a state that needs the
+// operator's attention (PR opened = success, blocked_reason = needs input).
+// Only fires for changes seen live over SSE; existing cards on load are not
+// re-notified.
+export function notifyStateChange(issue: Issue): void {
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  const blocked = Boolean(issue.blockedReason);
+  const title = blocked
+    ? 'DevHub: needs input'
+    : issue.state === 'pr'
+      ? 'DevHub: pull request opened'
+      : `DevHub: ${issue.state}`;
+  const body = `${issue.owner}/${issue.repo} #${issue.number}: ${issue.title}`;
+  try {
+    new Notification(title, { body, tag: `devhub-${issue.id}-${blocked ? 'blocked' : issue.state}` });
+  } catch {
+    // ignore
+  }
+}
+
+// Staleness tier for a card, based on time since last update. Used as a
+// lightweight urgency cue for triaging a crowded backlog.
+export function urgencyTier(iso: string): 'fresh' | 'aging' | 'stale' {
+  const then = new Date(iso.replace(' ', 'T') + 'Z').getTime();
+  if (Number.isNaN(then)) return 'fresh';
+  const days = (Date.now() - then) / 86400000;
+  if (days >= 14) return 'stale';
+  if (days >= 4) return 'aging';
+  return 'fresh';
 }
 
 export interface PrimaryCardAction {

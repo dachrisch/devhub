@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { Issue } from '@/lib/types';
 import { excerpt, primaryCardAction, relTime } from '@/lib/board-ui';
+import { RunChips, ScopeBadge, useRuns } from '@/components/board/run-chips';
 
 interface MobileCardProps {
   issue: Issue;
@@ -18,6 +19,7 @@ interface MobileCardProps {
 export function MobileCard({ issue, color, busy, justStarted = false, onPrimaryAction, onOpenActions }: MobileCardProps) {
   const live = justStarted || (issue.state === 'developing' && !issue.blockedReason);
   const primary = primaryCardAction(issue, live);
+  const runs = useRuns(issue.id);
 
   return (
     <div className="mobile-card">
@@ -27,6 +29,7 @@ export function MobileCard({ issue, color, busy, justStarted = false, onPrimaryA
           {issue.owner}/{issue.repo}
         </span>
         <span className="mobile-card-number">#{issue.number}</span>
+        <ScopeBadge issue={issue} />
         <span className="mobile-card-age">{relTime(issue.updatedAt)}</span>
       </div>
       <div className="mobile-card-body">
@@ -47,6 +50,7 @@ export function MobileCard({ issue, color, busy, justStarted = false, onPrimaryA
             <strong>Needs input:</strong> {excerpt(issue.blockedReason)}
           </div>
         )}
+        <RunChips issue={issue} runs={runs} />
       </div>
       <div className="mobile-card-footer">
         {primary.kind === 'work' ? (

@@ -60,4 +60,16 @@ describe('router', () => {
     expect(result.action).toBe('create');
     expect(result.params.repo).toBe('devhub');
   });
+
+  it('parses topic/suggest/promote cockpit actions (devhub#167)', () => {
+    expect(
+      parseIntent(JSON.stringify({ action: 'topic', confidence: 0.9, params: { title: 'dark mode' } })).action
+    ).toBe('topic');
+    expect(
+      parseIntent(JSON.stringify({ action: 'suggest', confidence: 0.9, params: { projectName: 'gallery' } })).action
+    ).toBe('suggest');
+    expect(
+      parseIntent(JSON.stringify({ action: 'promote', confidence: 0.9, params: { topicId: 3 } })).action
+    ).toBe('promote');
+  });
 });

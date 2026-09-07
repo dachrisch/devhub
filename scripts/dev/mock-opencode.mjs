@@ -27,18 +27,24 @@ const REFINE_REPLIES = {
     summary: 'Clear scope with testable acceptance criteria.',
     improvedBody: null,
     blockingQuestions: [],
+    scope: 'service',
+    infra_first: false,
   },
   improve: {
     ready: true,
     summary: 'Scope inferred; body rewritten with acceptance criteria.',
     improvedBody: '# Mock-refined body\n\n## Acceptance criteria\n- [x] produced by mock-opencode',
     blockingQuestions: [],
+    scope: 'service',
+    infra_first: false,
   },
   blocked: {
     ready: false,
     summary: 'Cannot infer the storage backend.',
     improvedBody: null,
     blockingQuestions: ['Use SQLite or Postgres?', 'Which auth flow?'],
+    scope: 'service',
+    infra_first: false,
   },
 };
 

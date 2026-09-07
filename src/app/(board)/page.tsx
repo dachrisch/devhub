@@ -2,24 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import type { Issue, IssueState } from '@/lib/types';
-import { countRepos, closedReasonLabel, excerpt, matchesIssue, primaryCardAction, relTime, repoColor } from '@/lib/board-ui';
+import { useRouter } from 'next/navigation';
+import type { Issue } from '@/lib/types';
+import { matchesIssue } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
-import { useCardActions } from '@/components/board/use-card-actions';
-import { DevelopModal } from '@/components/board/develop-modal';
 import { CockpitComposer } from '@/components/board/cockpit-composer';
 import { ActionDetail } from '@/components/board/action-detail';
 import { useKeyboardInset } from '@/components/board/use-keyboard-inset';
 import type { ModelOption } from '@/lib/types';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
-import { MobileCard } from '@/components/board/mobile-card';
-import { CardActionsSheet } from '@/components/board/card-actions-sheet';
-import { CardActionsMenu } from '@/components/board/card-actions-menu';
-import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
 import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
-import type { CardActionId } from '@/lib/board-ui';
+import { ProjectsHome } from '@/components/board/projects-home';
+import { RecentlyClosed, RecentlyReleased } from '@/components/board/released-strips';
 import {
   ActionStatusStrip,
   actionFromApi,
@@ -29,69 +25,9 @@ import {
   type CockpitAction,
 } from '@/components/board/action-status-strip';
 
-const COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr'];
-
-// Released tickets are shown in a slim strip under the header, capped so the
-// strip stays compact.
-const RELEASED_CAP = 5;
-
-// Similarly-capped strip for issues reconciled to the `closed` terminal state
-// (closed on GitHub outside DevHub's own pipeline).
-const CLOSED_CAP = 5;
-
-// Staleness tier for a card, based on time since last update. Used as a
-// lightweight urgency cue for triaging a crowded backlog.
-function urgencyTier(iso: string): 'fresh' | 'aging' | 'stale' {
-  const then = new Date(iso.replace(' ', 'T') + 'Z').getTime();
-  if (Number.isNaN(then)) return 'fresh';
-  const days = (Date.now() - then) / 86400000;
-  if (days >= 14) return 'stale';
-  if (days >= 4) return 'aging';
-  return 'fresh';
-}
-
-function fmtTime(d: Date): string {
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-// A "just started" flag outlives the initial click: the develop route returns
-// 202 before startWork broadcasts anything, and a backlog card's first
-// broadcast (backlog → refinement) still leaves the run live. The flag is
-// dropped only when a broadcast shows the server has taken over with its own
-// live signal or the run has stopped:
-//   developing            → run confirmed live (or failed — blocked drives UI)
-//   pr/rollout/closed     → run finished
-//   blocked_reason set    → run stopped, "Needs input" + Work must return
-// A bare refinement/backlog broadcast (the initial stage move, session-id
-// updates) leaves the flag in place — the run is still going.
-function runSupersededByBroadcast(issue: Pick<Issue, 'state' | 'blockedReason'>): boolean {
-  if (issue.state === 'developing' || issue.state === 'pr' || issue.state === 'rollout' || issue.state === 'closed') {
-    return true;
-  }
-  return Boolean(issue.blockedReason);
-}
-
-// Fire a browser notification when a card lands in a state that needs the
-// operator's attention (PR opened = success, blocked_reason = needs input).
-// Only fires for changes seen live over SSE; existing cards on load are not
-// re-notified.
-function notifyStateChange(issue: Issue): void {
-  if (typeof window === 'undefined' || !('Notification' in window)) return;
-  if (Notification.permission !== 'granted') return;
-  const blocked = Boolean(issue.blockedReason);
-  const title = blocked
-    ? 'DevHub: needs input'
-    : issue.state === 'pr'
-      ? 'DevHub: pull request opened'
-      : `DevHub: ${issue.state}`;
-  const body = `${issue.owner}/${issue.repo} #${issue.number}: ${issue.title}`;
-  try {
-    new Notification(title, { body, tag: `devhub-${issue.id}-${blocked ? 'blocked' : issue.state}` });
-  } catch {
-    // ignore
-  }
-}
-
+// Projects-first home (devhub#167): project cards + inbox above the fold. The
+// kanban lives only under /projects/[id]; the header search is global (across
+// projects/issues) and jumps to the project board or recap page.
 export default function BoardPage() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [connected, setConnected] = useState(false);
@@ -99,55 +35,14 @@ export default function BoardPage() {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [repoFilter, setRepoFilter] = useState<string | null>(null);
-  const [sorts, setSorts] = useState<Partial<Record<IssueState, 'newest' | 'oldest'>>>({});
+  // Bumped on refresh + live issue SSE so the project cards re-fetch.
+  const [projectTick, setProjectTick] = useState(0);
   const [searchHelp, setSearchHelp] = useState(false);
-  const [activeColumn, setActiveColumn] = useState<IssueState>('backlog');
-  const [openActionsFor, setOpenActionsFor] = useState<Issue | null>(null);
   const [searchSheetOpen, setSearchSheetOpen] = useState(false);
-  const boardRef = useRef<HTMLDivElement>(null);
-  const columnRefs = useRef<Map<IssueState, HTMLElement>>(new Map());
   const helpRef = useRef<HTMLDivElement>(null);
   const { user, loading, denied, logout } = useAuth();
   const isMobile = useMediaQuery(MOBILE_QUERY);
-  // Last-seen state / blocked flag per issue, so live transitions to pr or a
-  // newly-set blocked_reason can be told apart from cards that already were
-  // in that situation on load.
-  const prevStatesRef = useRef<Map<number, IssueState>>(new Map());
-  const prevBlockedRef = useRef<Map<number, boolean>>(new Map());
-  const batchStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Runs started from this client whose confirmation hasn't arrived via SSE
-  // yet (the develop route is fire-and-forget: 202 first, broadcast later).
-  // While an id is set here its card must show live/recap affordances instead
-  // of the Work button — see runSupersededByBroadcast for when the server's
-  // own state takes over again.
-  const [justStartedIds, setJustStartedIds] = useState<Set<number>>(new Set());
-  const markJustStarted = useCallback((id: number) => {
-    setJustStartedIds((prev) => {
-      if (prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-  }, []);
-  const clearJustStarted = useCallback((id: number) => {
-    setJustStartedIds((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }, []);
-
-  // Batch selection state
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [batchStatus, setBatchStatus] = useState<{
-    operation: string;
-    total: number;
-    completed: number;
-    errors: number;
-  } | null>(null);
+  const router = useRouter();
 
   // Cockpit input bar — one shared composer (multiline prompt + model
   // override) rendered in both shells: the mobile FAB bottom sheet and the
@@ -178,22 +73,6 @@ export default function BoardPage() {
   const actionDetailFetchedRef = useRef<Set<string>>(new Set());
   const keyboardInset = useKeyboardInset();
 
-  const toggleSelection = useCallback((issueId: number) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(issueId)) {
-        next.delete(issueId);
-      } else {
-        next.add(issueId);
-      }
-      return next;
-    });
-  }, []);
-
-  const clearSelection = useCallback(() => {
-    setSelectedIds(new Set());
-  }, []);
-
   const signedIn = Boolean(user);
 
   const repos = useMemo(() => {
@@ -201,6 +80,13 @@ export default function BoardPage() {
     for (const i of issues) set.add(`${i.owner}/${i.repo}`);
     return Array.from(set).sort();
   }, [issues]);
+
+  // Global search (across projects/issues with jump): matches reuse the board
+  // filter syntax; each hit links to its project board and recap page.
+  const searchHits = useMemo(() => {
+    if (!query.trim()) return [];
+    return issues.filter((i) => matchesIssue(i, query)).slice(0, 20);
+  }, [issues, query]);
 
   const upsert = useCallback((issue: Issue) => {
     setIssues((prev) => {
@@ -269,15 +155,6 @@ export default function BoardPage() {
         if (active) {
           setIssues(data.issues);
           setLastRefreshed(new Date());
-          // Server state is authoritative on (re)load — drop any optimistic
-          // just-started flags from before.
-          setJustStartedIds(new Set());
-          const prevState = prevStatesRef.current;
-          const prevBlocked = prevBlockedRef.current;
-          for (const i of data.issues) {
-            prevState.set(i.id, i.state);
-            prevBlocked.set(i.id, Boolean(i.blockedReason));
-          }
         }
       })
       .catch(() => {});
@@ -289,21 +166,12 @@ export default function BoardPage() {
       try {
         const msg = JSON.parse(e.data);
         if (msg.type === 'issue') {
-          const issue = msg.issue as Issue;
-          const prevState = prevStatesRef.current.get(issue.id);
-          const prevBlocked = prevBlockedRef.current.get(issue.id) ?? false;
-          const nowBlocked = Boolean(issue.blockedReason);
-          prevStatesRef.current.set(issue.id, issue.state);
-          prevBlockedRef.current.set(issue.id, nowBlocked);
-          const stateChanged = prevState !== undefined && prevState !== issue.state;
-          // Notify on a state transition into `pr` or when a card newly needs
-          // input (including develop-stage failures, where the state itself
-          // doesn't change).
-          if ((stateChanged && issue.state === 'pr') || (nowBlocked && !prevBlocked)) {
-            notifyStateChange(issue);
-          }
-          if (runSupersededByBroadcast(issue)) clearJustStarted(issue.id);
-          upsert(issue);
+          upsert(msg.issue as Issue);
+          setProjectTick((t) => t + 1);
+        } else if (msg.type === 'project' || msg.type === 'topic' || msg.type === 'run') {
+          // Project cockpit id-notification (see sse.ts): the cards + inbox
+          // re-fetch via refreshKey.
+          setProjectTick((t) => t + 1);
         } else if (msg.type === 'action') {
           const actionId = Number(msg.actionId);
           const status = String(msg.status);
@@ -343,14 +211,7 @@ export default function BoardPage() {
       active = false;
       es.close();
     };
-  }, [signedIn, upsert, hydrateAction, clearJustStarted]);
-
-  useEffect(() => {
-    if (!signedIn) return;
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {});
-    }
-  }, [signedIn]);
+  }, [signedIn, upsert, hydrateAction]);
 
   useEffect(() => {
     if (!refreshError) return;
@@ -363,12 +224,6 @@ export default function BoardPage() {
     const t = setTimeout(() => setActionError(null), 8000);
     return () => clearTimeout(t);
   }, [actionError]);
-
-  useEffect(() => {
-    return () => {
-      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
-    };
-  }, []);
 
   // Model list for the cockpit picker. The endpoint returns the full server
   // registry plus the operator's last-used default (set by a develop run or a
@@ -471,119 +326,6 @@ export default function BoardPage() {
     };
   }, [searchHelp]);
 
-  const advanceSelected = useCallback(async () => {
-    if (selectedIds.size === 0) return;
-
-    const total = selectedIds.size;
-    setBatchStatus({ operation: 'advancing', total, completed: 0, errors: 0 });
-    setRefreshing(true);
-    try {
-      const res = await fetch('/api/issues/batch-advance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ issueIds: Array.from(selectedIds) }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json() as { error?: string };
-        throw new Error(data.error || `batch advance failed (HTTP ${res.status})`);
-      }
-
-      const result = await res.json() as { results: Array<{ id: number; success: boolean; error?: string }> };
-      const completed = result.results.filter((r) => r.success).length;
-      const errors = result.results.filter((r) => !r.success).length;
-
-      setBatchStatus({ operation: 'advancing', total, completed, errors });
-      clearSelection();
-      setRefreshError(null);
-    } catch (err) {
-      setRefreshError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRefreshing(false);
-      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
-      batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
-    }
-  }, [selectedIds, clearSelection]);
-
-  const workSelected = useCallback(async () => {
-    if (selectedIds.size === 0) return;
-
-    const total = selectedIds.size;
-    setBatchStatus({ operation: 'working', total, completed: 0, errors: 0 });
-    setRefreshing(true);
-    try {
-      const res = await fetch('/api/issues/batch-advance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          issueIds: Array.from(selectedIds),
-          mode: 'work'
-        }),
-      });
-
-      const data = await res.json() as {
-        ok?: boolean;
-        error?: string;
-        results?: Array<{ id: number; success: boolean; error?: string; mode?: string }>;
-      };
-
-      if (!res.ok) {
-        throw new Error(data.error || `batch work failed (HTTP ${res.status})`);
-      }
-
-      const succeeded = data.results?.filter((r) => r.success).length ?? 0;
-      const failed = data.results?.filter((r) => !r.success) ?? [];
-      // Optimistically flip successful starts to their live/recap card state;
-      // SSE broadcasts (and runSupersededByBroadcast) take over from here.
-      for (const r of data.results ?? []) {
-        if (r.success && r.mode === 'working') markJustStarted(r.id);
-      }
-
-      setBatchStatus({ operation: 'working', total, completed: succeeded, errors: failed.length });
-      const summary = failed.length > 0
-        ? `Work started for ${succeeded} issue(s), ${failed.length} failed: ${failed.map((f) => `#${f.id} (${f.error})`).join(', ')}`
-        : null;
-
-      setRefreshError(summary);
-      clearSelection();
-    } catch (err) {
-      setRefreshError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRefreshing(false);
-      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
-      batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
-    }
-  }, [selectedIds, clearSelection, markJustStarted]);
-
-  // Keyboard shortcuts for batch operations
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-
-      // Ctrl/Cmd + A to select all visible issues (skip when in a text input)
-      if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !isInput) {
-        e.preventDefault();
-        const visibleIssues = issues.filter((i) => matchesIssue(i, query));
-        setSelectedIds(new Set(visibleIssues.map((i) => i.id)));
-      }
-
-      // Escape to clear selection
-      if (e.key === 'Escape') {
-        clearSelection();
-      }
-
-      // Ctrl/Cmd + Enter to advance selected
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && selectedIds.size > 0) {
-        e.preventDefault();
-        advanceSelected();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [issues, query, selectedIds, clearSelection, advanceSelected]);
-
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -598,50 +340,17 @@ export default function BoardPage() {
         }
         throw new Error(detail || `refresh failed (HTTP ${res.status})`);
       }
+      const data = (await res.json().catch(() => null)) as { issues?: Issue[] } | null;
+      if (data?.issues) setIssues(data.issues);
       setRefreshError(null);
       setLastRefreshed(new Date());
+      setProjectTick((t) => t + 1);
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
       setRefreshing(false);
     }
   }, []);
-
-  useEffect(() => {
-    // Tab state on mobile is driven directly by the status strip (only one
-    // column is ever rendered), so the scroll-position sync below is only
-    // needed on desktop where all five columns share the screen.
-    if (typeof window === 'undefined' || isMobile) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        let best: { col: IssueState; ratio: number } | null = null;
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          let col: IssueState | null = null;
-          for (const [c, el] of columnRefs.current.entries()) {
-            if (el === entry.target) {
-              col = c;
-              break;
-            }
-          }
-          if (col && (!best || entry.intersectionRatio > best.ratio)) {
-            best = { col, ratio: entry.intersectionRatio };
-          }
-        }
-        if (best) setActiveColumn(best.col);
-      },
-      // Shrink the board viewport to a center band so a column counts as
-      // active when it crosses the middle of the screen rather than when 50%
-      // of its (potentially much taller) total height is visible. Per-batch
-      // max-ratio selection avoids callbacks clobbering each other mid-swipe.
-      { root: boardRef.current, rootMargin: '-45% 0px -45% 0px', threshold: 0 }
-    );
-
-    columnRefs.current.forEach((el) => observer.observe(el));
-
-    return () => observer.disconnect();
-  }, [signedIn, isMobile]);
 
   if (!signedIn) {
     return (
@@ -712,6 +421,9 @@ export default function BoardPage() {
               </>
             )}
           </div>
+          <button className="ghost" onClick={refresh} disabled={refreshing} title={lastRefreshed ? `Last refreshed ${lastRefreshed.toLocaleTimeString()}` : 'Refresh from GitHub'}>
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
           <span
             className={`conn-status ${connected ? 'ok' : 'off'}`}
             title={connected ? 'live' : 'connecting…'}
@@ -732,28 +444,6 @@ export default function BoardPage() {
               </button>
             </>
           )}
-          {selectedIds.size > 0 && (
-            <div className="batch-actions">
-              <button
-                className="develop-batch-btn"
-                onClick={workSelected}
-                disabled={refreshing}
-              >
-                Work on selected ({selectedIds.size})
-              </button>
-              <button
-                className="advance-btn"
-                onClick={advanceSelected}
-                disabled={refreshing}
-              >
-                Advance selected ({selectedIds.size})
-              </button>
-              <div className="keyboard-hints">
-                <span>Ctrl+Enter to advance</span>
-                <span>Esc to clear</span>
-              </div>
-            </div>
-          )}
         </div>
       </header>
 
@@ -769,15 +459,6 @@ export default function BoardPage() {
           <button className="ghost" onClick={() => setRefreshError(null)}>
             Dismiss
           </button>
-        </div>
-      )}
-
-      {batchStatus && (
-        <div className="batch-status">
-          <span>{batchStatus.operation}: {batchStatus.completed}/{batchStatus.total}</span>
-          {batchStatus.errors > 0 && (
-            <span className="batch-errors">({batchStatus.errors} errors)</span>
-          )}
         </div>
       )}
 
@@ -830,158 +511,47 @@ export default function BoardPage() {
         </div>
       )}
 
+      {query.trim() && (
+        <div className="global-search-results" role="status" aria-label="Search results">
+          <span className="released-label">Results ({searchHits.length})</span>
+          {searchHits.length === 0 ? (
+            <div className="empty">nothing matches — try another filter</div>
+          ) : (
+            <div className="released-list">
+              {searchHits.map((i) => (
+                <span key={i.id} className="released-item">
+                  <span className={`dot ${i.state}`} />
+                  <Link href={i.projectId != null ? `/projects/${i.projectId}` : '/'} className="released-title">
+                    {i.owner}/{i.repo} #{i.number}: {i.title}
+                  </Link>
+                  <Link href={`/issues/${i.id}`} className="ghost">
+                    Recap →
+                  </Link>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <RecentlyReleased issues={issues} />
       <RecentlyClosed issues={issues} />
 
-      {!isMobile && (
-        <BoardToolbar
-          repos={repos}
-          repoFilter={repoFilter}
-          onRepoFilterChange={setRepoFilter}
-          lastRefreshed={lastRefreshed}
-          refreshing={refreshing}
-          onRefresh={refresh}
-          showLastRefreshed
-        />
-      )}
-
-      {isMobile && (
-        <MobileStatusStrip
-          columns={COLUMNS}
-          counts={Object.fromEntries(
-            COLUMNS.map((c) => [c, issues.filter((i) => i.state === c).length])
-          ) as Record<IssueState, number>}
-          active={activeColumn}
-          onSelect={setActiveColumn}
-        />
-      )}
-
-      <div className="board" ref={boardRef}>
-        {/* On mobile the toolbar lives inside the scroll container so it scrolls
-            away with the board instead of eating into the fixed chrome. */}
-        {isMobile && (
-          <BoardToolbar
-            repos={repos}
-            repoFilter={repoFilter}
-            onRepoFilterChange={setRepoFilter}
-            lastRefreshed={lastRefreshed}
-            refreshing={refreshing}
-            onRefresh={refresh}
-            showLastRefreshed={false}
-          />
-        )}
-        {/* Mobile renders a single column (the active tab); desktop shows all
-            four columns side by side with scroll-sync to the status strip. */}
-        {(isMobile ? [activeColumn] : COLUMNS).map((col) => {
-          const items = issues
-            .filter((i) => i.state === col && matchesIssue(i, query) && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter))
-            .sort((a, b) => {
-              // Cards needing input float to the top of their column.
-              if (Boolean(a.blockedReason) !== Boolean(b.blockedReason)) {
-                return a.blockedReason ? -1 : 1;
-              }
-              const dir = sorts[col] === 'oldest' ? 1 : -1;
-              return a.updatedAt.localeCompare(b.updatedAt) * dir;
-            });
-          return (
-            <section
-              className="column"
-              key={col}
-              id={statusPanelId(col)}
-              role={isMobile ? 'tabpanel' : undefined}
-              aria-labelledby={isMobile ? statusTabId(col) : undefined}
-              tabIndex={isMobile ? 0 : undefined}
-              ref={(el) => {
-                if (el) columnRefs.current.set(col, el);
-              }}
-            >
-              {isMobile ? (
-                <div className="column-meta">
-                  <span>
-                    {items.length} issues · {countRepos(items)} repos
-                  </span>
-                  <button
-                    className="sort-toggle"
-                    onClick={() =>
-                      setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
-                    }
-                    title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                    aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                  >
-                    {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
-                  </button>
-                </div>
-              ) : (
-                <div className="column-head">
-                  <span className={`dot ${col}`} />
-                  {col}
-                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({items.length})</span>
-                  <button
-                    className="sort-toggle"
-                    onClick={() =>
-                      setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
-                    }
-                    title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                    aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                  >
-                    {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
-                  </button>
-                </div>
-              )}
-              {items.length === 0 ? (
-                <div className="empty">nothing here</div>
-              ) : (
-                items.map((issue) => {
-                  const justStarted = justStartedIds.has(issue.id);
-                  const onStarted = () => markJustStarted(issue.id);
-                  const onStartFailed = () => clearJustStarted(issue.id);
-                  return isMobile ? (
-                    <MobileCardWithActions
-                      key={issue.id}
-                      issue={issue}
-                      justStarted={justStarted}
-                      onStarted={onStarted}
-                      onStartFailed={onStartFailed}
-                      onOpenActions={() => setOpenActionsFor(issue)}
-                    />
-                  ) : (
-                    <Card
-                      key={issue.id}
-                      issue={issue}
-                      justStarted={justStarted}
-                      onStarted={onStarted}
-                      onStartFailed={onStartFailed}
-                      selected={selectedIds.has(issue.id)}
-                      onToggleSelection={toggleSelection}
-                    />
-                  );
-                })
-              )}
-            </section>
-          );
-        })}
-      </div>
-
-      {openActionsFor && isMobile && (
-        <CardActionsSheetWithActions
-          // Render from the live issue list, not the snapshot taken at open
-          // time, so a run started elsewhere flips the sheet to live/recap.
-          issue={issues.find((i) => i.id === openActionsFor.id) ?? openActionsFor}
-          justStarted={justStartedIds.has(openActionsFor.id)}
-          onStarted={() => markJustStarted(openActionsFor.id)}
-          onStartFailed={() => clearJustStarted(openActionsFor.id)}
-          onClose={() => setOpenActionsFor(null)}
-          onToggleSelection={toggleSelection}
-        />
-      )}
+      <ProjectsHome
+        selectedId={null}
+        onSelect={(id) => {
+          if (id != null) router.push(`/projects/${id}`);
+        }}
+        refreshKey={projectTick}
+      />
 
       {searchSheetOpen && isMobile && (
         <MobileSearchSheet
           query={query}
           onQueryChange={setQuery}
           repos={repos}
-          repoFilter={repoFilter}
-          onRepoFilterChange={setRepoFilter}
+          repoFilter={null}
+          onRepoFilterChange={() => {}}
           issues={issues}
           onClose={() => setSearchSheetOpen(false)}
         />
@@ -1044,403 +614,4 @@ export default function BoardPage() {
       </main>
     </div>
   );
-}
-
-interface BoardToolbarProps {
-  repos: string[];
-  repoFilter: string | null;
-  onRepoFilterChange: (repo: string | null) => void;
-  lastRefreshed: Date | null;
-  refreshing: boolean;
-  onRefresh: () => void;
-  showLastRefreshed: boolean;
-}
-
-// Repo filter chips + manual refresh. On desktop it sits above the board;
-// on mobile it renders inside the scroll container (see BoardPage) and the
-// "Last refreshed" stamp is dropped — SSE live updates make it redundant.
-function BoardToolbar({
-  repos,
-  repoFilter,
-  onRepoFilterChange,
-  lastRefreshed,
-  refreshing,
-  onRefresh,
-  showLastRefreshed,
-}: BoardToolbarProps) {
-  return (
-    <div className="board-toolbar">
-      {repos.length > 1 && (
-        <div className="repo-chips" role="group" aria-label="Filter by repo">
-          <button
-            className={`repo-chip${repoFilter === null ? ' active' : ''}`}
-            onClick={() => onRepoFilterChange(null)}
-          >
-            All
-          </button>
-          {repos.map((r) => {
-            const color = repoColor(r);
-            return (
-              <button
-                key={r}
-                className={`repo-chip${repoFilter === r ? ' active' : ''}`}
-                onClick={() => onRepoFilterChange(repoFilter === r ? null : r)}
-                style={{ '--chip-color': color } as React.CSSProperties}
-              >
-                <span className="repo-chip-dot" />
-                {r}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      <div className="toolbar-actions">
-        {showLastRefreshed && lastRefreshed && (
-          <span className="last-refreshed">Last refreshed {fmtTime(lastRefreshed)}</span>
-        )}
-        <button className="refresh-btn" onClick={onRefresh} disabled={refreshing} aria-label="Refresh issues">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={refreshing ? 'spin' : ''}>
-            <path d="M8 2.5a5.487 5.487 0 00-4.131 1.869l1.204 1.204A.25.25 0 014.896 6H1.25A.25.25 0 011 5.75V2.104a.25.25 0 01.427-.177l1.38 1.38A7.001 7.001 0 0114.95 7.16a.75.75 0 01-1.49.178A5.501 5.501 0 008 2.5zM1.705 8.005a.75.75 0 01.834.656 5.501 5.501 0 009.592 2.97l-1.204-1.204a.25.25 0 01.177-.427h3.646a.25.25 0 01.25.25v3.646a.25.25 0 01-.427.177l-1.38-1.38A7.001 7.001 0 011.05 8.84a.75.75 0 01.656-.834z"/>
-          </svg>
-          {refreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function RecentlyReleased({ issues }: { issues: Issue[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const rolled = useMemo(
-    () =>
-      issues
-        .filter((i) => i.state === 'rollout')
-        .sort((a, b) => (b.releasedAt ?? '').localeCompare(a.releasedAt ?? '')),
-    [issues]
-  );
-  if (rolled.length === 0) return null;
-  const visible = expanded ? rolled : rolled.slice(0, RELEASED_CAP);
-  return (
-    <div className="released-strip">
-      <span className="released-label">Released</span>
-      <div className="released-list">
-        {visible.map((issue) => (
-          <Link key={issue.id} href={`/issues/${issue.id}`} className="released-item">
-            <span className="released-tag">{issue.releaseTag ?? '?'}</span>
-            <span className="released-title">
-              {issue.owner}/{issue.repo} #{issue.number}: {issue.title}
-            </span>
-            <span className="released-time">{relTime(issue.releasedAt ?? issue.updatedAt)}</span>
-          </Link>
-        ))}
-      </div>
-      {rolled.length > RELEASED_CAP && (
-        <button className="released-toggle" onClick={() => setExpanded((e) => !e)}>
-          {expanded ? 'Collapse' : `+${rolled.length - RELEASED_CAP} more`}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function RecentlyClosed({ issues }: { issues: Issue[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const closed = useMemo(
-    () =>
-      issues
-        .filter((i) => i.state === 'closed')
-        .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')),
-    [issues]
-  );
-  if (closed.length === 0) return null;
-  const visible = expanded ? closed : closed.slice(0, CLOSED_CAP);
-  return (
-    <div className="closed-strip">
-      <span className="released-label">Closed</span>
-      <div className="released-list">
-        {visible.map((issue) => (
-          <Link key={issue.id} href={`/issues/${issue.id}`} className="released-item">
-            <span className="released-tag">{closedReasonLabel(issue.stateReason)}</span>
-            <span className="released-title">
-              {issue.owner}/{issue.repo} #{issue.number}: {issue.title}
-            </span>
-            <span className="released-time">{relTime(issue.updatedAt)}</span>
-          </Link>
-        ))}
-      </div>
-      {closed.length > CLOSED_CAP && (
-        <button className="released-toggle" onClick={() => setExpanded((e) => !e)}>
-          {expanded ? 'Collapse' : `+${closed.length - CLOSED_CAP} more`}
-        </button>
-      )}
-    </div>
-  );
-}
-
-interface CardProps {
-  issue: Issue;
-  justStarted: boolean;
-  onStarted: () => void;
-  onStartFailed: () => void;
-  selected: boolean;
-  onToggleSelection: (issueId: number) => void;
-}
-
-function Card({ issue, justStarted, onStarted, onStartFailed, selected, onToggleSelection }: CardProps) {
-  const color = repoColor(`${issue.owner}/${issue.repo}`);
-  const live = justStarted || (issue.state === 'developing' && !issue.blockedReason);
-  const {
-    busy,
-    error,
-    modalOpen,
-    openModal,
-    closeModal,
-    command,
-    setCommand,
-    models,
-    selectedModel,
-    setSelectedModel,
-    start,
-    transition,
-  } = useCardActions(issue.id, { onStarted, onStartFailed });
-
-  const isAuthError = error && (/401/.test(error) || /403/.test(error) || /auth/i.test(error));
-  const primary = primaryCardAction(issue, live);
-
-  const handleMenuSelect = (id: CardActionId) => {
-    switch (id) {
-      case 'to-refinement':
-        if (!busy && !live) void transition('refinement');
-        break;
-      case 'to-backlog':
-        if (!busy && !live) void transition('backlog');
-        break;
-      case 'open-github':
-        window.open(issue.htmlUrl, '_blank', 'noopener,noreferrer');
-        break;
-    }
-  };
-
-  return (
-    <div className="card">
-      <div className="card-strip" style={{ background: `${color}22` }}>
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={() => onToggleSelection(issue.id)}
-          className="card-checkbox"
-          aria-label={`Select issue ${issue.owner}/${issue.repo} #${issue.number} for batch actions`}
-        />
-        <span className="card-strip-dot" style={{ background: color }} />
-        <span className="card-strip-repo" style={{ color }}>
-          {issue.owner}/{issue.repo}
-        </span>
-        <span className="card-strip-number">#{issue.number}</span>
-        <span className={`card-strip-age age ${urgencyTier(issue.updatedAt)}`}>{relTime(issue.updatedAt)}</span>
-      </div>
-
-      <div className="card-body">
-        <Link href={`/issues/${issue.id}`} className="title-link">
-          <div className="title">{issue.title}</div>
-          {issue.body && <div className="excerpt">{excerpt(issue.body)}</div>}
-        </Link>
-
-        {issue.linkedPrUrl && issue.state !== 'pr' && (
-          <div className="result">
-            PR: <a href={issue.linkedPrUrl}>{issue.linkedPrUrl}</a>
-          </div>
-        )}
-        {issue.state === 'pr' && issue.resultPrUrl && (
-          <div className="result">
-            PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
-          </div>
-        )}
-        {issue.blockedReason && !justStarted && (
-          <div className="card-blocked" role="alert">
-            <strong>Needs input:</strong> {excerpt(issue.blockedReason)}
-          </div>
-        )}
-        {issue.state === 'refinement' && !issue.blockedReason && issue.resultText && (
-          <div className="result">
-            <strong>Validation:</strong> {excerpt(issue.resultText)}
-          </div>
-        )}
-        {error && (
-          <div className="card-error" role="alert">
-            <span>{isAuthError ? 'Session expired — ' : `${error}`}</span>
-            {isAuthError && <a href="/api/auth/login" className="card-error-login">log in again</a>}
-          </div>
-        )}
-        {live && (
-          <div className="result developing">
-            {issue.state === 'developing'
-              ? `developing${issue.modelId ? `… ${issue.modelId}` : '…'} (live via opencode)`
-              : 'working… (live via opencode)'}
-          </div>
-        )}
-      </div>
-
-      <div className="card-footer">
-        {primary.kind === 'work' ? (
-          <button className="card-primary" onClick={openModal} disabled={busy}>
-            {primary.label}
-          </button>
-        ) : (
-          <Link href={`/issues/${issue.id}`} className="card-primary card-primary-link">
-            {primary.label}
-          </Link>
-        )}
-        <CardActionsMenu issue={issue} live={live} onSelect={handleMenuSelect} />
-      </div>
-
-      {modalOpen && (
-        <DevelopModal
-          issue={issue}
-          command={command}
-          onCommandChange={setCommand}
-          models={models}
-          selectedModel={selectedModel}
-          onSelectedModelChange={setSelectedModel}
-          busy={busy}
-          error={error}
-          onCancel={closeModal}
-          onStart={start}
-        />
-      )}
-    </div>
-  );
-}
-
-function MobileCardWithActions({
-  issue,
-  justStarted,
-  onStarted,
-  onStartFailed,
-  onOpenActions,
-}: {
-  issue: Issue;
-  justStarted: boolean;
-  onStarted: () => void;
-  onStartFailed: () => void;
-  onOpenActions: () => void;
-}) {
-  const color = repoColor(`${issue.owner}/${issue.repo}`);
-  const {
-    busy,
-    error,
-    modalOpen,
-    openModal,
-    closeModal,
-    command,
-    setCommand,
-    models,
-    selectedModel,
-    setSelectedModel,
-    start,
-  } = useCardActions(issue.id, { onStarted, onStartFailed });
-
-  return (
-    <>
-      <MobileCard
-        issue={issue}
-        color={color}
-        busy={busy}
-        justStarted={justStarted}
-        onPrimaryAction={openModal}
-        onOpenActions={onOpenActions}
-      />
-      {modalOpen && (
-        <DevelopModal
-          issue={issue}
-          command={command}
-          onCommandChange={setCommand}
-          models={models}
-          selectedModel={selectedModel}
-          onSelectedModelChange={setSelectedModel}
-          busy={busy}
-          error={error}
-          onCancel={closeModal}
-          onStart={start}
-        />
-      )}
-    </>
-  );
-}
-
-function CardActionsSheetWithActions({
-  issue,
-  justStarted,
-  onStarted,
-  onStartFailed,
-  onClose,
-  onToggleSelection,
-}: {
-  issue: Issue;
-  justStarted: boolean;
-  onStarted: () => void;
-  onStartFailed: () => void;
-  onClose: () => void;
-  onToggleSelection: (issueId: number) => void;
-}) {
-  const live = justStarted || (issue.state === 'developing' && !issue.blockedReason);
-  const {
-    busy,
-    error,
-    modalOpen,
-    openModal,
-    command,
-    setCommand,
-    models,
-    selectedModel,
-    setSelectedModel,
-    start,
-    transition,
-  } = useCardActions(issue.id, { onStarted, onStartFailed });
-
-  const handleSelect = (id: CardActionId) => {
-    switch (id) {
-      case 'work':
-        openModal();
-        return;
-      case 'to-refinement':
-        void transition('refinement');
-        break;
-      case 'to-backlog':
-        void transition('backlog');
-        break;
-      case 'select-batch':
-        onToggleSelection(issue.id);
-        break;
-      case 'open-github':
-        window.open(issue.htmlUrl, '_blank', 'noopener,noreferrer');
-        break;
-      case 'recap':
-        // Recap navigates via its own Link in the sheet row — the sheet's
-        // row onClick already closed it. Nothing to do here.
-        return;
-    }
-    onClose();
-  };
-
-  if (modalOpen) {
-    return (
-      <DevelopModal
-        issue={issue}
-        command={command}
-        onCommandChange={setCommand}
-        models={models}
-        selectedModel={selectedModel}
-        onSelectedModelChange={setSelectedModel}
-        busy={busy}
-        error={error}
-        onCancel={onClose}
-        onStart={() => {
-          void start();
-          onClose();
-        }}
-      />
-    );
-  }
-
-  return <CardActionsSheet issue={issue} live={live} onClose={onClose} onSelect={handleSelect} />;
 }

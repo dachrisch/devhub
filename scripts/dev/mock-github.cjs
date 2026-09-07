@@ -39,7 +39,7 @@ function mockJsonResponse(body, status = 200) {
 }
 
 // Returns a Response for GitHub URLs, or null to pass through to real fetch.
-function handleGithub(url) {
+function handleGithub(url, method) {
   const path = url.pathname.replace(/\/+$/, '');
   const issueRe = /^\/repos\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
   const repoIssuesRe = /^\/repos\/([^/]+)\/([^/]+)\/issues$/;
@@ -76,13 +76,23 @@ function handleGithub(url) {
 
   let   m = repoIssuesRe.exec(path);
   if (m) {
+    // Promote-topic flow (devhub#167): filing the GitHub issue for a
+    // promoted topic returns a synthetic issue number + URL.
+    if (method === 'POST') {
+      const num = 900 + Math.floor(Math.random() * 90);
+      return mockJsonResponse({
+        id: 999000 + num,
+        number: num,
+        html_url: `https://github.com/${m[1]}/${m[2]}/issues/${num}`,
+      });
+    }
     const repo = `${m[1]}/${m[2]}`;
     return mockJsonResponse(MOCK_ISSUES.map((i) => ghIssue(repo, i.number)));
   }
 
   m = issueRe.exec(path);
   if (m) {
-    if (url.method === 'PATCH') return mockJsonResponse({});
+    if (method === 'PATCH') return mockJsonResponse({});
     return mockJsonResponse({ labels: [] });
   }
 
@@ -109,7 +119,8 @@ async function patchedFetch(input, init) {
   }
   if (url && (url.host === 'api.github.com' || url.host === 'github.com')) {
     if (process.env.DEVHUB_MOCK_GITHUB !== '0') {
-      return handleGithub(url);
+      const method = (init?.method ?? (input instanceof Request ? input.method : 'GET') ?? 'GET').toUpperCase();
+      return handleGithub(url, method);
     }
   }
   if (!passthrough) {
