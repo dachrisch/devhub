@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.20.0](https://github.com/dachrisch/devhub/compare/v1.19.2...v1.20.0) (2026-09-07)
+
+
+### Features
+
+* **projects:** /projects/[id] board route + topics rail + recap breadcrumb (devhub[#167](https://github.com/dachrisch/devhub/issues/167)) ([5642506](https://github.com/dachrisch/devhub/commit/5642506116235dc0de75851cbf2f3f2075292a01))
+* **projects:** child-run orchestration + cockpit skills (devhub[#167](https://github.com/dachrisch/devhub/issues/167)) ([1ef5f09](https://github.com/dachrisch/devhub/commit/1ef5f095d24ad52a6753e1408081879e280f8651))
+* **projects:** data layer for projects & topics cockpit (devhub[#167](https://github.com/dachrisch/devhub/issues/167)) ([4e25f11](https://github.com/dachrisch/devhub/commit/4e25f11c4aca86331df10417e62ba31159db4476))
+* **projects:** Phase 1 tail + Projects home section (devhub[#167](https://github.com/dachrisch/devhub/issues/167)) ([f488ec0](https://github.com/dachrisch/devhub/commit/f488ec06a72119884426acd49529b03883f7ed11))
+* **projects:** Projects & Topics cockpit (devhub[#167](https://github.com/dachrisch/devhub/issues/167)) ([334d4a5](https://github.com/dachrisch/devhub/commit/334d4a59a1320180e47312d58f383364b2ccc847))
+* **projects:** projects-first home, run chips + e2e topic flow (devhub[#167](https://github.com/dachrisch/devhub/issues/167)) ([7667bc7](https://github.com/dachrisch/devhub/commit/7667bc77b3e93d9b2a7d2cee1412979fa06825a4))
+* **projects:** SSE project/topic/run id-notifications (devhub[#167](https://github.com/dachrisch/devhub/issues/167)) ([bc43982](https://github.com/dachrisch/devhub/commit/bc43982ee1fe18a37135646c0897cf608f5db2fb))
+
 ## [1.19.2](https://github.com/dachrisch/devhub/compare/v1.19.1...v1.19.2) (2026-09-06)
 
 
