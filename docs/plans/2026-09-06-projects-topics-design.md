@@ -371,9 +371,11 @@ Gate per phase: `typecheck → lint → test → build`.
 
 ## Open items
 
-- Real `INFRA_REPO` value (unset → `both`/`infra` scopes fall back to
-  service-only with no error; set `INFRA_REPO=owner/name` to enable two-PR
-  runs).
+- Real `INFRA_REPO` value: tracked as
+  [servyy-container#119](https://github.com/dachrisch/servyy-container/issues/119)
+  (`INFRA_REPO=dachrisch/servyy-container` in the deployment env + checkout
+  visibility + token scope). Unset → `both`/`infra` scopes fall back to
+  service-only with no error.
 - Promote always creates a GitHub issue (keeps the label/comment mirror).
 - Verify live: infra repo checkout visibility + auto-approve on
   `code.lehel.xyz`.
