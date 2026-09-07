@@ -40,7 +40,7 @@ technical kanban/recap remain as the expert drill-down.
 
 ```
 Project (plain: "my app/service")
- └─ Idea (prominent card + own page, status: new|shaping|ready|realizing|shipped|dropped|merged→id)
+ └─ Idea (prominent card + own page, status: new|shaping|ready|realizing|shipped|dropped)
      ├─ Options thread (hub proposals + user picks/rewrites)
      └─ Realization (auto: GitHub issue + refine + code + PR + merge + release, hidden)
 ```
@@ -51,7 +51,8 @@ Project (plain: "my app/service")
   expandable "How it was built" section plus the existing kanban/recap.
 - Discard/merge ("link and archive"): `dropped` + `merged_into_topic_id` —
   duplicate ideas link to the winner, disappear from active lists but stay
-  searchable.
+  searchable. There is no `merged` status; a merged idea is `dropped` with
+  a pointer to the winner.
 
 ## 4. Target UX (non-technical copy, no board jargon)
 
@@ -87,13 +88,14 @@ checks.
 ## 5. Data model deltas (`src/lib/store.ts` `migrate()`)
 
 ```sql
--- topics: extend, keep idea→new/shaping and active→realizing compat
+-- topics: extend; extend the TopicStatus vocabulary
 ALTER TABLE topics ADD COLUMN shaped_summary TEXT;
 ALTER TABLE topics ADD COLUMN merged_into_topic_id INTEGER NULL
   REFERENCES topics(id) ON DELETE SET NULL;
 ALTER TABLE topics ADD COLUMN ready_at TEXT NULL;
 -- status: new|shaping|ready|realizing|shipped|dropped
--- (migration maps idea→shaping, active→realizing)
+-- (migration maps idea→new, active→realizing; `shaping` is reserved for
+-- topics with an open thread, so legacy one-shot ideas land on `new`)
 
 CREATE TABLE idea_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,9 +108,27 @@ CREATE TABLE idea_messages (
 );
 ```
 
-`develop_runs` / `issues`: no schema change. `projects` gains
+`TopicStatus` (`src/lib/types.ts`) and `TOPIC_STATUSES` extend to the six
+values above (the const also validates the `GET /api/topics?status=`
+filter). `develop_runs` / `issues`: no schema change. `projects` gains
 `auto_merge INTEGER NOT NULL DEFAULT 1` (per-project opt-out); `release_mode`
 (`tag|manual`) is reused.
+
+### 5.1 Status vocabulary must land everywhere topic statuses are written
+
+Two existing call sites hardcode the old vocabulary and would clobber the
+new statuses otherwise:
+
+- `refreshTopicStatus` (`src/lib/store.ts`): with linked issues it only
+  ever computes `active | shipped`, and it runs on every sweep/develop
+  event (`src/lib/github.ts`) — a `realizing` topic would flip back to
+  `active` on the first sweep. New rule: linked issue exists and not all
+  settled → `realizing`; all settled → `shipped`; no linked issues →
+  leave `new|shaping|ready|dropped` untouched.
+- `promote-topic.ts` sets `status: 'active'` on promotion → becomes
+  `realizing`.
+- `TOPIC_STATUSES` consumers (`GET /api/topics` status filter, topics
+  rail, board UI) take the extended enum.
 
 ## 6. Backend deltas
 
@@ -128,7 +148,13 @@ silent-route to a topic.
 `export const dynamic = 'force-dynamic'`, `requireMember(req)`)
 
 - `POST /api/topics` (extended): creates the topic + first `idea_messages`
-  row + fires shape-idea; returns 202 + SSE.
+  row + fires the first shaping round. **Keeps the current synchronous
+  contract** — existing callers (`projects-home.tsx`, project page, cockpit
+  `create-topic` skill) expect `{ topic }`; breaking them to return 202 is
+  out of scope. Shaping runs fire-and-forget (same pattern as
+  `startDevelop`); the idea page learns "options ready" via the
+  `idea-message`/`idea-status` SSE events. Only the new idea-page
+  endpoints below get async semantics.
 - `GET / POST /api/topics/[id]/messages` — thread read + reply (a reply
   triggers the next shaping round).
 - `POST /api/topics/[id]/choose` `{optionId}` / `POST .../ready` — record
@@ -144,9 +170,16 @@ silent-route to a topic.
 - Reuse `runRefinement → startDevelop` (per-repo runs + carry-over)
   unchanged; each run is still one session → one repo → one PR with the
   "final message ends in a PR URL" contract.
-- New after `pr`: `autoMergeAndRelease(run)` — poll PR checks, then
-  `gh pr merge --squash --auto` (or merge when green). On merge, ensure a
-  tag: for `release_mode = 'tag'` create a `v…` tag containing the merge SHA
+- New after `pr`: `autoMergeAndRelease(run)` — poll PR checks, then merge
+  via the REST API with the session token (the codebase has no `gh` CLI
+  dependency and tokens are always passed as arguments, never via env):
+  - checks green → `PUT /repos/{owner}/{repo}/pulls/{n}/merge` with
+    `merge_method: 'squash'`;
+  - branch protection pending → GraphQL `enablePullRequestAutoMerge`
+    (the `--auto` equivalent) and let the sweep observe the merge.
+  On merge, ensure a tag via the same REST token (`POST
+  /repos/{owner}/{repo}/git/tags` + ref creation): for
+  `release_mode = 'tag'` create a `v…` tag containing the merge SHA
   so the existing `sweepRunsForIssue` flips `merged → released`; for
   `manual`, take the same Mark-shipped path but auto-clicked when
   `auto_merge = 1`.
@@ -173,7 +206,9 @@ silent-route to a topic.
 ## 9. Phases
 
 1. **Ideas prominent:** home inline idea lists + `topics` status/summary
-   columns + `/topics/[id]` read page + merge/archive.
+   columns + `/topics/[id]` read page + merge/archive. Includes the §5.1
+   status-vocabulary updates (`refreshTopicStatus`, `promote-topic`,
+   `TOPIC_STATUSES` + migration `idea→new`, `active→realizing`).
    Gate: `typecheck → lint → test → build`.
 2. **Shaping loop:** `idea_messages` + shape-idea skill + messages/choose
    APIs + chat UI with options. E2E: create idea → 3 options → choose →
@@ -181,10 +216,11 @@ silent-route to a topic.
 3. **One-click Realize:** realize API chaining promote → Work → sweep wait +
    progress timeline + plain banners. E2E against
    `mock-github/mock-opencode` (add merge/tag mocks).
-4. **Auto-merge when green:** auto-merge worker + per-project toggle +
-   partial-shipped warning reuse. Live-verify: token merge rights, branch
-   protection, tag permissions on `code.lehel.xyz` + `WORKSPACE_ROOT`
-   visibility (existing open items).
+4. **Auto-merge when green:** auto-merge worker (REST merge / GraphQL
+   auto-merge per §6.4) + per-project toggle + partial-shipped warning
+   reuse. Live-verify: token merge rights, branch protection + repo
+   `Allow auto-merge` setting, tag permissions on `code.lehel.xyz` +
+   `WORKSPACE_ROOT` visibility (existing open items).
 
 ## 10. Acceptance
 
@@ -202,6 +238,8 @@ silent-route to a topic.
 - Auto-approve on `code.lehel.xyz` + `WORKSPACE_ROOT` checkout visibility
   (carried over from AGENTS.md).
 - GitHub token merge rights on service + `INFRA_REPO` repos;
-  branch-protection rules may block `--auto`.
+  branch protection requires repo-level `Allow auto-merge` + green-check
+  requirements for the GraphQL auto-merge path; direct merge needs
+  admin-free green checks.
 - Options quality is prompt iteration, not schema work — needs live tuning
   against real projects.
