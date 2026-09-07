@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import type { Issue, IssueEvent } from '@/lib/types';
+import type { DevelopRun, Issue, IssueEvent } from '@/lib/types';
 import { relTime } from '@/lib/board-ui';
 import { activityLine, condense, eventText, isNoise, truncateText } from '@/lib/recap';
 import { Markdown } from '@/components/markdown';
@@ -67,7 +67,9 @@ export default function RecapPage() {
   const id = Number(params.id);
   const [issue, setIssue] = useState<Issue | null>(null);
   const [events, setEvents] = useState<IssueEvent[]>([]);
+  const [runs, setRuns] = useState<DevelopRun[]>([]);
   const [connected, setConnected] = useState(false);
+  const [shipping, setShipping] = useState(false);
   const [breadcrumb, setBreadcrumb] = useState<{ projectName: string; topicTitle: string | null } | null>(null);
   const { user } = useAuth();
   const signedIn = Boolean(user);
@@ -89,6 +91,12 @@ export default function RecapPage() {
         if (!active) return;
         setIssue(data.issue);
         setEvents(data.events);
+        fetch(`/api/issues/${id}/runs`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d: { runs?: DevelopRun[] } | null) => {
+            if (active && d?.runs) setRuns(d.runs);
+          })
+          .catch(() => {});
         // Project + topic breadcrumb (devhub#167): both lookups are optional
         // and best-effort — a missing row just hides the crumb.
         const pid = data.issue.projectId;
@@ -120,7 +128,23 @@ export default function RecapPage() {
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
-        if (msg.type === 'issue' && (msg.issue as Issue).id === id) applyIssue(msg.issue);
+        if (msg.type === 'issue' && (msg.issue as Issue).id === id) {
+          applyIssue(msg.issue);
+          fetch(`/api/issues/${id}/runs`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d: { runs?: DevelopRun[] } | null) => {
+              if (d?.runs) setRuns(d.runs);
+            })
+            .catch(() => {});
+        }
+        if (msg.type === 'run' && (msg as { issueId?: number }).issueId === id) {
+          fetch(`/api/issues/${id}/runs`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d: { runs?: DevelopRun[] } | null) => {
+              if (d?.runs) setRuns(d.runs);
+            })
+            .catch(() => {});
+        }
         if (msg.type === 'opencode-event') {
           const m = msg as unknown as OpencodeEventMsg;
           if (m.issueId === id) {
@@ -201,6 +225,42 @@ export default function RecapPage() {
           )}
           {breadcrumb.projectName && breadcrumb.topicTitle && <span className="recap-crumb-sep">/</span>}
           {breadcrumb.topicTitle && <span className="recap-crumb-topic">{breadcrumb.topicTitle}</span>}
+        </div>
+      )}
+
+      {runs.length > 0 && (
+        <div className="recap-result runs">
+          <h3>Run timeline</h3>
+          {runs.map((r) => (
+            <p key={r.id}>
+              <strong>{r.role}</strong> {r.repoOwner}/{r.repoName} — {r.state}
+              {r.prUrl && (
+                <>
+                  {' '}· <a href={r.prUrl}>{r.prUrl}</a>
+                </>
+              )}
+              {r.blockedReason && <> · needs input: {r.blockedReason.slice(0, 200)}</>}
+            </p>
+          ))}
+          {(issue.state === 'pr' || issue.state === 'developing') && (
+            <button
+              type="button"
+              className="ghost"
+              disabled={shipping}
+              onClick={() => {
+                setShipping(true);
+                fetch(`/api/issues/${issue.id}/mark-shipped`, { method: 'POST' })
+                  .then((r) => r.json())
+                  .then((data: { issue?: Issue }) => {
+                    if (data.issue) setIssue(data.issue);
+                  })
+                  .catch(() => {})
+                  .finally(() => setShipping(false));
+              }}
+            >
+              {shipping ? 'Marking…' : 'Mark shipped'}
+            </button>
+          )}
         </div>
       )}
 

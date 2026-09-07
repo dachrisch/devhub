@@ -58,9 +58,11 @@ Also on this branch:
 - Recap breadcrumb: project / topic crumbs above the feed, fetched
   best-effort from `/api/projects/[id]` + `/api/topics/[id]`.
 
-Phase 2 remainder: remove the flat board (make `/` projects-first with the
-kanban only under `/projects/[id]`), global search (across projects with
-jump), mobile home layout polish, `run` SSE wiring in develop.
+Phase 2 (done on this branch): `/` is projects-first — project cards + inbox
++ global search with jump (repo:/title:/owner:/state:/body:/number: syntax,
+links to the project board and recap); the flat kanban is removed (kanban
+only under `/projects/[id]`); mobile home stacks full-width cards; `run` SSE
+events are published on every run transition and re-fetch the project board.
 
 ## Goal
 
@@ -307,17 +309,29 @@ transitions. Optional GitHub latest-release poll (service repo) updates
 
 1. Schema + migration + store fns/types + APIs (`/api/projects`,
    `/api/topics`, `/api/topics/[id]`, assignment) + repo→project resolution in
-   ingest + launch.ts switch.
+   ingest + launch.ts switch. ✅ done
 2. UI: Projects home + `/projects/[id]` (kanban moves into
    `src/components/board/`), topics rail, inbox, SSE `topic`/`project`/`run`
-   events, remove flat board, global search, mobile home.
+   events, remove flat board, global search, mobile home. ✅ done
 3. Orchestration: refinement scope/order, child-run sequencing + carry-over,
-   per-run sweep + legacy dual path, Mark shipped.
-4. Cockpit: router actions + skills + context injection + "save as idea".
-5. Status derivation + suggest-feature button + badges.
+   per-run sweep + legacy dual path, Mark shipped. ✅ done
+   (`planRunsForIssue`, sequential `runSingleChildRun` with carry-over,
+   `sweepRunsForIssue` + legacy path, `POST /mark-shipped`,
+   `GET /runs`, run timeline on recap, PR chips + scope badge + partial
+   warning on cards)
+4. Cockpit: router actions + skills + context injection + "save as idea". ✅
+   done (`topic`/`suggest`/`promote` actions, `create-topic`/`suggest-feature`
+   /`promote-topic` skills, `POST /api/topics/[id]/promote`,
+   `POST /api/action/[id]/save-idea`, project config injected into refine
+   prompts)
+5. Status derivation + suggest-feature button + badges. ✅ done
+   (`summarizeProject` on `GET /api/projects`, `last_shipped_*` on rollout,
+   `POST /api/projects/[id]/suggest` + Suggest next button)
 6. Tests + e2e: migration/seed/assignment tests, child-run retry/sweep tests,
    two-repo mocks in `scripts/dev/mock-github.cjs`, e2e flow idea → promote →
-   two-PR run → rollout → badge flip.
+   two-PR run → rollout → badge flip. ✅ done (S5 in `e2e-workflow.mjs`;
+   mock-github handles promote issue creation; mock-opencode refine replies
+   carry scope fields)
 
 Gate per phase: `typecheck → lint → test → build`.
 
@@ -357,7 +371,9 @@ Gate per phase: `typecheck → lint → test → build`.
 
 ## Open items
 
-- Real `INFRA_REPO` value (set at implementation start).
-- Confirm promote always creates a GitHub issue (assumed yes).
+- Real `INFRA_REPO` value (unset → `both`/`infra` scopes fall back to
+  service-only with no error; set `INFRA_REPO=owner/name` to enable two-PR
+  runs).
+- Promote always creates a GitHub issue (keeps the label/comment mirror).
 - Verify live: infra repo checkout visibility + auto-approve on
   `code.lehel.xyz`.

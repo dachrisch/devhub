@@ -71,6 +71,8 @@ export function ActionDetail({
 }: ActionDetailProps) {
   const [loaded, setLoaded] = useState<ActionDetailRow | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [savingIdea, setSavingIdea] = useState(false);
+  const [savedIdea, setSavedIdea] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -254,6 +256,27 @@ export function ActionDetail({
           >
             Rerun with adjusted prompt
           </button>
+          {status === 'failed' && (
+            <button
+              type="button"
+              className="ghost"
+              disabled={!inputText || savingIdea || savedIdea !== null}
+              onClick={() => {
+                setSavingIdea(true);
+                fetch(`/api/action/${actionId}/save-idea`, { method: 'POST' })
+                  .then((r) => r.json())
+                  .then((data: { topic?: { title?: string }; error?: string }) => {
+                    if (data.topic) setSavedIdea(data.topic.title ?? 'saved');
+                    else setSavedIdea(null);
+                  })
+                  .catch(() => {})
+                  .finally(() => setSavingIdea(false));
+              }}
+              title="Save this prompt as a topic idea (explicit opt-in, never automatic)"
+            >
+              {savedIdea ? `Saved: ${savedIdea}` : savingIdea ? 'Saving…' : 'Save as idea'}
+            </button>
+          )}
         </div>
       )}
     </>

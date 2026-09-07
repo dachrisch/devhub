@@ -24,7 +24,10 @@ const appPath = arg('--path', '/');
 base = new URL(Object.assign(new URL(base), { hostname: 'localhost' })).toString().replace(/\/$/, '');
 const session = arg('--session', DEV_SESSION_ID);
 const screenshotPath = arg('--screenshot', '.devhub-dev-board.png');
-const lookFor = arg('--expect', 'Polish board card hover states');
+// Projects-first home (devhub#167): the root shows project cards, not issue
+// cards — expect the new-project affordance. Use --path /projects/<id> with
+// --expect '<issue title>' to verify a project board instead.
+const lookFor = arg('--expect', '+ new project');
 
 function findChromium() {
   if (process.env.CHROMIUM_BIN) return process.env.CHROMIUM_BIN;

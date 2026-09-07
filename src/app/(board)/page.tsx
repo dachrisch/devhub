@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Issue, IssueState } from '@/lib/types';
-import { matchesIssue, notifyStateChange, runSupersededByBroadcast } from '@/lib/board-ui';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import type { Issue } from '@/lib/types';
+import { matchesIssue } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
@@ -13,9 +15,7 @@ import type { ModelOption } from '@/lib/types';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
 import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
 import { ProjectsHome } from '@/components/board/projects-home';
-import { BoardToolbar } from '@/components/board/board-toolbar';
 import { RecentlyClosed, RecentlyReleased } from '@/components/board/released-strips';
-import { KanbanBoard } from '@/components/board/kanban-board';
 import {
   ActionStatusStrip,
   actionFromApi,
@@ -25,6 +25,9 @@ import {
   type CockpitAction,
 } from '@/components/board/action-status-strip';
 
+// Projects-first home (devhub#167): project cards + inbox above the fold. The
+// kanban lives only under /projects/[id]; the header search is global (across
+// projects/issues) and jumps to the project board or recap page.
 export default function BoardPage() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [connected, setConnected] = useState(false);
@@ -32,9 +35,6 @@ export default function BoardPage() {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [repoFilter, setRepoFilter] = useState<string | null>(null);
-  // Projects home (devhub#167): scoping the kanban to one project. Null = all.
-  const [projectFilter, setProjectFilter] = useState<number | null>(null);
   // Bumped on refresh + live issue SSE so the project cards re-fetch.
   const [projectTick, setProjectTick] = useState(0);
   const [searchHelp, setSearchHelp] = useState(false);
@@ -42,44 +42,7 @@ export default function BoardPage() {
   const helpRef = useRef<HTMLDivElement>(null);
   const { user, loading, denied, logout } = useAuth();
   const isMobile = useMediaQuery(MOBILE_QUERY);
-  // Last-seen state / blocked flag per issue, so live transitions to pr or a
-  // newly-set blocked_reason can be told apart from cards that already were
-  // in that situation on load.
-  const prevStatesRef = useRef<Map<number, IssueState>>(new Map());
-  const prevBlockedRef = useRef<Map<number, boolean>>(new Map());
-  const batchStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Runs started from this client whose confirmation hasn't arrived via SSE
-  // yet (the develop route is fire-and-forget: 202 first, broadcast later).
-  // While an id is set here its card must show live/recap affordances instead
-  // of the Work button — see runSupersededByBroadcast for when the server's
-  // own state takes over again.
-  const [justStartedIds, setJustStartedIds] = useState<Set<number>>(new Set());
-  const markJustStarted = useCallback((id: number) => {
-    setJustStartedIds((prev) => {
-      if (prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-  }, []);
-  const clearJustStarted = useCallback((id: number) => {
-    setJustStartedIds((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }, []);
-
-  // Batch selection state
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [batchStatus, setBatchStatus] = useState<{
-    operation: string;
-    total: number;
-    completed: number;
-    errors: number;
-  } | null>(null);
+  const router = useRouter();
 
   // Cockpit input bar — one shared composer (multiline prompt + model
   // override) rendered in both shells: the mobile FAB bottom sheet and the
@@ -110,37 +73,20 @@ export default function BoardPage() {
   const actionDetailFetchedRef = useRef<Set<string>>(new Set());
   const keyboardInset = useKeyboardInset();
 
-  const toggleSelection = useCallback((issueId: number) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(issueId)) {
-        next.delete(issueId);
-      } else {
-        next.add(issueId);
-      }
-      return next;
-    });
-  }, []);
-
-  const clearSelection = useCallback(() => {
-    setSelectedIds(new Set());
-  }, []);
-
   const signedIn = Boolean(user);
-
-  // Issues scoped to the selected project card (the Released/Closed strips
-  // below stay global; the kanban columns, counts, repo chips and Ctrl+A
-  // follow the selection).
-  const scopedIssues = useMemo(
-    () => (projectFilter == null ? issues : issues.filter((i) => i.projectId === projectFilter)),
-    [issues, projectFilter]
-  );
 
   const repos = useMemo(() => {
     const set = new Set<string>();
-    for (const i of scopedIssues) set.add(`${i.owner}/${i.repo}`);
+    for (const i of issues) set.add(`${i.owner}/${i.repo}`);
     return Array.from(set).sort();
-  }, [scopedIssues]);
+  }, [issues]);
+
+  // Global search (across projects/issues with jump): matches reuse the board
+  // filter syntax; each hit links to its project board and recap page.
+  const searchHits = useMemo(() => {
+    if (!query.trim()) return [];
+    return issues.filter((i) => matchesIssue(i, query)).slice(0, 20);
+  }, [issues, query]);
 
   const upsert = useCallback((issue: Issue) => {
     setIssues((prev) => {
@@ -209,15 +155,6 @@ export default function BoardPage() {
         if (active) {
           setIssues(data.issues);
           setLastRefreshed(new Date());
-          // Server state is authoritative on (re)load — drop any optimistic
-          // just-started flags from before.
-          setJustStartedIds(new Set());
-          const prevState = prevStatesRef.current;
-          const prevBlocked = prevBlockedRef.current;
-          for (const i of data.issues) {
-            prevState.set(i.id, i.state);
-            prevBlocked.set(i.id, Boolean(i.blockedReason));
-          }
         }
       })
       .catch(() => {});
@@ -229,21 +166,7 @@ export default function BoardPage() {
       try {
         const msg = JSON.parse(e.data);
         if (msg.type === 'issue') {
-          const issue = msg.issue as Issue;
-          const prevState = prevStatesRef.current.get(issue.id);
-          const prevBlocked = prevBlockedRef.current.get(issue.id) ?? false;
-          const nowBlocked = Boolean(issue.blockedReason);
-          prevStatesRef.current.set(issue.id, issue.state);
-          prevBlockedRef.current.set(issue.id, nowBlocked);
-          const stateChanged = prevState !== undefined && prevState !== issue.state;
-          // Notify on a state transition into `pr` or when a card newly needs
-          // input (including develop-stage failures, where the state itself
-          // doesn't change).
-          if ((stateChanged && issue.state === 'pr') || (nowBlocked && !prevBlocked)) {
-            notifyStateChange(issue);
-          }
-          if (runSupersededByBroadcast(issue)) clearJustStarted(issue.id);
-          upsert(issue);
+          upsert(msg.issue as Issue);
           setProjectTick((t) => t + 1);
         } else if (msg.type === 'project' || msg.type === 'topic' || msg.type === 'run') {
           // Project cockpit id-notification (see sse.ts): the cards + inbox
@@ -288,14 +211,7 @@ export default function BoardPage() {
       active = false;
       es.close();
     };
-  }, [signedIn, upsert, hydrateAction, clearJustStarted]);
-
-  useEffect(() => {
-    if (!signedIn) return;
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {});
-    }
-  }, [signedIn]);
+  }, [signedIn, upsert, hydrateAction]);
 
   useEffect(() => {
     if (!refreshError) return;
@@ -308,12 +224,6 @@ export default function BoardPage() {
     const t = setTimeout(() => setActionError(null), 8000);
     return () => clearTimeout(t);
   }, [actionError]);
-
-  useEffect(() => {
-    return () => {
-      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
-    };
-  }, []);
 
   // Model list for the cockpit picker. The endpoint returns the full server
   // registry plus the operator's last-used default (set by a develop run or a
@@ -416,119 +326,6 @@ export default function BoardPage() {
     };
   }, [searchHelp]);
 
-  const advanceSelected = useCallback(async () => {
-    if (selectedIds.size === 0) return;
-
-    const total = selectedIds.size;
-    setBatchStatus({ operation: 'advancing', total, completed: 0, errors: 0 });
-    setRefreshing(true);
-    try {
-      const res = await fetch('/api/issues/batch-advance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ issueIds: Array.from(selectedIds) }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json() as { error?: string };
-        throw new Error(data.error || `batch advance failed (HTTP ${res.status})`);
-      }
-
-      const result = await res.json() as { results: Array<{ id: number; success: boolean; error?: string }> };
-      const completed = result.results.filter((r) => r.success).length;
-      const errors = result.results.filter((r) => !r.success).length;
-
-      setBatchStatus({ operation: 'advancing', total, completed, errors });
-      clearSelection();
-      setRefreshError(null);
-    } catch (err) {
-      setRefreshError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRefreshing(false);
-      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
-      batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
-    }
-  }, [selectedIds, clearSelection]);
-
-  const workSelected = useCallback(async () => {
-    if (selectedIds.size === 0) return;
-
-    const total = selectedIds.size;
-    setBatchStatus({ operation: 'working', total, completed: 0, errors: 0 });
-    setRefreshing(true);
-    try {
-      const res = await fetch('/api/issues/batch-advance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          issueIds: Array.from(selectedIds),
-          mode: 'work'
-        }),
-      });
-
-      const data = await res.json() as {
-        ok?: boolean;
-        error?: string;
-        results?: Array<{ id: number; success: boolean; error?: string; mode?: string }>;
-      };
-
-      if (!res.ok) {
-        throw new Error(data.error || `batch work failed (HTTP ${res.status})`);
-      }
-
-      const succeeded = data.results?.filter((r) => r.success).length ?? 0;
-      const failed = data.results?.filter((r) => !r.success) ?? [];
-      // Optimistically flip successful starts to their live/recap card state;
-      // SSE broadcasts (and runSupersededByBroadcast) take over from here.
-      for (const r of data.results ?? []) {
-        if (r.success && r.mode === 'working') markJustStarted(r.id);
-      }
-
-      setBatchStatus({ operation: 'working', total, completed: succeeded, errors: failed.length });
-      const summary = failed.length > 0
-        ? `Work started for ${succeeded} issue(s), ${failed.length} failed: ${failed.map((f) => `#${f.id} (${f.error})`).join(', ')}`
-        : null;
-
-      setRefreshError(summary);
-      clearSelection();
-    } catch (err) {
-      setRefreshError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRefreshing(false);
-      if (batchStatusTimerRef.current) clearTimeout(batchStatusTimerRef.current);
-      batchStatusTimerRef.current = setTimeout(() => setBatchStatus(null), 3000);
-    }
-  }, [selectedIds, clearSelection, markJustStarted]);
-
-  // Keyboard shortcuts for batch operations
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
-
-      // Ctrl/Cmd + A to select all visible issues (skip when in a text input)
-      if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !isInput) {
-        e.preventDefault();
-        const visibleIssues = scopedIssues.filter((i) => matchesIssue(i, query));
-        setSelectedIds(new Set(visibleIssues.map((i) => i.id)));
-      }
-
-      // Escape to clear selection
-      if (e.key === 'Escape') {
-        clearSelection();
-      }
-
-      // Ctrl/Cmd + Enter to advance selected
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && selectedIds.size > 0) {
-        e.preventDefault();
-        advanceSelected();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [scopedIssues, query, selectedIds, clearSelection, advanceSelected]);
-
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -543,6 +340,8 @@ export default function BoardPage() {
         }
         throw new Error(detail || `refresh failed (HTTP ${res.status})`);
       }
+      const data = (await res.json().catch(() => null)) as { issues?: Issue[] } | null;
+      if (data?.issues) setIssues(data.issues);
       setRefreshError(null);
       setLastRefreshed(new Date());
       setProjectTick((t) => t + 1);
@@ -622,6 +421,9 @@ export default function BoardPage() {
               </>
             )}
           </div>
+          <button className="ghost" onClick={refresh} disabled={refreshing} title={lastRefreshed ? `Last refreshed ${lastRefreshed.toLocaleTimeString()}` : 'Refresh from GitHub'}>
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
           <span
             className={`conn-status ${connected ? 'ok' : 'off'}`}
             title={connected ? 'live' : 'connecting…'}
@@ -642,28 +444,6 @@ export default function BoardPage() {
               </button>
             </>
           )}
-          {selectedIds.size > 0 && (
-            <div className="batch-actions">
-              <button
-                className="develop-batch-btn"
-                onClick={workSelected}
-                disabled={refreshing}
-              >
-                Work on selected ({selectedIds.size})
-              </button>
-              <button
-                className="advance-btn"
-                onClick={advanceSelected}
-                disabled={refreshing}
-              >
-                Advance selected ({selectedIds.size})
-              </button>
-              <div className="keyboard-hints">
-                <span>Ctrl+Enter to advance</span>
-                <span>Esc to clear</span>
-              </div>
-            </div>
-          )}
         </div>
       </header>
 
@@ -679,15 +459,6 @@ export default function BoardPage() {
           <button className="ghost" onClick={() => setRefreshError(null)}>
             Dismiss
           </button>
-        </div>
-      )}
-
-      {batchStatus && (
-        <div className="batch-status">
-          <span>{batchStatus.operation}: {batchStatus.completed}/{batchStatus.total}</span>
-          {batchStatus.errors > 0 && (
-            <span className="batch-errors">({batchStatus.errors} errors)</span>
-          )}
         </div>
       )}
 
@@ -740,42 +511,38 @@ export default function BoardPage() {
         </div>
       )}
 
-      <RecentlyReleased issues={issues} />
-      <RecentlyClosed issues={issues} />
-
-      <ProjectsHome selectedId={projectFilter} onSelect={setProjectFilter} refreshKey={projectTick} />
-      {projectFilter != null && (
-        <div className="project-filter-banner" role="status">
-          <span>
-            Showing <strong>project #{projectFilter}</strong> — the kanban below is filtered.
-          </span>
-          <button className="ghost" onClick={() => setProjectFilter(null)}>
-            Show all
-          </button>
+      {query.trim() && (
+        <div className="global-search-results" role="status" aria-label="Search results">
+          <span className="released-label">Results ({searchHits.length})</span>
+          {searchHits.length === 0 ? (
+            <div className="empty">nothing matches — try another filter</div>
+          ) : (
+            <div className="released-list">
+              {searchHits.map((i) => (
+                <span key={i.id} className="released-item">
+                  <span className={`dot ${i.state}`} />
+                  <Link href={i.projectId != null ? `/projects/${i.projectId}` : '/'} className="released-title">
+                    {i.owner}/{i.repo} #{i.number}: {i.title}
+                  </Link>
+                  <Link href={`/issues/${i.id}`} className="ghost">
+                    Recap →
+                  </Link>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      <KanbanBoard
-        issues={scopedIssues}
-        query={query}
-        repoFilter={repoFilter}
-        isMobile={isMobile}
-        toolbar={
-          <BoardToolbar
-            repos={repos}
-            repoFilter={repoFilter}
-            onRepoFilterChange={setRepoFilter}
-            lastRefreshed={lastRefreshed}
-            refreshing={refreshing}
-            onRefresh={refresh}
-            showLastRefreshed={!isMobile}
-          />
-        }
-        justStartedIds={justStartedIds}
-        markJustStarted={markJustStarted}
-        clearJustStarted={clearJustStarted}
-        selectedIds={selectedIds}
-        toggleSelection={toggleSelection}
+      <RecentlyReleased issues={issues} />
+      <RecentlyClosed issues={issues} />
+
+      <ProjectsHome
+        selectedId={null}
+        onSelect={(id) => {
+          if (id != null) router.push(`/projects/${id}`);
+        }}
+        refreshKey={projectTick}
       />
 
       {searchSheetOpen && isMobile && (
@@ -783,8 +550,8 @@ export default function BoardPage() {
           query={query}
           onQueryChange={setQuery}
           repos={repos}
-          repoFilter={repoFilter}
-          onRepoFilterChange={setRepoFilter}
+          repoFilter={null}
+          onRepoFilterChange={() => {}}
           issues={issues}
           onClose={() => setSearchSheetOpen(false)}
         />

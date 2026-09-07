@@ -3047,3 +3047,98 @@ button.project-card-new.open {
 .recap-crumb-topic {
   color: var(--muted);
 }
+
+/* Projects & Topics cockpit (devhub#167): run chips, scope badges, global
+   search results, topic promote affordances, run timeline. */
+.run-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.run-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.run-chip.pr,
+.run-chip.merged {
+  border-color: var(--accent);
+}
+
+.run-chip.released {
+  border-color: #2ea043;
+}
+
+.run-chip.failed,
+.run-chip.developing {
+  border-color: #d29922;
+}
+
+.run-partial {
+  font-size: 11px;
+  color: #d29922;
+}
+
+.run-blocked {
+  font-size: 11px;
+  color: #f85149;
+}
+
+.topic-tag {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.scope-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.global-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.topic-chip-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.topic-promote {
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+.recap-result.runs {
+  border-style: dashed;
+}
+
+/* Mobile: project cards stack full-width; the composer stays behind the
+   FAB/bottom sheet so the first card is visible without scrolling. */
+@media (max-width: 640px) {
+  .projects-grid {
+    grid-template-columns: 1fr;
+  }
+  .project-card {
+    width: 100%;
+  }
+  .global-search-results .released-item {
+    flex-wrap: wrap;
+  }
+}

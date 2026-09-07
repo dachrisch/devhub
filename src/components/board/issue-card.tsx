@@ -15,6 +15,7 @@ import { DevelopModal } from '@/components/board/develop-modal';
 import { MobileCard } from '@/components/board/mobile-card';
 import { CardActionsSheet } from '@/components/board/card-actions-sheet';
 import { CardActionsMenu } from '@/components/board/card-actions-menu';
+import { RunChips, ScopeBadge, useRuns } from '@/components/board/run-chips';
 
 export interface IssueCardProps {
   issue: Issue;
@@ -45,6 +46,7 @@ export function IssueCard({ issue, justStarted, onStarted, onStartFailed, select
 
   const isAuthError = error && (/401/.test(error) || /403/.test(error) || /auth/i.test(error));
   const primary = primaryCardAction(issue, live);
+  const runs = useRuns(issue.id);
 
   const handleMenuSelect = (id: CardActionId) => {
     switch (id) {
@@ -75,6 +77,7 @@ export function IssueCard({ issue, justStarted, onStarted, onStartFailed, select
           {issue.owner}/{issue.repo}
         </span>
         <span className="card-strip-number">#{issue.number}</span>
+        <ScopeBadge issue={issue} />
         <span className={`card-strip-age age ${urgencyTier(issue.updatedAt)}`}>{relTime(issue.updatedAt)}</span>
       </div>
 
@@ -94,6 +97,7 @@ export function IssueCard({ issue, justStarted, onStarted, onStartFailed, select
             PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
           </div>
         )}
+        <RunChips issue={issue} runs={runs} />
         {issue.blockedReason && !justStarted && (
           <div className="card-blocked" role="alert">
             <strong>Needs input:</strong> {excerpt(issue.blockedReason)}

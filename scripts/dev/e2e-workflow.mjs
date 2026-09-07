@@ -1,5 +1,6 @@
-// End-to-end test of the unified Work flow (devhub#132) against a running
-// start-dev.mjs instance (mocked GitHub + mocked opencode).
+// End-to-end test of the unified Work flow (devhub#132) + Projects & Topics
+// cockpit (devhub#167) against a running start-dev.mjs instance (mocked
+// GitHub + mocked opencode).
 //
 // Covers:
 //   S1  happy path      backlog → refinement → developing → pr (PR URL shown)
@@ -9,7 +10,12 @@
 //   S3  develop retry   develop fails → card stays developing with reason;
 //                       Work retries → pr
 //   S4  batch work      "Work on selected" advances two backlog cards → pr
+//   S5  topic flow      idea → promote → work → pr (+run timeline) → mark
+//                       shipped → rollout → project last-shipped updated
 //   guard               no `blocked` column exists anywhere on the board
+//
+// The flat board is gone (devhub#167): S1-S4 drive the per-project boards at
+// /projects/<id>; S5 additionally touches the projects home (badge/shipped).
 //
 // Usage:
 //   node scripts/dev/start-dev.mjs --port 3111   # separate terminal
@@ -60,7 +66,10 @@ function assert(cond, msg) {
 }
 
 async function api(pathname, init = {}) {
-  const res = await fetch(`${base}${pathname}`, { headers: { cookie: COOKIE }, ...init });
+  const res = await fetch(`${base}${pathname}`, {
+    ...init,
+    headers: { cookie: COOKIE, ...(init.headers ?? {}) },
+  });
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(`${pathname} failed: ${res.status} ${JSON.stringify(body)}`);
   return body;
@@ -153,32 +162,33 @@ async function evaluate(cdp, sessionId, expression) {
   return res.result?.value;
 }
 
-// JS snippets evaluated in the page.
+// JS snippets evaluated in the page (current markup: .card root,
+// .card-strip-repo pill, .card-strip-number, button.card-primary "Work").
 const JS = {
   cardInfo: (ownerRepo, number) => `(() => {
     const cards = [...document.querySelectorAll('.card')];
     const card = cards.find((c) => {
-      const pill = c.querySelector('.repo')?.innerText ?? '';
-      const num = [...c.querySelectorAll('.issue-number')].some((n) => n.textContent.trim() === '#${number}');
+      const pill = c.querySelector('.card-strip-repo')?.innerText ?? '';
+      const num = [...c.querySelectorAll('.card-strip-number')].some((n) => n.textContent.trim() === '#${number}');
       return pill.includes('${ownerRepo}') && num;
     });
     if (!card) return null;
     return {
       text: card.innerText,
       inColumn: card.closest('section')?.querySelector('.column-head')?.innerText?.split('\\n')[0]?.trim().toLowerCase() ?? null,
-      hasWork: !!card.querySelector('button.develop-btn'),
+      hasWork: [...card.querySelectorAll('button.card-primary')].some((b) => b.textContent.trim() === 'Work'),
       hasBlockedBanner: !!card.querySelector('.card-blocked'),
     };
   })()`,
   clickWork: (ownerRepo, number) => `(() => {
     const cards = [...document.querySelectorAll('.card')];
     const card = cards.find((c) => {
-      const pill = c.querySelector('.repo')?.innerText ?? '';
-      const num = [...c.querySelectorAll('.issue-number')].some((n) => n.textContent.trim() === '#${number}');
+      const pill = c.querySelector('.card-strip-repo')?.innerText ?? '';
+      const num = [...c.querySelectorAll('.card-strip-number')].some((n) => n.textContent.trim() === '#${number}');
       return pill.includes('${ownerRepo}') && num;
     });
     if (!card) return false;
-    const btn = card.querySelector('button.develop-btn');
+    const btn = [...card.querySelectorAll('button.card-primary')].find((b) => b.textContent.trim() === 'Work');
     if (!btn) return false;
     btn.click();
     return true;
@@ -206,12 +216,15 @@ const JS = {
   columnHeads: `[...document.querySelectorAll('.column-head')].map((h) => h.innerText.split('\\n')[0].trim())`,
 };
 
-async function waitForDom(cdp, sessionId, expression, label, timeoutMs = 15000) {
+async function waitForDom(cdp, sessionId, expression, label, timeoutMs = 15000, predicate) {
   const deadline = Date.now() + timeoutMs;
   let last;
   while (Date.now() < deadline) {
     last = await evaluate(cdp, sessionId, expression);
-    if (last) return last;
+    // Default: wait for any non-null value. With a predicate (e.g. the card
+    // must sit in the expected column), keep polling until it holds — the
+    // first non-null render can still lag the SSE state change.
+    if (last && (!predicate || predicate(last))) return last;
     await wait(400);
   }
   throw new Error(`timeout waiting for DOM: ${label} (last=${JSON.stringify(last)})`);
@@ -288,10 +301,29 @@ async function main() {
     await cdp.send('Network.enable', {}, sessionId);
     await cdp.send('Network.setCookie', { name: 'devhub_session', value: session, url: base }, sessionId);
 
-    const loaded = cdp.waitForEvent('Page.loadEventFired');
-    await cdp.send('Page.navigate', { url: base }, sessionId);
-    await loaded;
-    await wait(8000); // hydration + first /api/issues + SSE
+    // Resolve the per-project boards (migration auto-creates skeleton
+    // projects from the seeded repos on server startup).
+    const projects = (await api('/api/projects')).projects;
+    const findProject = (owner, repo) =>
+      projects.find((p) => p.project?.serviceRepoOwner === owner && p.project?.serviceRepoName === repo)?.project
+      ?? projects.find((p) => p.project?.name === repo)?.project;
+    const devhubProject = findProject('dachrisch', 'devhub');
+    const warehouseProject = findProject('bumbleflies', 'warehouse');
+    assert(devhubProject?.id, `devhub project resolved (got ${JSON.stringify(projects.map((p) => p.project?.name))})`);
+    assert(warehouseProject?.id, `warehouse project resolved`);
+    const devhubBoard = `${base}/projects/${devhubProject.id}`;
+    const warehouseBoard = `${base}/projects/${warehouseProject.id}`;
+
+    async function gotoBoard(url, label) {
+      const loaded = cdp.waitForEvent('Page.loadEventFired');
+      await cdp.send('Page.navigate', { url }, sessionId);
+      await loaded;
+      await wait(7000); // hydration + /api/issues + topics + SSE
+      const bodyText = await evaluate(cdp, sessionId, 'document.body.innerText.slice(0,120)');
+      assert(!/sign in/i.test(bodyText ?? ''), `${label}: no login wall`);
+    }
+
+    await gotoBoard(devhubBoard, 'devhub board');
 
     const guardHeads = async (label) => {
       const heads = await evaluate(cdp, sessionId, JS.columnHeads);
@@ -307,7 +339,10 @@ async function main() {
     await clickWorkAndStart(cdp, sessionId, 'dachrisch/devhub', 101, 'devhub#101');
     const s1 = await waitForIssueState('dachrisch', 'devhub', 101, (i) => i.state === 'pr' && i.resultPrUrl, 'to reach pr');
     assert(s1.resultPrUrl.includes('/pull/'), `devhub#101 reached pr with ${s1.resultPrUrl}`);
-    const s1dom = await waitForDom(cdp, sessionId, JS.cardInfo('dachrisch/devhub', 101), 'devhub#101 card re-render');
+    const s1dom = await waitForDom(
+      cdp, sessionId, JS.cardInfo('dachrisch/devhub', 101), 'devhub#101 card re-render',
+      15000, (d) => d.inColumn === 'pr'
+    );
     assert(s1dom.inColumn === 'pr', 'devhub#101 card sits in the pr column');
     assert(s1dom.text.includes(s1.resultPrUrl), 'pr card shows the PR URL');
     await guardHeads('S1');
@@ -336,7 +371,7 @@ async function main() {
       `(() => {
         const c = [...document.querySelectorAll('.card')].find((c) =>
           c.querySelector('.card-blocked') &&
-          [...c.querySelectorAll('.issue-number')].some((n) => n.textContent.trim() === '#102'));
+          [...c.querySelectorAll('.card-strip-number')].some((n) => n.textContent.trim() === '#102'));
         return c ? c.querySelector('.card-blocked').innerText : null;
       })()`,
       'Needs input banner'
@@ -352,6 +387,7 @@ async function main() {
 
     // ── S3: develop failure → retry from developing ───────────────────────
     console.log('\nS3: develop failure keeps the card in developing, Work retries');
+    await gotoBoard(warehouseBoard, 'warehouse board');
     await setScenario({ develop: 'cannot' });
     await clickWorkAndStart(cdp, sessionId, 'bumbleflies/warehouse', 101, 'warehouse#101');
     const s3a = await waitForIssueState('bumbleflies', 'warehouse', 101, (i) => i.state === 'developing' && Boolean(i.blockedReason), 'to fail back into developing');
@@ -381,9 +417,66 @@ async function main() {
     }
     await screenshot(cdp, sessionId, 's4-batch-work');
 
+    // ── S5: topic flow (devhub#167) ─────────────────────────────────────
+    // idea → promote → work → pr (+run timeline) → mark shipped → rollout →
+    // project last-shipped updated.
+    console.log('\nS5: idea → promote → work → mark shipped → rollout');
+    await setScenario({ refine: 'ready', develop: 'pr' });
+    const topic = await api('/api/topics', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'E2E idea: ship it', projectId: devhubProject.id }),
+    });
+    assert(topic.topic?.id, 'idea saved as a native topic');
+    const promoted = await api(`/api/topics/${topic.topic.id}/promote`, { method: 'POST' });
+    assert(promoted.url?.includes('/issues/'), `promoted to a GitHub issue (${promoted.url})`);
+    const promotedIssue = promoted.issue;
+    assert(promotedIssue.projectId === devhubProject.id, 'promoted issue assigned to the devhub project');
+    assert(promotedIssue.topicId === topic.topic.id, 'promoted issue linked to its topic');
+
+    await api(`/api/issues/${promotedIssue.id}/develop`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const s5pr = await waitForIssueState(
+      'dachrisch', 'devhub', promotedIssue.number, (i) => i.state === 'pr', 'promoted issue → pr'
+    );
+    assert((s5pr.resultPrUrl ?? '').includes('/pull/'), `promoted issue reached pr (${s5pr.resultPrUrl})`);
+    const s5runs = await api(`/api/issues/${promotedIssue.id}/runs`);
+    assert(
+      Array.isArray(s5runs.runs) && s5runs.runs.length >= 1 && s5runs.runs.every((r) => r.prUrl),
+      `run timeline tracks the PR(s): ${JSON.stringify(s5runs.runs.map((r) => `${r.role}:${r.state}`))}`
+    );
+
+    await gotoBoard(devhubBoard, 'devhub board (S5)');
+    const s5dom = await waitForDom(
+      cdp, sessionId, JS.cardInfo('dachrisch/devhub', promotedIssue.number), 'promoted card re-render',
+      15000, (d) => d.inColumn === 'pr'
+    );
+    assert(s5dom.inColumn === 'pr', 'promoted card sits in the pr column');
+    assert(s5dom.text.includes('●pr'), 'pr card shows the per-run PR chip');
+
+    await api(`/api/issues/${promotedIssue.id}/mark-shipped`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ releaseTag: 'manual' }),
+    });
+    const s5done = await waitForIssueState(
+      'dachrisch', 'devhub', promotedIssue.number, (i) => i.state === 'rollout', 'promoted issue → rollout'
+    );
+    assert(s5done.state === 'rollout', 'mark shipped rolled the issue out');
+    const s5projects = (await api('/api/projects')).projects;
+    const s5devhub = s5projects.find((p) => p.project?.id === devhubProject.id);
+    assert(
+      s5devhub?.project?.lastShippedTitle === s5done.title,
+      `project last-shipped updated ("${s5devhub?.project?.lastShippedTitle}")`
+    );
+    await screenshot(cdp, sessionId, 's5-topic-flow');
+
     cdp.close();
     console.log('\n────────────────────────────────────────────');
-    console.log('E2E PASS — unified Work flow behaves as designed');
+    console.log('E2E PASS — unified Work flow + Projects & Topics cockpit behave as designed');
     console.log('────────────────────────────────────────────');
   } finally {
     chrome.kill('SIGTERM');

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { relTime, repoColor } from '@/lib/board-ui';
 import type { Project, Topic } from '@/lib/types';
@@ -363,9 +364,9 @@ function ProjectCard({
           <button type="button" className="ghost" onClick={onAddIdea}>
             Add idea
           </button>
-          <button type="button" className="ghost" onClick={onSelect}>
-            {selected ? 'All projects ↑' : 'Board →'}
-          </button>
+          <Link href={`/projects/${project.id}`} className="ghost card-primary-link">
+            Board →
+          </Link>
         </div>
       )}
     </div>

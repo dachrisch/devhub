@@ -48,6 +48,8 @@ export default function ProjectBoardPage() {
   const [ideaOpen, setIdeaOpen] = useState(false);
   const [ideaTitle, setIdeaTitle] = useState('');
   const [ideaBusy, setIdeaBusy] = useState(false);
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [promotingId, setPromotingId] = useState<number | null>(null);
 
   const { user, loading, denied, logout } = useAuth();
   const isMobile = useMediaQuery(MOBILE_QUERY);
@@ -142,7 +144,19 @@ export default function ProjectBoardPage() {
   }, [signedIn, validId, fetchTopics]);
 
   // Live updates: only issues belonging to this project touch the board; a
-  // `topic`/`project` id-notification refreshes the rail.
+  // `topic`/`project` id-notification refreshes the rail; a `run` event
+  // re-fetches the issue list so per-run PR chips stay live (devhub#167).
+  const refetchIssues = useCallback(async () => {
+    try {
+      const res = await fetch('/api/issues');
+      if (!res.ok) return;
+      const data = (await res.json()) as { issues: Issue[] };
+      setIssues(data.issues);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     if (!signedIn || !validId) return;
     const es = new EventSource('/api/stream');
@@ -172,13 +186,15 @@ export default function ProjectBoardPage() {
           });
         } else if (msg.type === 'topic' || msg.type === 'project') {
           void fetchTopics();
+        } else if (msg.type === 'run') {
+          void refetchIssues();
         }
       } catch {
         // ignore malformed
       }
     };
     return () => es.close();
-  }, [signedIn, validId, projectId, clearJustStarted, fetchTopics]);
+  }, [signedIn, validId, projectId, clearJustStarted, fetchTopics, refetchIssues]);
 
   const scopedIssues = useMemo(
     () =>
@@ -248,6 +264,43 @@ export default function ProjectBoardPage() {
       setIdeaBusy(false);
     }
   }, [ideaTitle, ideaBusy, projectId, fetchTopics]);
+
+  const suggestNext = useCallback(async () => {
+    if (!validId || suggestBusy) return;
+    setSuggestBusy(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/suggest`, { method: 'POST' });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `suggest failed (HTTP ${res.status})`);
+      }
+      await fetchTopics();
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSuggestBusy(false);
+    }
+  }, [validId, projectId, suggestBusy, fetchTopics]);
+
+  const promoteTopic = useCallback(
+    async (topicId: number) => {
+      setPromotingId(topicId);
+      try {
+        const res = await fetch(`/api/topics/${topicId}/promote`, { method: 'POST' });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(data?.error ?? `promote failed (HTTP ${res.status})`);
+        }
+        await fetchTopics();
+        await refetchIssues();
+      } catch (err) {
+        setRefreshError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setPromotingId(null);
+      }
+    },
+    [fetchTopics, refetchIssues]
+  );
 
   const advanceSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
@@ -459,6 +512,9 @@ export default function ProjectBoardPage() {
 
         <div className="topics-rail" role="toolbar" aria-label="Topics">
           <span className="released-label">Topics</span>
+          <button type="button" className="ghost" disabled={suggestBusy} onClick={() => void suggestNext()} title="Propose the next feature as a suggested topic">
+            {suggestBusy ? 'Suggesting…' : 'Suggest next'}
+          </button>
           <div className="topics-groups">
             {TOPIC_GROUPS.map(({ status, label }) => {
               const items = topics.filter((t) => t.status === status);
@@ -468,14 +524,26 @@ export default function ProjectBoardPage() {
                   <span className="topics-group-label">{label}</span>
                   <div className="topics-chips">
                     {items.map((t) => (
-                      <button
-                        key={t.id}
-                        className={`topic-chip${topicFilter === t.id ? ' active' : ''}`}
-                        onClick={() => setTopicFilter(topicFilter === t.id ? null : t.id)}
-                        title={t.notes ?? t.title}
-                      >
-                        {t.title}
-                      </button>
+                      <span key={t.id} className="topic-chip-wrap">
+                        <button
+                          className={`topic-chip${topicFilter === t.id ? ' active' : ''}`}
+                          onClick={() => setTopicFilter(topicFilter === t.id ? null : t.id)}
+                          title={t.notes ?? t.title}
+                        >
+                          {t.title}
+                        </button>
+                        {(status === 'idea' || status === 'shipped') && (
+                          <button
+                            type="button"
+                            className="ghost topic-promote"
+                            disabled={promotingId === t.id}
+                            onClick={() => void promoteTopic(t.id)}
+                            title={status === 'idea' ? 'Promote to a GitHub issue' : 'Promote again as a follow-up issue'}
+                          >
+                            {promotingId === t.id ? '…' : '→ issue'}
+                          </button>
+                        )}
+                      </span>
                     ))}
                   </div>
                 </div>
