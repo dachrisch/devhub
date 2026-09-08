@@ -13,10 +13,13 @@ import { KanbanBoard } from '@/components/board/kanban-board';
 import { BoardToolbar } from '@/components/board/board-toolbar';
 
 // Staleness is irrelevant here; sorting/grouping is by status then recency.
+// Dropped ideas stay hidden behind search; every other status gets a group.
 const TOPIC_GROUPS: { status: Topic['status']; label: string }[] = [
-  { status: 'idea', label: 'Ideas' },
-  { status: 'active', label: 'Active' },
-  { status: 'shipped', label: 'Shipped' },
+  { status: 'new', label: 'New' },
+  { status: 'shaping', label: 'Shaping' },
+  { status: 'ready', label: 'Ready' },
+  { status: 'realizing', label: 'Realizing' },
+  { status: 'shipped', label: 'Delivered' },
 ];
 
 function statusBadge(status: string | null): string {
@@ -532,13 +535,16 @@ export default function ProjectBoardPage() {
                         >
                           {t.title}
                         </button>
-                        {(status === 'idea' || status === 'shipped') && (
+                        <Link href={`/topics/${t.id}`} className="ghost topic-open" title={`Open idea #${t.id}`}>
+                          open →
+                        </Link>
+                        {(status === 'new' || status === 'shipped') && (
                           <button
                             type="button"
                             className="ghost topic-promote"
                             disabled={promotingId === t.id}
                             onClick={() => void promoteTopic(t.id)}
-                            title={status === 'idea' ? 'Promote to a GitHub issue' : 'Promote again as a follow-up issue'}
+                            title={status === 'new' ? 'Promote to a GitHub issue' : 'Promote again as a follow-up issue'}
                           >
                             {promotingId === t.id ? '…' : '→ issue'}
                           </button>

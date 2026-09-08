@@ -367,7 +367,9 @@ describe('projects & topics (devhub#167)', () => {
     const project = store.createProject({ name: 'proj-topics' });
     const inbox = store.createTopic({ title: 'Inbox idea' });
     expect(inbox.projectId).toBeNull();
-    expect(inbox.status).toBe('idea');
+    expect(inbox.status).toBe('new');
+    expect(inbox.shapedSummary).toBeNull();
+    expect(inbox.mergedIntoTopicId).toBeNull();
 
     const moved = store.updateTopic(inbox.id, { projectId: project.id, area: 'api' })!;
     expect(moved.projectId).toBe(project.id);
@@ -385,8 +387,8 @@ describe('projects & topics (devhub#167)', () => {
     });
     const issue = store.getIssueByGithub('acme', 'topic-repo', 3)!;
     store.assignIssue(issue.id, { projectId: project.id, topicId: inbox.id });
-    // Open work flips the topic to active.
-    expect(store.refreshTopicStatus(inbox.id)?.status).toBe('active');
+    // Open work flips the topic to realizing.
+    expect(store.refreshTopicStatus(inbox.id)?.status).toBe('realizing');
     // Settling every linked issue ships the topic.
     store.setRollout(issue.id, 'v9.9.9');
     expect(store.refreshTopicStatus(inbox.id)?.status).toBe('shipped');
@@ -424,5 +426,38 @@ describe('projects & topics (devhub#167)', () => {
     expect(again).toHaveLength(2);
     expect(again.find((r) => r.role === 'service')?.state).toBe('pr');
     expect(store.getRunsForIssue(issue.id).map((r) => r.role).sort()).toEqual(['infra', 'service']);
+  });
+
+  it('keeps new|shaping|ready topics untouched when they have no linked issues', () => {
+    const shaping = store.createTopic({ title: 'Shaping idea', status: 'shaping' });
+    const ready = store.createTopic({ title: 'Ready idea', status: 'ready' });
+    expect(store.refreshTopicStatus(shaping.id)?.status).toBe('shaping');
+    expect(store.refreshTopicStatus(ready.id)?.status).toBe('ready');
+  });
+
+  it('links duplicates via mergeTopic (dropped + winner pointer)', () => {
+    const winner = store.createTopic({ title: 'Winner idea' });
+    const loser = store.createTopic({ title: 'Duplicate idea' });
+    const merged = store.mergeTopic(loser.id, winner.id)!;
+    expect(merged.status).toBe('dropped');
+    expect(merged.mergedIntoTopicId).toBe(winner.id);
+    expect(store.getTopic(loser.id)?.mergedIntoTopicId).toBe(winner.id);
+    expect(store.mergeTopic(loser.id, loser.id)).toBeNull();
+  });
+
+  it('persists shaped summaries and per-project auto_merge', () => {
+    const project = store.createProject({ name: 'proj-phase1', autoMerge: false });
+    expect(project.autoMerge).toBe(false);
+    expect(store.updateProject(project.id, { autoMerge: true })?.autoMerge).toBe(true);
+
+    const topic = store.createTopic({ title: 'Shaped', shapedSummary: 'So far: fast sync' });
+    expect(topic.shapedSummary).toBe('So far: fast sync');
+    expect(store.updateTopic(topic.id, { shapedSummary: 'So far: faster' })?.shapedSummary).toBe(
+      'So far: faster'
+    );
+    expect(store.getActiveTopicsForProject(project.id)).toHaveLength(0);
+    const assigned = store.updateTopic(topic.id, { projectId: project.id })!;
+    expect(assigned.projectId).toBe(project.id);
+    expect(store.getActiveTopicsForProject(project.id).map((t) => t.id)).toContain(topic.id);
   });
 });

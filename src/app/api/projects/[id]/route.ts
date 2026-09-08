@@ -65,6 +65,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
     patch.statusOverride = body.statusOverride === null ? null : String(body.statusOverride);
   }
   if (body.releaseMode !== undefined) patch.releaseMode = body.releaseMode;
+  if (body.autoMerge !== undefined) patch.autoMerge = body.autoMerge !== false;
   if (body.config !== undefined) patch.config = body.config;
 
   const project = updateProject(projectId, patch);

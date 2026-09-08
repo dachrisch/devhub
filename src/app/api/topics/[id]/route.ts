@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { deleteTopic, getProject, getTopic, refreshTopicStatus, updateTopic, type Topic } from '@/lib/store';
 import { publishTopic } from '@/lib/sse';
 import { getSession, requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
-import { TOPIC_STATUSES, type TopicStatus } from '@/lib/types';
+import { normalizeTopicStatus } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,6 +47,10 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
     patch.title = title;
   }
   if (body.notes !== undefined) patch.notes = body.notes === null ? null : String(body.notes);
+  if (body.shapedSummary !== undefined || body.shaped_summary !== undefined) {
+    const raw = body.shapedSummary !== undefined ? body.shapedSummary : body.shaped_summary;
+    patch.shapedSummary = raw === null ? null : String(raw).trim() ? String(raw).trim() : null;
+  }
   if (body.area !== undefined) patch.area = body.area === null ? null : String(body.area).trim() || null;
   if (body.projectId !== undefined) {
     if (body.projectId === null) {
@@ -60,10 +64,17 @@ export async function PATCH(req: NextRequest, ctx: RouteContext): Promise<NextRe
     }
   }
   if (body.status !== undefined) {
-    if (!(TOPIC_STATUSES as readonly string[]).includes(String(body.status))) {
+    const normalized = normalizeTopicStatus(body.status);
+    if (!normalized) {
       return NextResponse.json({ error: 'invalid status' }, { status: 400 });
     }
-    patch.status = body.status as TopicStatus;
+    patch.status = normalized;
+    // Marking an idea ready stamps ready_at (cleared when leaving ready).
+    if (normalized === 'ready' && !existing.readyAt) {
+      patch.readyAt = new Date().toISOString();
+    } else if (normalized !== 'ready' && existing.readyAt) {
+      patch.readyAt = null;
+    }
   }
 
   // An explicit status change (e.g. drop) wins; only auto-derive otherwise.

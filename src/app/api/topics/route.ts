@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createTopic, getProject, getTopics, type Topic } from '@/lib/store';
 import { publishTopic } from '@/lib/sse';
 import { getSession, requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
-import { TOPIC_STATUSES, type TopicStatus } from '@/lib/types';
+import { normalizeTopicStatus } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,10 +22,11 @@ export async function GET(req: NextRequest): Promise<NextResponse<{ topics: Topi
     filter.projectId = projectId;
   }
   if (statusParam) {
-    if (!(TOPIC_STATUSES as readonly string[]).includes(statusParam)) {
+    const normalized = normalizeTopicStatus(statusParam);
+    if (!normalized) {
       return NextResponse.json({ error: 'invalid status' }, { status: 400 });
     }
-    filter.status = statusParam as TopicStatus;
+    filter.status = normalized;
   }
   if (areaParam) filter.area = areaParam;
   return NextResponse.json({ topics: getTopics(filter) });
@@ -53,10 +54,17 @@ export async function POST(req: NextRequest): Promise<NextResponse<{ topic: Topi
     }
   }
   const origin = body.origin === 'suggested' ? 'suggested' : 'manual';
+  const shapedSummary =
+    typeof body.shapedSummary === 'string' && body.shapedSummary.trim()
+      ? body.shapedSummary.trim()
+      : typeof body.shaped_summary === 'string' && body.shaped_summary.trim()
+        ? (body.shaped_summary as string).trim()
+        : null;
 
   const topic = createTopic({
     title,
     notes: typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null,
+    shapedSummary,
     projectId,
     area: typeof body.area === 'string' && body.area.trim() ? body.area.trim() : null,
     origin,

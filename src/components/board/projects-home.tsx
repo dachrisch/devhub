@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { relTime, repoColor } from '@/lib/board-ui';
-import type { Project, Topic } from '@/lib/types';
+import { ACTIVE_IDEA_STATUSES, TOPIC_STATUS_LABELS, type Project, type Topic } from '@/lib/types';
 import type { ProjectSummary } from '@/lib/project-status';
 
 interface ProjectsHomeProps {
@@ -37,7 +37,10 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
       }
       if (inboxRes.ok) {
         const data = (await inboxRes.json()) as { topics?: Topic[] };
-        if (data.topics) setInbox(data.topics.filter((t) => t.status === 'idea'));
+        if (data.topics)
+          setInbox(
+            data.topics.filter((t) => (ACTIVE_IDEA_STATUSES as readonly string[]).includes(t.status))
+          );
       }
       setError(null);
     } catch (err) {
@@ -141,7 +144,7 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
       ) : (
         <>
           <div className="projects-grid">
-            {summaries.map(({ project, status, needsInput, inFlight, prCount, ideas }) => (
+            {summaries.map(({ project, status, needsInput, inFlight, prCount, ideas, recentIdeas }) => (
               <ProjectCard
                 key={project.id}
                 project={project}
@@ -150,6 +153,7 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
                 inFlight={inFlight}
                 prCount={prCount}
                 ideas={ideas}
+                recentIdeas={recentIdeas ?? []}
                 selected={selectedId === project.id}
                 onSelect={() => onSelect(selectedId === project.id ? null : project.id)}
                 ideaOpen={ideaFor === project.id}
@@ -233,7 +237,9 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
               <div className="inbox-list">
                 {inbox.map((topic) => (
                   <span key={topic.id} className="inbox-item">
-                    <span className="released-title">{topic.title}</span>
+                    <Link href={`/topics/${topic.id}`} className="released-title">
+                      {topic.title}
+                    </Link>
                     <select
                       className="inbox-assign"
                       defaultValue=""
@@ -270,6 +276,7 @@ function ProjectCard({
   inFlight,
   prCount,
   ideas,
+  recentIdeas,
   selected,
   onSelect,
   ideaOpen,
@@ -286,6 +293,7 @@ function ProjectCard({
   inFlight: number;
   prCount: number;
   ideas: number;
+  recentIdeas: Topic[];
   selected: boolean;
   onSelect: () => void;
   ideaOpen: boolean;
@@ -337,6 +345,23 @@ function ProjectCard({
           </span>
         </div>
       )}
+      <div className="project-card-ideas" aria-label={`Ideas for ${project.name}`}>
+        <span className="released-label">Ideas ({ideas})</span>
+        {recentIdeas.length > 0 ? (
+          <ul className="project-ideas-list">
+            {recentIdeas.map((idea) => (
+              <li key={idea.id} className="project-idea-item">
+                <Link href={`/topics/${idea.id}`} className="project-idea-link" title={idea.shapedSummary ?? idea.notes ?? idea.title}>
+                  {idea.title}
+                </Link>
+                <span className="project-idea-status">{TOPIC_STATUS_LABELS[idea.status] ?? idea.status}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="project-ideas-empty">no ideas yet</div>
+        )}
+      </div>
       {ideaOpen ? (
         <div className="project-idea-form">
           <input

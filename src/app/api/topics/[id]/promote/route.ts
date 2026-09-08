@@ -53,7 +53,7 @@ export async function POST(
     });
     const withLinks = assignIssue(stored.id, { projectId: project!.id, topicId: topic.id });
     publishIssue(withLinks ?? getIssueByGithub(owner, repo, created.number)!);
-    updateTopic(topic.id, { status: 'active' });
+    updateTopic(topic.id, { status: 'realizing' });
     refreshTopicStatus(topic.id);
     publishTopic(topic.id);
     return NextResponse.json({ issue: withLinks ?? stored, url: created.htmlUrl });
