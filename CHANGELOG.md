@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.21.0](https://github.com/dachrisch/devhub/compare/v1.20.0...v1.21.0) (2026-09-08)
+
+
+### Features
+
+* **ideas:** auto-merge when green + per-project toggle (devhub[#171](https://github.com/dachrisch/devhub/issues/171) phase 4) ([f08c571](https://github.com/dachrisch/devhub/commit/f08c571cf2b5a04d5b8c004bc1984b70b7e045d1))
+* **ideas:** one-click Realize with sweep wait + timeline (devhub[#171](https://github.com/dachrisch/devhub/issues/171) phase 3) ([2d7c9f7](https://github.com/dachrisch/devhub/commit/2d7c9f7899c27f76f20118817d213237fac53055))
+* **ideas:** prominent ideas, topic page, merge/archive (devhub[#171](https://github.com/dachrisch/devhub/issues/171) phase 1) ([3f9e907](https://github.com/dachrisch/devhub/commit/3f9e907e545311596620d30a150a8b994f624c82))
+* **ideas:** shaping loop with options thread (devhub[#171](https://github.com/dachrisch/devhub/issues/171) phase 2) ([fa63e5d](https://github.com/dachrisch/devhub/commit/fa63e5d1785b12deed55f0348779b7e430fc8dd7))
+
 ## [1.20.0](https://github.com/dachrisch/devhub/compare/v1.19.2...v1.20.0) (2026-09-07)
 
 
