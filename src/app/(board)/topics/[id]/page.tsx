@@ -3,16 +3,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import type { Issue, Project, Topic } from '@/lib/types';
+import type { IdeaMessage, Issue, Project, Topic } from '@/lib/types';
 import { TOPIC_STATUS_LABELS } from '@/lib/types';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
 
-// Ideas-first read page (devhub#171 Phase 1): header with plain status,
-// shaped summary ("So far"), archive / merge-into links, and the hidden
-// execution layer as an expandable "How it was built" section. The shaping
-// chat loop (Phase 2) and one-click Realize (Phase 3) land on this page later.
+// Idea page, the chat home (devhub#171 Phase 2): header with plain status,
+// shaped summary ("So far"), the options thread (hub proposals with one-click
+// Choose + free-text reply box), footer actions (Realize lands in Phase 3,
+// Mark ready / Archive / Merge into live now), and the hidden execution layer
+// as an expandable "How it was built" section.
 export default function TopicDetailPage() {
   const params = useParams<{ id: string }>();
   const topicId = Number(params.id);
@@ -22,14 +23,33 @@ export default function TopicDetailPage() {
   const [topic, setTopic] = useState<Topic | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [messages, setMessages] = useState<IdeaMessage[]>([]);
   const [winner, setWinner] = useState<Topic | null>(null);
   const [candidates, setCandidates] = useState<Topic[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [mergeInto, setMergeInto] = useState('');
   const [showMerge, setShowMerge] = useState(false);
+  const [reply, setReply] = useState('');
+  const [replyBusy, setReplyBusy] = useState(false);
+  const [chooseBusy, setChooseBusy] = useState<string | null>(null);
+  const [readyBusy, setReadyBusy] = useState(false);
   const { user, loading, denied, logout } = useAuth();
   const signedIn = Boolean(user);
+  const threadLocked =
+    topic != null && (topic.status === 'dropped' || topic.status === 'shipped' || topic.status === 'realizing');
+
+  const fetchMessages = useCallback(async () => {
+    if (!validId || !signedIn) return;
+    try {
+      const res = await fetch(`/api/topics/${topicId}/messages`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { messages?: IdeaMessage[] };
+      if (data.messages) setMessages(data.messages);
+    } catch {
+      // ignore — the thread is best-effort next to the topic header
+    }
+  }, [validId, signedIn, topicId]);
 
   const fetchAll = useCallback(async () => {
     if (!validId || !signedIn) return;
@@ -72,10 +92,11 @@ export default function TopicDetailPage() {
         const issData = (await issRes.json()) as { issues: Issue[] };
         setIssues(issData.issues.filter((i) => i.topicId === topicId));
       }
+      await fetchMessages();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [validId, signedIn, topicId]);
+  }, [validId, signedIn, topicId, fetchMessages]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -88,14 +109,18 @@ export default function TopicDetailPage() {
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
-        if (msg.type === 'topic' && Number(msg.topicId) === topicId) void fetchAll();
-        else if (msg.type === 'issue' && (msg.issue as Issue).topicId === topicId) void fetchAll();
+        if (
+          (msg.type === 'topic' || msg.type === 'idea-status' || msg.type === 'idea-message') &&
+          Number(msg.topicId) === topicId
+        ) {
+          void fetchAll();
+        } else if (msg.type === 'issue' && (msg.issue as Issue).topicId === topicId) void fetchAll();
       } catch {
         // ignore
       }
     };
     return () => es.close();
-  }, [signedIn, validId, topicId, fetchAll]);
+  }, [signedIn, validId, topicId, fetchAll, fetchMessages]);
 
   const archive = useCallback(async () => {
     if (busy) return;
@@ -141,6 +166,70 @@ export default function TopicDetailPage() {
       setBusy(false);
     }
   }, [mergeInto, busy, topicId, fetchAll]);
+
+  const sendReply = useCallback(async () => {
+    const text = reply.trim();
+    if (!text || replyBusy) return;
+    setReplyBusy(true);
+    try {
+      const res = await fetch(`/api/topics/${topicId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: text }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `reply failed (HTTP ${res.status})`);
+      }
+      setReply('');
+      await fetchAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReplyBusy(false);
+    }
+  }, [reply, replyBusy, topicId, fetchAll]);
+
+  const chooseOption = useCallback(
+    async (optionId: string) => {
+      if (chooseBusy) return;
+      setChooseBusy(optionId);
+      try {
+        const res = await fetch(`/api/topics/${topicId}/choose`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ optionId }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(data?.error ?? `choose failed (HTTP ${res.status})`);
+        }
+        await fetchAll();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setChooseBusy(null);
+      }
+    },
+    [chooseBusy, topicId, fetchAll]
+  );
+
+  const markReady = useCallback(async () => {
+    if (readyBusy) return;
+    setReadyBusy(true);
+    try {
+      const res = await fetch(`/api/topics/${topicId}/ready`, { method: 'POST' });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `mark ready failed (HTTP ${res.status})`);
+      }
+      await fetchAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReadyBusy(false);
+    }
+  }, [readyBusy, topicId, fetchAll]);
 
   if (!signedIn) {
     return (
@@ -216,6 +305,67 @@ export default function TopicDetailPage() {
                 <p>{topic.shapedSummary ?? topic.notes}</p>
               </div>
             )}
+            <div className="topic-thread" aria-label="Shaping conversation">
+              {messages.length === 0 ? (
+                <div className="empty">shaping the idea… options appear here</div>
+              ) : (
+                messages.map((m) => (
+                  <div key={m.id} className={`topic-msg topic-msg-${m.role}`}>
+                    <div className="topic-msg-role">{m.role === 'user' ? 'You' : m.role === 'assistant' ? 'Hub' : 'Note'}</div>
+                    <div className="topic-msg-body">{m.body}</div>
+                    {m.options && m.options.length > 0 && (
+                      <ul className="topic-options">
+                        {m.options.map((o) => {
+                          const chosen = m.chosenOption === o.id;
+                          return (
+                            <li key={o.id} className={`topic-option${chosen ? ' chosen' : ''}`}>
+                              <div className="topic-option-title">{o.title}</div>
+                              {o.desc && <div className="topic-option-desc">{o.desc}</div>}
+                              {o.tradeoff && <div className="topic-option-tradeoff">Cost: {o.tradeoff}</div>}
+                              {!threadLocked &&
+                                (chosen ? (
+                                  <span className="topic-option-picked">✓ Chosen</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="ghost"
+                                    disabled={chooseBusy === o.id}
+                                    onClick={() => void chooseOption(o.id)}
+                                  >
+                                    {chooseBusy === o.id ? 'Choosing…' : 'Choose'}
+                                  </button>
+                                ))}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            {!threadLocked && (
+              <div className="topic-reply">
+                <textarea
+                  className="search topic-reply-input"
+                  placeholder="…or describe it your way"
+                  value={reply}
+                  rows={2}
+                  onChange={(e) => setReply(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void sendReply();
+                  }}
+                />
+                <button
+                  type="button"
+                  className="card-primary"
+                  disabled={!reply.trim() || replyBusy}
+                  onClick={() => void sendReply()}
+                >
+                  {replyBusy ? 'Sending…' : 'Send'}
+                </button>
+              </div>
+            )}
             {topic.status === 'dropped' && (
               <div className="banner" role="status">
                 <span>
@@ -242,6 +392,11 @@ export default function TopicDetailPage() {
               <button type="button" className="card-primary" disabled title="One-click Realize lands in Phase 3 — promote from the project board for now">
                 Realize it
               </button>
+              {!threadLocked && topic.status !== 'ready' && (
+                <button type="button" className="ghost" disabled={readyBusy} onClick={() => void markReady()}>
+                  {readyBusy ? 'Marking…' : "I'm happy — it's ready"}
+                </button>
+              )}
               <button type="button" className="ghost" disabled={busy || topic.status === 'dropped'} onClick={() => void archive()}>
                 {busy ? 'Working…' : 'Archive'}
               </button>

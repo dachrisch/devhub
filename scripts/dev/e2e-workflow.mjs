@@ -12,6 +12,8 @@
 //   S4  batch work      "Work on selected" advances two backlog cards → pr
 //   S5  topic flow      idea → promote → work → pr (+run timeline) → mark
 //                       shipped → rollout → project last-shipped updated
+//   S6  shaping loop    idea → 3 options → choose → summary updates → reply →
+//                       next options → ready (devhub#171 Phase 2)
 //   guard               no `blocked` column exists anywhere on the board
 //
 // The flat board is gone (devhub#167): S1-S4 drive the per-project boards at
@@ -473,6 +475,68 @@ async function main() {
       `project last-shipped updated ("${s5devhub?.project?.lastShippedTitle}")`
     );
     await screenshot(cdp, sessionId, 's5-topic-flow');
+
+    // ── S6: shaping loop (devhub#171 Phase 2) ─────────────────────────────
+    // create idea → 3 options → choose → summary updates → reply → ready.
+    console.log('\nS6: idea → options → choose → reply → ready');
+    await setScenario({ shape: 'options' });
+    const shaping = await api('/api/topics', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'E2E shaping: sync highlights', projectId: devhubProject.id }),
+    });
+    const shapingId = shaping.topic?.id;
+    assert(shapingId, 'shaping idea created');
+
+    async function waitForOptionRounds(topicId, rounds, label, timeoutMs = 60000) {
+      const deadline = Date.now() + timeoutMs;
+      let last = null;
+      while (Date.now() < deadline) {
+        last = (await api(`/api/topics/${topicId}/messages`)).messages;
+        const withOptions = (last ?? []).filter((m) => m.role === 'assistant' && (m.options?.length ?? 0) > 0);
+        if (withOptions.length >= rounds) return withOptions;
+        await wait(500);
+      }
+      throw new Error(`timeout waiting for ${label}; last=${JSON.stringify(last)}`);
+    }
+
+    const firstRounds = await waitForOptionRounds(shapingId, 1, 'first shaping round');
+    assert(firstRounds[0].options.length === 3, `first round offers 3 options (${firstRounds[0].options.map((o) => o.id).join(',')})`);
+    const afterShape = (await api(`/api/topics/${shapingId}`)).topic;
+    assert(afterShape.status === 'shaping', `topic is shaping (got ${afterShape.status})`);
+    assert(afterShape.shapedSummary?.includes('Mock-shaped'), 'shaped summary written ("So far")');
+
+    const picked = firstRounds[0].options[1];
+    const chosen = await api(`/api/topics/${shapingId}/choose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ optionId: picked.id }),
+    });
+    assert(chosen.topic?.shapedSummary?.includes(picked.title), `choose rewrites the summary to "${picked.title}"`);
+    const threadAfterChoose = (await api(`/api/topics/${shapingId}/messages`)).messages;
+    assert(
+      threadAfterChoose.find((m) => m.id === firstRounds[0].id)?.chosenOption === picked.id,
+      'pick recorded on the options message'
+    );
+
+    await api(`/api/topics/${shapingId}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ body: 'cheaper is better' }),
+    });
+    const secondRounds = await waitForOptionRounds(shapingId, 2, 'second shaping round');
+    assert(secondRounds[1].options.length === 3, 'reply triggers a second options round');
+
+    const ready = await api(`/api/topics/${shapingId}/ready`, { method: 'POST' });
+    assert(ready.topic?.status === 'ready' && ready.topic?.readyAt, 'idea marked ready with readyAt');
+
+    await gotoBoard(`${base}/topics/${shapingId}`, 'idea page (S6)');
+    const s6dom = await waitForDom(
+      cdp, sessionId, 'document.body.innerText', 'idea page thread render',
+      15000, (t) => typeof t === 'string' && t.includes(picked.title) && t.includes('Ready')
+    );
+    assert(s6dom.includes('Choose') || s6dom.includes('Chosen'), 'idea page shows the options thread');
+    await screenshot(cdp, sessionId, 's6-shaping-loop');
 
     cdp.close();
     console.log('\n────────────────────────────────────────────');

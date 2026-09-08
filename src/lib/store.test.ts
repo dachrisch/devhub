@@ -460,4 +460,22 @@ describe('projects & topics (devhub#167)', () => {
     expect(assigned.projectId).toBe(project.id);
     expect(store.getActiveTopicsForProject(project.id).map((t) => t.id)).toContain(topic.id);
   });
+
+  it('keeps the options thread in order and records picks', () => {
+    const topic = store.createTopic({ title: 'Threaded' });
+    expect(store.getIdeaMessages(topic.id)).toHaveLength(0);
+    const user = store.appendIdeaMessage(topic.id, 'user', 'my idea is sync');
+    expect(user.role).toBe('user');
+    expect(user.options).toBeNull();
+    const hub = store.appendIdeaMessage(topic.id, 'assistant', 'Which way?', [
+      { id: 'opt-1', title: 'Light', desc: 'Fast', tradeoff: null },
+      { id: 'opt-2', title: 'Full', desc: 'Slow', tradeoff: 'Costly' },
+    ]);
+    expect(hub.options).toHaveLength(2);
+    expect(store.getIdeaMessages(topic.id).map((m) => m.role)).toEqual(['user', 'assistant']);
+    expect(store.chooseIdeaOption(hub.id, 'opt-2')?.chosenOption).toBe('opt-2');
+    expect(store.chooseIdeaOption(hub.id, 'opt-9')).toBeNull();
+    store.deleteTopic(topic.id);
+    expect(store.getIdeaMessages(topic.id)).toHaveLength(0);
+  });
 });

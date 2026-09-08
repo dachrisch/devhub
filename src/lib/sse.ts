@@ -1,4 +1,4 @@
-import type { Issue } from './types';
+import type { IdeaMessage, Issue, TopicStatus } from './types';
 import type { OpencodeEvent } from './opencode';
 
 export type ServerEvent =
@@ -11,6 +11,10 @@ export type ServerEvent =
   | { type: 'project'; projectId: number }
   | { type: 'topic'; topicId: number }
   | { type: 'run'; runId: number; issueId: number }
+  // Ideas-first shaping loop (devhub#171 Phase 2): the idea page hydrates the
+  // thread via GET /api/topics/[id]/messages on these notifications.
+  | { type: 'idea-message'; topicId: number; messageId: number }
+  | { type: 'idea-status'; topicId: number; status: TopicStatus }
   | { type: 'hello'; now: string };
 
 type Listener = (event: ServerEvent) => void;
@@ -58,6 +62,14 @@ export function publishProject(projectId: number): void {
 
 export function publishTopic(topicId: number): void {
   broadcaster.publish({ type: 'topic', topicId });
+}
+
+export function publishIdeaMessage(topicId: number, message: IdeaMessage): void {
+  broadcaster.publish({ type: 'idea-message', topicId, messageId: message.id });
+}
+
+export function publishIdeaStatus(topicId: number, status: TopicStatus): void {
+  broadcaster.publish({ type: 'idea-status', topicId, status });
 }
 
 export function publishRun(runId: number, issueId: number): void {

@@ -72,4 +72,10 @@ describe('router', () => {
       parseIntent(JSON.stringify({ action: 'promote', confidence: 0.9, params: { topicId: 3 } })).action
     ).toBe('promote');
   });
+
+  it('parses the shape-idea shaping intent (devhub#171)', () => {
+    const result = parseIntent(JSON.stringify({ action: 'shape-idea', confidence: 0.88, params: { topicId: 5 } }));
+    expect(result.action).toBe('shape-idea');
+    expect(result.params.topicId).toBe(5);
+  });
 });

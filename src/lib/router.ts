@@ -10,7 +10,7 @@ export interface ActionIntent {
 
 const ROUTER_PROMPT = `You are a command classifier for DevHub, a development cockpit.
 
-The user can do 8 things:
+The user can do 9 things:
 - launch: Create something new and put it live (new service, new site, new worker)
 - fix: Resolve a problem and open a PR (bugs, issues, errors)
 - create: File a new GitHub issue (create issue, file bug, new issue in <repo>)
@@ -19,12 +19,13 @@ The user can do 8 things:
 - topic: Save a feature idea without filing a GitHub issue yet (idea for <project>, feature idea)
 - suggest: Propose the next feature for a project (suggest, what's next for <project>)
 - promote: Bring a saved idea to the board as a real GitHub issue (promote topic <id>)
+- shape-idea: Talk through a saved idea and propose shaped options (shape topic <id>, options for my idea)
 
-Classify the user's input into one of these 8 actions.
+Classify the user's input into one of these 9 actions.
 
 Respond with ONLY a JSON object (no markdown, no explanation):
 {
-  "action": "<launch|fix|create|write|show|topic|suggest|promote|unknown>",
+  "action": "<launch|fix|create|write|show|topic|suggest|promote|shape-idea|unknown>",
   "confidence": <0.0 to 1.0>,
   "params": { extracted parameters }
 }
@@ -37,6 +38,7 @@ Rules:
 - "topic" needs params.title (params.projectName or params.projectId optional, params.notes optional) — never file a GitHub issue for it
 - "suggest" needs params.projectName or params.projectId
 - "promote" needs params.topicId
+- "shape-idea" needs params.topicId (free text about an existing idea is shaping, not a new topic)
 - "unknown" action for unrecognized inputs. NEVER silently map free text to "topic": only explicit idea-like input is "topic".
 `;
 
@@ -63,7 +65,7 @@ export function parseIntent(raw: string): ActionIntent {
   try {
     const parsed = JSON.parse(cleaned) as Record<string, unknown>;
     const action = typeof parsed.action === 'string' ? parsed.action : 'unknown';
-    const validActions: string[] = ['launch', 'fix', 'create', 'write', 'show', 'topic', 'suggest', 'promote'];
+    const validActions: string[] = ['launch', 'fix', 'create', 'write', 'show', 'topic', 'suggest', 'promote', 'shape-idea'];
     return {
       action: validActions.includes(action) ? action as ActionType : 'unknown',
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createTopic, getProject, getTopics, type Topic } from '@/lib/store';
-import { publishTopic } from '@/lib/sse';
+import { appendIdeaMessage, createTopic, getProject, getTopics, type Topic } from '@/lib/store';
+import { publishIdeaMessage, publishTopic } from '@/lib/sse';
+import { runShapingRound } from '@/lib/shape-idea';
 import { getSession, requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
 import { normalizeTopicStatus } from '@/lib/types';
 
@@ -70,5 +71,16 @@ export async function POST(req: NextRequest): Promise<NextResponse<{ topic: Topi
     origin,
   });
   publishTopic(topic.id);
+  // Shaping loop (devhub#171 Phase 2): the idea page opens on the `new`
+  // topic immediately (sync contract kept) while the first shaping round
+  // runs fire-and-forget and lands via `idea-message`/`idea-status` SSE.
+  // One-shot callers (cockpit skills, suggest) create via the store directly
+  // and stay on `new` with no thread.
+  const firstBody = [title, typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null]
+    .filter(Boolean)
+    .join('\n\n');
+  const first = appendIdeaMessage(topic.id, 'user', firstBody || title);
+  publishIdeaMessage(topic.id, first);
+  void runShapingRound(topic.id);
   return NextResponse.json({ topic });
 }

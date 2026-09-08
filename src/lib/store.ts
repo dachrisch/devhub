@@ -1,12 +1,17 @@
 import Database from 'better-sqlite3';
 import { ENV } from './env';
 import {
+  serializeIdeaMessage,
   serializeIssue,
   serializeProject,
   serializeRun,
   serializeTopic,
   type DevelopRun,
   type DevelopRunRow,
+  type IdeaMessage,
+  type IdeaMessageRole,
+  type IdeaMessageRow,
+  type IdeaOption,
   type Issue,
   type IssueEvent,
   type IssueRow,
@@ -25,6 +30,9 @@ import {
 
 export type {
   DevelopRun,
+  IdeaMessage,
+  IdeaMessageRole,
+  IdeaOption,
   Issue,
   IssueEvent,
   IssueState,
@@ -273,6 +281,20 @@ function migrate(database: Database.Database): void {
   // for topics with an open thread, so legacy one-shot ideas land on `new`.
   database.exec(`UPDATE topics SET status = 'new' WHERE status = 'idea'`);
   database.exec(`UPDATE topics SET status = 'realizing' WHERE status = 'active'`);
+
+  // Ideas-first shaping loop (devhub#171 Phase 2): the options thread.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS idea_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      topic_id INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      body TEXT NOT NULL,
+      options_json TEXT NULL,
+      chosen_option TEXT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_idea_messages_topic ON idea_messages(topic_id)`);
 
   // Seed projects from the legacy services table (services stays in place,
   // unused, until a later cleanup). Idempotent: matched by name.
@@ -1068,9 +1090,59 @@ export function getActiveTopicsForProject(projectId: number, limit = 3): Topic[]
   return rows.map(serializeTopic);
 }
 
+// ---------------------------------------------------------------------------
+// Idea messages — the options thread (devhub#171 Phase 2)
+// ---------------------------------------------------------------------------
+
+// Atomic new→shaping transition for the shaping loop: returns true only when
+// this caller won the transition (a concurrent promote may have moved the
+// topic to realizing first — then shaping stays out of the way).
+export function markTopicShaping(id: number): boolean {
+  const info = getDb()
+    .prepare(`UPDATE topics SET status = 'shaping', updated_at = datetime('now') WHERE id = ? AND status = 'new'`)
+    .run(id);
+  return info.changes > 0;
+}
+
+export function getIdeaMessages(topicId: number): IdeaMessage[] {
+  const rows = getDb()
+    .prepare('SELECT * FROM idea_messages WHERE topic_id = ? ORDER BY id ASC')
+    .all(topicId) as IdeaMessageRow[];
+  return rows.map(serializeIdeaMessage);
+}
+
+export function getIdeaMessage(id: number): IdeaMessage | null {
+  const row = getDb().prepare('SELECT * FROM idea_messages WHERE id = ?').get(id) as IdeaMessageRow | undefined;
+  return row ? serializeIdeaMessage(row) : null;
+}
+
+export function appendIdeaMessage(
+  topicId: number,
+  role: IdeaMessageRole,
+  body: string,
+  options?: IdeaOption[] | null
+): IdeaMessage {
+  const info = getDb()
+    .prepare(`INSERT INTO idea_messages (topic_id, role, body, options_json) VALUES (?, ?, ?, ?)`)
+    .run(topicId, role, body, options && options.length > 0 ? JSON.stringify(options) : null);
+  getDb().prepare(`UPDATE topics SET updated_at = datetime('now') WHERE id = ?`).run(topicId);
+  return getIdeaMessage(Number(info.lastInsertRowid))!;
+}
+
+// Records the user's pick on an assistant message. Returns null when the
+// message has no such option (stale/mismatched optionId).
+export function chooseIdeaOption(messageId: number, optionId: string): IdeaMessage | null {
+  const message = getIdeaMessage(messageId);
+  if (!message?.options?.some((o) => o.id === optionId)) return null;
+  getDb().prepare(`UPDATE idea_messages SET chosen_option = ? WHERE id = ?`).run(optionId, messageId);
+  return getIdeaMessage(messageId);
+}
+
 export function deleteTopic(id: number): void {
   // Unlink issues first; the topic itself is history.
   getDb().prepare('UPDATE issues SET topic_id = NULL WHERE topic_id = ?').run(id);
+  // The options thread goes with the topic (FK cascade is not enforced).
+  getDb().prepare('DELETE FROM idea_messages WHERE topic_id = ?').run(id);
   // Duplicates merged into this topic lose their winner pointer (FK is not
   // enforced by default in SQLite, so clear explicitly).
   getDb().prepare('UPDATE topics SET merged_into_topic_id = NULL WHERE merged_into_topic_id = ?').run(id);

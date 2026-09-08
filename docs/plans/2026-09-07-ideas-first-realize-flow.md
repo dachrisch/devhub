@@ -1,11 +1,21 @@
 # Ideas-first, hands-off Realize flow
 
-> Status: proposed (2026-09-07). Resolves
+> Status: Phase 1 + Phase 2 done on branch `docs/ideas-first-realize-171`
+> (2026-09-08). Resolves
 > [dachrisch/devhub#171](https://github.com/dachrisch/devhub/issues/171).
 > Builds on `2026-09-06-projects-topics-design.md` (Project → Topic → Issue →
 > DevelopRun) and `2026-09-02-unify-develop-flow.md` (no blocked state,
 > `blocked_reason`, Work resumes). Decisions locked in: **auto-merge when
 > green, idea page with chat, link + archive** for duplicates.
+>
+> - Phase 1 (ideas prominent): home inline idea lists + `topics`
+>   status/summary columns + `/topics/[id]` read page + merge/archive +
+>   §5.1 status-vocabulary updates. Gate green + full e2e S1–S5 PASS.
+> - Phase 2 (shaping loop): `idea_messages` + shape-idea skill/core +
+>   messages/choose/ready APIs + chat UI with options + `idea-message` /
+>   `idea-status` SSE. Gate green + full e2e S1–S6 PASS (new S6: create idea
+>   → 3 options → choose → summary updates → reply → ready).
+> - Next: Phase 3 (one-click Realize), Phase 4 (auto-merge when green).
 
 ## 1. Vision
 
