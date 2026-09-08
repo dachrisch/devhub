@@ -50,7 +50,7 @@ registerSkill(
       const withLinks = assignIssue(stored.id, { projectId: project!.id, topicId: topic.id });
       if (withLinks) publishIssue(withLinks);
       else publishIssue(getIssueByGithub(owner, repo, created.number)!);
-      const promoted = updateTopic(topic.id, { status: 'active' }) ?? topic;
+      const promoted = updateTopic(topic.id, { status: 'realizing' }) ?? topic;
       refreshTopicStatus(topic.id);
       publishTopic(topic.id);
       remember(

@@ -27,6 +27,20 @@ const port = Number(arg('--port', process.env.PORT ?? 3000));
 const dbPath = path.resolve(process.env.DEVHUB_DB ?? path.join(repoRoot, '.devhub-dev.db'));
 const mockHook = path.join(repoRoot, 'scripts', 'dev', 'mock-github.cjs');
 const mockOpencodePort = Number(process.env.OPENCODE_MOCK_PORT ?? 3222);
+const mockGithubControlPort = Number(process.env.MOCK_GITHUB_CONTROL_PORT ?? 3223);
+
+// Fresh merge/tag steering on every boot (devhub#171 Phase 3 e2e state).
+for (const f of [
+  process.env.MOCK_GITHUB_STATE_FILE,
+  path.join((await import('node:os')).tmpdir(), 'devhub-mock-github-state.json'),
+]) {
+  if (!f) continue;
+  try {
+    (await import('node:fs')).unlinkSync(f);
+  } catch {
+    // missing is the common case
+  }
+}
 
 const seed = seedDevDb(dbPath);
 
@@ -37,6 +51,7 @@ const childEnv = {
   ...process.env,
   DEVHUB_DB: dbPath,
   DEVHUB_MOCK_GITHUB: '1',
+  MOCK_GITHUB_CONTROL_PORT: String(mockGithubControlPort),
   // opencode.ts uses undici's fetch directly, so a global fetch patch can't
   // intercept it — point the app at the local mock server instead.
   OPENCODE_BASE_URL: mockOpencodeUrl,
@@ -83,6 +98,7 @@ if (up) {
   console.log('──────────────────────────────────────────────────────────');
   console.log(`DevHub dev server (mocked GitHub + opencode): ${base}`);
   console.log(`Mock opencode: ${mockOpencodeUrl} (POST /__mock/scenario to steer replies)`);
+  console.log(`Mock github control: http://localhost:${mockGithubControlPort} (POST /__mock/github to steer merges/tags)`);
   console.log(`Session cookie: devhub_session=${DEV_SESSION_ID} (user: octocat)`);
   console.log(`DB: ${dbPath} (seeded ${seed.issues} issues)`);
   console.log(`Headless check: node scripts/dev/headless-check.mjs --url ${base}`);

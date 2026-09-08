@@ -25,6 +25,7 @@ interface ProjectInput {
   infraDir?: unknown;
   statusOverride?: unknown;
   releaseMode?: unknown;
+  autoMerge?: unknown;
   config?: unknown;
 }
 
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<{ project: Pr
     infraDir: optionalString(body.infraDir),
     statusOverride: body.statusOverride === null ? null : (body.statusOverride as Project['statusOverride']),
     releaseMode: body.releaseMode as 'tag' | 'manual' | undefined,
+    autoMerge: body.autoMerge === undefined ? undefined : body.autoMerge !== false,
     config: (body.config ?? undefined) as Record<string, unknown> | undefined,
   };
 

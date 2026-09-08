@@ -34,8 +34,98 @@ export const RUN_STATES: readonly RunState[] = [
   'released',
 ];
 
-export type TopicStatus = 'idea' | 'active' | 'shipped' | 'dropped';
-export const TOPIC_STATUSES: readonly TopicStatus[] = ['idea', 'active', 'shipped', 'dropped'];
+export type TopicStatus = 'new' | 'shaping' | 'ready' | 'realizing' | 'shipped' | 'dropped';
+export const TOPIC_STATUSES: readonly TopicStatus[] = ['new', 'shaping', 'ready', 'realizing', 'shipped', 'dropped'];
+
+// Legacy vocabulary compat (devhub#171 Phase 1 migration maps idea→new,
+// active→realizing). APIs accept these and map them forward.
+export const LEGACY_TOPIC_STATUS_MAP: Record<string, TopicStatus> = {
+  idea: 'new',
+  active: 'realizing',
+};
+
+export function normalizeTopicStatus(value: unknown): TopicStatus | null {
+  if (typeof value !== 'string') return null;
+  if ((TOPIC_STATUSES as readonly string[]).includes(value)) return value as TopicStatus;
+  const mapped = LEGACY_TOPIC_STATUS_MAP[value];
+  return mapped ?? null;
+}
+
+// Idea-phase statuses shown inline on the Projects home cards.
+export const ACTIVE_IDEA_STATUSES: readonly TopicStatus[] = ['new', 'shaping', 'ready', 'realizing'];
+
+// Options thread for the ideas-first shaping loop (devhub#171 Phase 2).
+export type IdeaMessageRole = 'user' | 'assistant' | 'system';
+
+export interface IdeaOption {
+  id: string;
+  title: string;
+  desc: string;
+  tradeoff?: string | null;
+}
+
+export interface IdeaMessageRow {
+  id: number;
+  topic_id: number;
+  role: IdeaMessageRole;
+  body: string;
+  options_json: string | null;
+  chosen_option: string | null;
+  created_at: string;
+}
+
+export interface IdeaMessage {
+  id: number;
+  topicId: number;
+  role: IdeaMessageRole;
+  body: string;
+  options: IdeaOption[] | null;
+  chosenOption: string | null;
+  createdAt: string;
+}
+
+export function serializeIdeaMessage(row: IdeaMessageRow): IdeaMessage {
+  let options: IdeaOption[] | null = null;
+  if (row.options_json) {
+    try {
+      const parsed = JSON.parse(row.options_json) as unknown;
+      if (Array.isArray(parsed)) {
+        const clean = parsed.filter(
+          (o): o is IdeaOption =>
+            !!o && typeof o === 'object' && typeof (o as IdeaOption).id === 'string' && typeof (o as IdeaOption).title === 'string'
+        );
+        options = clean.map((o) => ({
+          id: o.id,
+          title: o.title,
+          desc: typeof o.desc === 'string' ? o.desc : '',
+          tradeoff: typeof o.tradeoff === 'string' ? o.tradeoff : null,
+        }));
+      }
+    } catch {
+      options = null;
+    }
+  }
+  return {
+    id: row.id,
+    topicId: row.topic_id,
+    role: row.role,
+    body: row.body,
+    options,
+    chosenOption: row.chosen_option,
+    createdAt: row.created_at,
+  };
+}
+
+// Plain-language labels for the idea page header (devhub#171 UI copy rules).
+// Kanban keeps the technical names (expert view).
+export const TOPIC_STATUS_LABELS: Record<TopicStatus, string> = {
+  new: 'Shaping…',
+  shaping: 'Shaping…',
+  ready: 'Ready',
+  realizing: 'Realizing…',
+  shipped: 'Delivered',
+  dropped: 'Archived',
+};
 
 export type ProjectStatus = 'healthy' | 'in-flight' | 'stale';
 export const PROJECT_STATUSES: readonly ProjectStatus[] = ['healthy', 'in-flight', 'stale'];
@@ -61,6 +151,7 @@ export interface ProjectRow {
   last_shipped_at: string | null;
   last_shipped_title: string | null;
   release_mode: string;
+  auto_merge: number | null;
   config: string;
   created_at: string;
 }
@@ -79,6 +170,7 @@ export interface Project {
   lastShippedAt: string | null;
   lastShippedTitle: string | null;
   releaseMode: ReleaseMode;
+  autoMerge: boolean;
   config: unknown;
   createdAt: string;
 }
@@ -89,7 +181,10 @@ export interface TopicRow {
   area: string | null;
   title: string;
   notes: string | null;
+  shaped_summary: string | null;
   status: TopicStatus;
+  merged_into_topic_id: number | null;
+  ready_at: string | null;
   origin: 'manual' | 'suggested';
   created_at: string;
   updated_at: string;
@@ -101,7 +196,10 @@ export interface Topic {
   area: string | null;
   title: string;
   notes: string | null;
+  shapedSummary: string | null;
   status: TopicStatus;
+  mergedIntoTopicId: number | null;
+  readyAt: string | null;
   origin: 'manual' | 'suggested';
   createdAt: string;
   updatedAt: string;
@@ -256,19 +354,25 @@ export function serializeProject(row: ProjectRow): Project {
     lastShippedAt: row.last_shipped_at,
     lastShippedTitle: row.last_shipped_title,
     releaseMode: row.release_mode === 'manual' ? 'manual' : 'tag',
+    autoMerge: row.auto_merge == null ? true : row.auto_merge === 1,
     config: safeParseJson(row.config),
     createdAt: row.created_at,
   };
 }
 
 export function serializeTopic(row: TopicRow): Topic {
+  const rawStatus = row.status as string;
+  const status = normalizeTopicStatus(rawStatus) ?? 'new';
   return {
     id: row.id,
     projectId: row.project_id,
     area: row.area,
     title: row.title,
     notes: row.notes,
-    status: row.status,
+    shapedSummary: row.shaped_summary ?? null,
+    status,
+    mergedIntoTopicId: row.merged_into_topic_id ?? null,
+    readyAt: row.ready_at ?? null,
     origin: row.origin,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

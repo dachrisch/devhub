@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { broadcaster, publishAction, publishProject, publishRun, publishTopic } from './sse';
+import { broadcaster, publishAction, publishIdeaMessage, publishIdeaStatus, publishProject, publishRun, publishTopic } from './sse';
 
 describe('sse', () => {
   it('publishes action events', () => {
@@ -21,6 +21,18 @@ describe('sse', () => {
       { type: 'project', projectId: 3 },
       { type: 'topic', topicId: 7 },
       { type: 'run', runId: 9, issueId: 11 },
+    ]);
+    unsub();
+  });
+
+  it('publishes idea-message/idea-status shaping notifications (devhub#171)', () => {
+    const events: unknown[] = [];
+    const unsub = broadcaster.subscribe((e) => events.push(e));
+    publishIdeaMessage(5, { id: 9, topicId: 5, role: 'assistant', body: 'Which way?', options: null, chosenOption: null, createdAt: 'now' });
+    publishIdeaStatus(5, 'ready');
+    expect(events).toEqual([
+      { type: 'idea-message', topicId: 5, messageId: 9 },
+      { type: 'idea-status', topicId: 5, status: 'ready' },
     ]);
     unsub();
   });

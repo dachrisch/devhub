@@ -53,12 +53,26 @@ const DEVELOP_REPLIES = {
   cannot: 'CANNOT FULFILL: simulated develop failure (mock-opencode)',
 };
 
-let scenario = { refine: 'ready', develop: 'pr' };
+const SHAPE_REPLIES = {
+  options: JSON.stringify({
+    summary: 'Mock-shaped idea: sync highlights across devices with minimal setup.',
+    options: [
+      { id: 'opt-1', title: 'Lightweight sync', desc: 'Sync on save via the existing API.', tradeoff: 'No offline support.' },
+      { id: 'opt-2', title: 'Realtime sync', desc: 'Push updates over a socket as they happen.', tradeoff: 'More moving parts.' },
+      { id: 'opt-3', title: 'Manual export', desc: 'Let the user trigger sync per device.', tradeoff: 'Easy to forget.' },
+    ],
+    question: 'Which direction fits best?',
+  }),
+  failure: 'CANNOT FULFILL: simulated shaping failure (mock-opencode)',
+};
+
+let scenario = { refine: 'ready', develop: 'pr', shape: 'options' };
 let sessionCounter = 0;
 /** sessionId -> { kind: 'refine'|'develop', text } */
 const pending = new Map();
 
 function classify(prompt) {
+  if (typeof prompt === 'string' && prompt.includes('You are shaping an idea')) return 'shape';
   if (typeof prompt === 'string' && prompt.includes('You are refining')) return 'refine';
   if (typeof prompt === 'string' && prompt.includes('You are implementing')) return 'develop';
   return 'develop';
@@ -85,6 +99,7 @@ export function startMockOpencode(port) {
       scenario = {
         refine: REFINE_REPLIES[body.refine] ? body.refine : scenario.refine,
         develop: DEVELOP_REPLIES[body.develop] ? body.develop : scenario.develop,
+        shape: SHAPE_REPLIES[body.shape] ? body.shape : scenario.shape,
       };
       return json(res, { ok: true, scenario });
     }
@@ -114,7 +129,9 @@ export function startMockOpencode(port) {
       const text =
         kind === 'refine'
           ? JSON.stringify(REFINE_REPLIES[scenario.refine])
-          : DEVELOP_REPLIES[scenario.develop];
+          : kind === 'shape'
+            ? SHAPE_REPLIES[scenario.shape]
+            : DEVELOP_REPLIES[scenario.develop];
       pending.set(m[1], { kind, text });
       return json(res, { data: { id: `msg_mock_${m[1]}` } });
     }

@@ -38,8 +38,96 @@ function mockJsonResponse(body, status = 200) {
   });
 }
 
+// Merge/tag steering for the Realize e2e (devhub#171 Phase 3): the sweep
+// observes PR-merged + release-tag state, so the e2e drives it via
+//   POST /__mock/github  { merged: [{owner, repo, number, sha}], tags: [{owner, repo, name, sha}] }
+// served by a tiny control plane (see bottom of file). Defaults preserve the
+// long-standing behavior: nothing merged, no tags.
+//
+// Next dev loads this hook in more than one process, so steering is
+// file-backed (every read reloads) — in-memory Maps alone would split state
+// between the control-plane process and the API-route process.
+// process.getBuiltinModule keeps this require-free (the repo lints .cjs too).
+const { readFileSync, writeFileSync } = process.getBuiltinModule('node:fs');
+const os = process.getBuiltinModule('node:os');
+const path = process.getBuiltinModule('node:path');
+
+const STATE_FILE =
+  process.env.MOCK_GITHUB_STATE_FILE || path.join(os.tmpdir(), 'devhub-mock-github-state.json');
+
+const ghState = {
+  /** `${owner}/${repo}#${number}` -> merge_commit_sha */
+  merged: new Map(),
+  /** `${owner}/${repo}` -> [{ name, sha }] */
+  tags: new Map(),
+};
+
+function reloadState() {
+  try {
+    const raw = readFileSync(STATE_FILE, 'utf8');
+    const body = JSON.parse(raw || '{}');
+    applySteering(body);
+  } catch {
+    // no state file yet (or unreadable): keep in-memory defaults
+  }
+}
+
+function persistState() {
+  try {
+    writeFileSync(
+      STATE_FILE,
+      JSON.stringify({
+        merged: [...ghState.merged.entries()].map(([key, sha]) => ({ key, sha })),
+        tags: [...ghState.tags.entries()].map(([key, tags]) => ({ key, tags })),
+      })
+    );
+  } catch {
+    // best-effort only
+  }
+}
+
+function applySteering(body) {
+  ghState.merged.clear();
+  ghState.tags.clear();
+  for (const p of body.merged ?? []) {
+    if (p.key && p.sha) {
+      ghState.merged.set(p.key, p.sha);
+    } else if (p.owner && p.repo && Number.isInteger(p.number)) {
+      ghState.merged.set(prKey(p.owner, p.repo, String(p.number)), typeof p.sha === 'string' && p.sha ? p.sha : 'mockmerge0');
+    }
+  }
+  for (const t of body.tags ?? []) {
+    if (t.key && Array.isArray(t.tags)) {
+      ghState.tags.set(t.key, t.tags);
+    } else if (t.owner && t.repo && t.name) {
+      const k = repoKey(t.owner, t.repo);
+      if (!ghState.tags.has(k)) ghState.tags.set(k, []);
+      ghState.tags.get(k).push({ name: t.name, sha: typeof t.sha === 'string' && t.sha ? t.sha : 'mockmerge0' });
+    }
+  }
+}
+
+function repoKey(owner, repo) {
+  return `${owner}/${repo}`;
+}
+
+function prKey(owner, repo, number) {
+  return `${owner}/${repo}#${number}`;
+}
+
+async function readJsonBody(input, init) {
+  try {
+    if (typeof init?.body === 'string') return JSON.parse(init.body);
+    if (input instanceof Request) return JSON.parse(await input.text());
+  } catch {
+    // non-JSON or unreadable: callers treat null as absent
+  }
+  return null;
+}
+
 // Returns a Response for GitHub URLs, or null to pass through to real fetch.
-function handleGithub(url, method) {
+async function handleGithub(url, method, input, init) {
+  reloadState();
   const path = url.pathname.replace(/\/+$/, '');
   const issueRe = /^\/repos\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
   const repoIssuesRe = /^\/repos\/([^/]+)\/([^/]+)\/issues$/;
@@ -97,11 +185,70 @@ function handleGithub(url, method) {
   }
 
   m = pullsRe.exec(path);
-  if (m) return mockJsonResponse({ merged: false, merge_commit_sha: null });
+  if (m) {
+    // Auto-merge worker (devhub#171 Phase 4): green checks + mergeable PR.
+    const sha = ghState.merged.get(prKey(m[1], m[2], m[3]));
+    if (sha) return mockJsonResponse({ merged: true, merge_commit_sha: sha });
+    return mockJsonResponse({
+      merged: false,
+      merge_commit_sha: null,
+      mergeable: true,
+      mergeable_state: 'clean',
+      head: { sha: 'mockhead' },
+      node_id: 'MOCK_PR_NODE',
+    });
+  }
+
+  // PUT /pulls/{n}/merge: record the merge so the sweep observes it, then ack
+  // like the real API.
+  m = /^\/repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\/merge$/.exec(path);
+  if (m && method === 'PUT') {
+    const sha = `mockmerge-${m[3]}`;
+    ghState.merged.set(prKey(m[1], m[2], m[3]), sha);
+    persistState();
+    return mockJsonResponse({ merged: true, sha, message: 'Pull Request successfully merged' });
+  }
+
+  // Combined commit status for the worker's CI signal: always green here
+  // (red/conflict paths are unit-tested, not e2e-tested).
+  m = /^\/repos\/([^/]+)\/([^/]+)\/commits\/([^/]+)\/status$/.exec(path);
+  if (m) return mockJsonResponse({ state: 'success', statuses: [] });
+
+  // POST /git/tags + POST /git/refs: ack and record the tag so the sweep
+  // finds a release tag containing the merge commit.
+  m = /^\/repos\/([^/]+)\/([^/]+)\/git\/tags$/.exec(path);
+  if (m && method === 'POST') {
+    return mockJsonResponse({ sha: 'mocktagsha' });
+  }
+  m = /^\/repos\/([^/]+)\/([^/]+)\/git\/refs$/.exec(path);
+  if (m && method === 'POST') {
+    const payload = await readJsonBody(input, init);
+    const name = String(payload?.ref ?? '').replace(/^refs\/tags\//, '');
+    const sha = String(payload?.sha ?? '');
+    if (name && sha) {
+      const k = repoKey(m[1], m[2]);
+      const list = ghState.tags.get(k) ?? [];
+      if (!list.some((t) => t.name === name)) list.push({ name, sha });
+      ghState.tags.set(k, list);
+      persistState();
+    }
+    return mockJsonResponse({ ref: payload?.ref ?? 'refs/tags/devhub-auto', object: { sha } }, 201);
+  }
 
   if (path.endsWith('/comments')) return mockJsonResponse({});
-  if (path.endsWith('/tags')) return mockJsonResponse([]);
-  if (path.includes('/compare/')) return mockJsonResponse({ status: 'ahead' });
+  const tagsRe = /^\/repos\/([^/]+)\/([^/]+)\/tags$/;
+  const tm = tagsRe.exec(path);
+  if (tm) {
+    const tags = ghState.tags.get(repoKey(tm[1], tm[2])) ?? [];
+    return mockJsonResponse(tags.map((t) => ({ name: t.name, commit: { sha: t.sha } })));
+  }
+  if (path.includes('/compare/')) {
+    // `owner/repo/compare/base...head`: identical shas are trivially
+    // contained; anything else keeps the legacy "ahead" answer.
+    const cm = /\/compare\/([^.]+)\.\.\.(.+)$/.exec(path);
+    if (cm && cm[1] === cm[2]) return mockJsonResponse({ status: 'identical' });
+    return mockJsonResponse({ status: 'ahead' });
+  }
 
   // Unknown GitHub endpoint: 200 empty so optional best-effort calls succeed.
   return mockJsonResponse({});
@@ -120,7 +267,7 @@ async function patchedFetch(input, init) {
   if (url && (url.host === 'api.github.com' || url.host === 'github.com')) {
     if (process.env.DEVHUB_MOCK_GITHUB !== '0') {
       const method = (init?.method ?? (input instanceof Request ? input.method : 'GET') ?? 'GET').toUpperCase();
-      return handleGithub(url, method);
+      return handleGithub(url, method, input, init);
     }
   }
   if (!passthrough) {
@@ -132,4 +279,58 @@ async function patchedFetch(input, init) {
 if (process.env.DEVHUB_MOCK_GITHUB !== '0') {
   globalThis.fetch = patchedFetch;
   console.log('[mock-github] GitHub API mocked (api.github.com, github.com)');
+}
+
+// Control plane for merge/tag steering (devhub#171 Phase 3 e2e). The mock
+// lives inside the Next server process, so it serves its own tiny HTTP
+// endpoint when MOCK_GITHUB_CONTROL_PORT is set (wired by start-dev.mjs).
+if (process.env.MOCK_GITHUB_CONTROL_PORT) {
+  (async () => {
+    const http = await import('node:http');
+    const port = Number(process.env.MOCK_GITHUB_CONTROL_PORT);
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://localhost');
+    const send = (body, status = 200) => {
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+    if (req.method === 'GET' && url.pathname === '/__mock/github') {
+      reloadState();
+      return send({
+        merged: [...ghState.merged.entries()].map(([k, sha]) => ({ key: k, sha })),
+        tags: [...ghState.tags.entries()].map(([k, tags]) => ({ key: k, tags })),
+      });
+    }
+    if (req.method === 'POST' && url.pathname === '/__mock/github') {
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        try {
+          const body = JSON.parse(raw || '{}');
+          applySteering(body);
+          persistState();
+          send({ ok: true });
+        } catch {
+          send({ error: 'invalid JSON' }, 400);
+        }
+      });
+      return;
+    }
+    send({ error: 'not found' }, 404);
+  });
+  server.on('error', (err) => {
+    // Next dev can load this hook in more than one worker: the first one
+    // serves the control plane, the rest just patch fetch.
+    if (err && err.code === 'EADDRINUSE') {
+      console.log(`[mock-github] control plane port ${port} already served, skipping`);
+      return;
+    }
+    console.error('[mock-github] control plane failed:', err instanceof Error ? err.message : err);
+  });
+  server.listen(port, '127.0.0.1', () => {
+    console.log(`[mock-github] control plane: http://localhost:${port} (POST /__mock/github to steer merges/tags)`);
+  });
+  })().catch((err) => {
+    console.error('[mock-github] control plane failed:', err instanceof Error ? err.message : err);
+  });
 }

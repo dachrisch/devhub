@@ -13,10 +13,13 @@ import { KanbanBoard } from '@/components/board/kanban-board';
 import { BoardToolbar } from '@/components/board/board-toolbar';
 
 // Staleness is irrelevant here; sorting/grouping is by status then recency.
+// Dropped ideas stay hidden behind search; every other status gets a group.
 const TOPIC_GROUPS: { status: Topic['status']; label: string }[] = [
-  { status: 'idea', label: 'Ideas' },
-  { status: 'active', label: 'Active' },
-  { status: 'shipped', label: 'Shipped' },
+  { status: 'new', label: 'New' },
+  { status: 'shaping', label: 'Shaping' },
+  { status: 'ready', label: 'Ready' },
+  { status: 'realizing', label: 'Realizing' },
+  { status: 'shipped', label: 'Delivered' },
 ];
 
 function statusBadge(status: string | null): string {
@@ -35,6 +38,7 @@ export default function ProjectBoardPage() {
     status: string | null;
     serviceRepoOwner: string | null;
     serviceRepoName: string | null;
+    autoMerge: boolean | null;
   }>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -50,6 +54,7 @@ export default function ProjectBoardPage() {
   const [ideaBusy, setIdeaBusy] = useState(false);
   const [suggestBusy, setSuggestBusy] = useState(false);
   const [promotingId, setPromotingId] = useState<number | null>(null);
+  const [autoMergeBusy, setAutoMergeBusy] = useState(false);
 
   const { user, loading, denied, logout } = useAuth();
   const isMobile = useMediaQuery(MOBILE_QUERY);
@@ -302,6 +307,30 @@ export default function ProjectBoardPage() {
     [fetchTopics, refetchIssues]
   );
 
+  // Per-project auto-merge opt-out (devhub#171 Phase 4): off means Realize
+  // stops at an open PR and a human merges + releases by hand.
+  const toggleAutoMerge = useCallback(async () => {
+    if (!project || autoMergeBusy) return;
+    setAutoMergeBusy(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoMerge: project.autoMerge === false }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `toggle failed (HTTP ${res.status})`);
+      }
+      const data = (await res.json()) as { project?: typeof project };
+      if (data.project) setProject(data.project);
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAutoMergeBusy(false);
+    }
+  }, [project, autoMergeBusy, projectId]);
+
   const advanceSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
     const total = selectedIds.size;
@@ -509,6 +538,23 @@ export default function ProjectBoardPage() {
         )}
 
         {project?.domain && <div className="project-domain-line">{project.domain}</div>}
+        {project && (
+          <div className="project-sub-line">
+            <button
+              type="button"
+              className="ghost"
+              disabled={autoMergeBusy}
+              onClick={() => void toggleAutoMerge()}
+              title={
+                project.autoMerge === false
+                  ? 'Realize stops at an open PR; you merge by hand'
+                  : 'Realize merges green PRs and releases on its own'
+              }
+            >
+              Auto-merge {autoMergeBusy ? '…' : project.autoMerge === false ? 'off' : 'on'}
+            </button>
+          </div>
+        )}
 
         <div className="topics-rail" role="toolbar" aria-label="Topics">
           <span className="released-label">Topics</span>
@@ -532,13 +578,16 @@ export default function ProjectBoardPage() {
                         >
                           {t.title}
                         </button>
-                        {(status === 'idea' || status === 'shipped') && (
+                        <Link href={`/topics/${t.id}`} className="ghost topic-open" title={`Open idea #${t.id}`}>
+                          open →
+                        </Link>
+                        {(status === 'new' || status === 'shipped') && (
                           <button
                             type="button"
                             className="ghost topic-promote"
                             disabled={promotingId === t.id}
                             onClick={() => void promoteTopic(t.id)}
-                            title={status === 'idea' ? 'Promote to a GitHub issue' : 'Promote again as a follow-up issue'}
+                            title={status === 'new' ? 'Promote to a GitHub issue' : 'Promote again as a follow-up issue'}
                           >
                             {promotingId === t.id ? '…' : '→ issue'}
                           </button>

@@ -1,12 +1,17 @@
 import Database from 'better-sqlite3';
 import { ENV } from './env';
 import {
+  serializeIdeaMessage,
   serializeIssue,
   serializeProject,
   serializeRun,
   serializeTopic,
   type DevelopRun,
   type DevelopRunRow,
+  type IdeaMessage,
+  type IdeaMessageRole,
+  type IdeaMessageRow,
+  type IdeaOption,
   type Issue,
   type IssueEvent,
   type IssueRow,
@@ -25,6 +30,9 @@ import {
 
 export type {
   DevelopRun,
+  IdeaMessage,
+  IdeaMessageRole,
+  IdeaOption,
   Issue,
   IssueEvent,
   IssueState,
@@ -143,6 +151,7 @@ function migrate(database: Database.Database): void {
       last_shipped_at TEXT,
       last_shipped_title TEXT,
       release_mode TEXT NOT NULL DEFAULT 'tag',
+      auto_merge INTEGER NOT NULL DEFAULT 1,
       config TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -152,7 +161,10 @@ function migrate(database: Database.Database): void {
       area TEXT,
       title TEXT NOT NULL,
       notes TEXT,
-      status TEXT NOT NULL DEFAULT 'idea',
+      shaped_summary TEXT,
+      status TEXT NOT NULL DEFAULT 'new',
+      merged_into_topic_id INTEGER NULL REFERENCES topics(id) ON DELETE SET NULL,
+      ready_at TEXT NULL,
       origin TEXT NOT NULL DEFAULT 'manual',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -246,6 +258,43 @@ function migrate(database: Database.Database): void {
   if (!hasColumn('infra_first')) {
     database.exec(`ALTER TABLE issues ADD COLUMN infra_first INTEGER NOT NULL DEFAULT 0`);
   }
+
+  // Ideas-first Realize flow (devhub#171 Phase 1): topic shaping columns +
+  // per-project auto-merge opt-out. Idempotent ADD COLUMN guards.
+  const projectCols = database.prepare('PRAGMA table_info(projects)').all() as { name: string }[];
+  const hasProjectCol = (name: string) => projectCols.some((c) => c.name === name);
+  if (!hasProjectCol('auto_merge')) {
+    database.exec(`ALTER TABLE projects ADD COLUMN auto_merge INTEGER NOT NULL DEFAULT 1`);
+  }
+  const topicCols = database.prepare('PRAGMA table_info(topics)').all() as { name: string }[];
+  const hasTopicCol = (name: string) => topicCols.some((c) => c.name === name);
+  if (!hasTopicCol('shaped_summary')) {
+    database.exec(`ALTER TABLE topics ADD COLUMN shaped_summary TEXT`);
+  }
+  if (!hasTopicCol('merged_into_topic_id')) {
+    database.exec(`ALTER TABLE topics ADD COLUMN merged_into_topic_id INTEGER NULL REFERENCES topics(id) ON DELETE SET NULL`);
+  }
+  if (!hasTopicCol('ready_at')) {
+    database.exec(`ALTER TABLE topics ADD COLUMN ready_at TEXT NULL`);
+  }
+  // Vocabulary migration: idea→new, active→realizing. `shaping` is reserved
+  // for topics with an open thread, so legacy one-shot ideas land on `new`.
+  database.exec(`UPDATE topics SET status = 'new' WHERE status = 'idea'`);
+  database.exec(`UPDATE topics SET status = 'realizing' WHERE status = 'active'`);
+
+  // Ideas-first shaping loop (devhub#171 Phase 2): the options thread.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS idea_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      topic_id INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      body TEXT NOT NULL,
+      options_json TEXT NULL,
+      chosen_option TEXT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_idea_messages_topic ON idea_messages(topic_id)`);
 
   // Seed projects from the legacy services table (services stays in place,
   // unused, until a later cleanup). Idempotent: matched by name.
@@ -834,12 +883,13 @@ export function createProject(input: {
   deployDir?: string | null;
   infraDir?: string | null;
   releaseMode?: ReleaseMode;
+  autoMerge?: boolean;
   config?: Record<string, unknown>;
 }): Project {
   const info = getDb()
     .prepare(
-      `INSERT INTO projects (name, service_repo_owner, service_repo_name, domain, deploy_host, deploy_dir, infra_dir, release_mode, config)
-       VALUES (@name, @serviceRepoOwner, @serviceRepoName, @domain, @deployHost, @deployDir, @infraDir, @releaseMode, @config)`
+      `INSERT INTO projects (name, service_repo_owner, service_repo_name, domain, deploy_host, deploy_dir, infra_dir, release_mode, auto_merge, config)
+       VALUES (@name, @serviceRepoOwner, @serviceRepoName, @domain, @deployHost, @deployDir, @infraDir, @releaseMode, @autoMerge, @config)`
     )
     .run({
       name: input.name,
@@ -850,6 +900,7 @@ export function createProject(input: {
       deployDir: input.deployDir ?? null,
       infraDir: input.infraDir ?? null,
       releaseMode: input.releaseMode ?? 'tag',
+      autoMerge: input.autoMerge === false ? 0 : 1,
       config: JSON.stringify(input.config ?? {}),
     });
   return getProject(Number(info.lastInsertRowid))!;
@@ -865,6 +916,7 @@ export interface ProjectPatch {
   infraDir?: string | null;
   statusOverride?: ProjectStatus | null;
   releaseMode?: ReleaseMode;
+  autoMerge?: boolean;
   config?: Record<string, unknown>;
 }
 
@@ -884,6 +936,7 @@ export function updateProject(id: number, patch: ProjectPatch): Project | null {
   if (patch.infraDir !== undefined) bind('infra_dir', patch.infraDir);
   if (patch.statusOverride !== undefined) bind('status_override', patch.statusOverride);
   if (patch.releaseMode !== undefined) bind('release_mode', patch.releaseMode);
+  if (patch.autoMerge !== undefined) bind('auto_merge', patch.autoMerge ? 1 : 0);
   if (patch.config !== undefined) bind('config', JSON.stringify(patch.config));
   if (sets.length === 0) return getProject(id);
   args.push(id);
@@ -962,19 +1015,23 @@ export function getTopic(id: number): Topic | null {
 export function createTopic(input: {
   title: string;
   notes?: string | null;
+  shapedSummary?: string | null;
   projectId?: number | null;
   area?: string | null;
+  status?: TopicStatus;
   origin?: 'manual' | 'suggested';
 }): Topic {
   const info = getDb()
     .prepare(
-      `INSERT INTO topics (title, notes, project_id, area, origin) VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO topics (title, notes, shaped_summary, project_id, area, status, origin) VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.title,
       input.notes ?? null,
+      input.shapedSummary ?? null,
       input.projectId ?? null,
       input.area ?? null,
+      input.status ?? 'new',
       input.origin ?? 'manual'
     );
   return getTopic(Number(info.lastInsertRowid))!;
@@ -983,9 +1040,12 @@ export function createTopic(input: {
 export interface TopicPatch {
   title?: string;
   notes?: string | null;
+  shapedSummary?: string | null;
   projectId?: number | null;
   area?: string | null;
   status?: TopicStatus;
+  mergedIntoTopicId?: number | null;
+  readyAt?: string | null;
 }
 
 export function updateTopic(id: number, patch: TopicPatch): Topic | null {
@@ -993,23 +1053,105 @@ export function updateTopic(id: number, patch: TopicPatch): Topic | null {
   const args: (string | number | null)[] = [];
   if (patch.title !== undefined) { sets.push('title = ?'); args.push(patch.title); }
   if (patch.notes !== undefined) { sets.push('notes = ?'); args.push(patch.notes); }
+  if (patch.shapedSummary !== undefined) { sets.push('shaped_summary = ?'); args.push(patch.shapedSummary); }
   if (patch.projectId !== undefined) { sets.push('project_id = ?'); args.push(patch.projectId); }
   if (patch.area !== undefined) { sets.push('area = ?'); args.push(patch.area); }
   if (patch.status !== undefined) { sets.push('status = ?'); args.push(patch.status); }
+  if (patch.mergedIntoTopicId !== undefined) { sets.push('merged_into_topic_id = ?'); args.push(patch.mergedIntoTopicId); }
+  if (patch.readyAt !== undefined) { sets.push('ready_at = ?'); args.push(patch.readyAt); }
   args.push(id);
   getDb().prepare(`UPDATE topics SET ${sets.join(', ')} WHERE id = ?`).run(...args);
   return getTopic(id);
 }
 
+// Link-and-archive for duplicates (devhub#171): the loser becomes `dropped`
+// with a pointer to the winner. It disappears from active lists but stays
+// searchable via GET /api/topics (no status filter).
+export function mergeTopic(id: number, intoId: number): Topic | null {
+  const loser = getTopic(id);
+  const winner = getTopic(intoId);
+  if (!loser || !winner || id === intoId) return null;
+  return updateTopic(id, { status: 'dropped', mergedIntoTopicId: intoId });
+}
+
+export function getIssuesByTopic(topicId: number): Issue[] {
+  const rows = getDb()
+    .prepare('SELECT * FROM issues WHERE topic_id = ? ORDER BY updated_at DESC, id DESC')
+    .all(topicId) as IssueRow[];
+  return rows.map(serializeIssue);
+}
+
+export function getActiveTopicsForProject(projectId: number, limit = 3): Topic[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM topics WHERE project_id = ? AND status IN ('new','shaping','ready','realizing') ORDER BY updated_at DESC, id DESC LIMIT ?`
+    )
+    .all(projectId, limit) as TopicRow[];
+  return rows.map(serializeTopic);
+}
+
+// ---------------------------------------------------------------------------
+// Idea messages — the options thread (devhub#171 Phase 2)
+// ---------------------------------------------------------------------------
+
+// Atomic new→shaping transition for the shaping loop: returns true only when
+// this caller won the transition (a concurrent promote may have moved the
+// topic to realizing first — then shaping stays out of the way).
+export function markTopicShaping(id: number): boolean {
+  const info = getDb()
+    .prepare(`UPDATE topics SET status = 'shaping', updated_at = datetime('now') WHERE id = ? AND status = 'new'`)
+    .run(id);
+  return info.changes > 0;
+}
+
+export function getIdeaMessages(topicId: number): IdeaMessage[] {
+  const rows = getDb()
+    .prepare('SELECT * FROM idea_messages WHERE topic_id = ? ORDER BY id ASC')
+    .all(topicId) as IdeaMessageRow[];
+  return rows.map(serializeIdeaMessage);
+}
+
+export function getIdeaMessage(id: number): IdeaMessage | null {
+  const row = getDb().prepare('SELECT * FROM idea_messages WHERE id = ?').get(id) as IdeaMessageRow | undefined;
+  return row ? serializeIdeaMessage(row) : null;
+}
+
+export function appendIdeaMessage(
+  topicId: number,
+  role: IdeaMessageRole,
+  body: string,
+  options?: IdeaOption[] | null
+): IdeaMessage {
+  const info = getDb()
+    .prepare(`INSERT INTO idea_messages (topic_id, role, body, options_json) VALUES (?, ?, ?, ?)`)
+    .run(topicId, role, body, options && options.length > 0 ? JSON.stringify(options) : null);
+  getDb().prepare(`UPDATE topics SET updated_at = datetime('now') WHERE id = ?`).run(topicId);
+  return getIdeaMessage(Number(info.lastInsertRowid))!;
+}
+
+// Records the user's pick on an assistant message. Returns null when the
+// message has no such option (stale/mismatched optionId).
+export function chooseIdeaOption(messageId: number, optionId: string): IdeaMessage | null {
+  const message = getIdeaMessage(messageId);
+  if (!message?.options?.some((o) => o.id === optionId)) return null;
+  getDb().prepare(`UPDATE idea_messages SET chosen_option = ? WHERE id = ?`).run(optionId, messageId);
+  return getIdeaMessage(messageId);
+}
+
 export function deleteTopic(id: number): void {
   // Unlink issues first; the topic itself is history.
   getDb().prepare('UPDATE issues SET topic_id = NULL WHERE topic_id = ?').run(id);
+  // The options thread goes with the topic (FK cascade is not enforced).
+  getDb().prepare('DELETE FROM idea_messages WHERE topic_id = ?').run(id);
+  // Duplicates merged into this topic lose their winner pointer (FK is not
+  // enforced by default in SQLite, so clear explicitly).
+  getDb().prepare('UPDATE topics SET merged_into_topic_id = NULL WHERE merged_into_topic_id = ?').run(id);
   getDb().prepare('DELETE FROM topics WHERE id = ?').run(id);
 }
 
 // Recomputes a topic's status from its linked issues: any unsettled issue →
-// `active`; issues exist and all settled (rollout|closed) → `shipped`; no
-// issues → keep `idea`/`dropped` as-is.
+// `realizing`; issues exist and all settled (rollout|closed) → `shipped`; no
+// issues → leave `new|shaping|ready|dropped` untouched (devhub#171 §5.1).
 export function refreshTopicStatus(topicId: number): Topic | null {
   const topic = getTopic(topicId);
   if (!topic) return null;
@@ -1018,7 +1160,7 @@ export function refreshTopicStatus(topicId: number): Topic | null {
     .all(topicId) as { state: IssueState }[];
   if (issues.length === 0) return topic;
   const settled = issues.every((i) => i.state === 'rollout' || i.state === 'closed');
-  const next: TopicStatus = settled ? 'shipped' : 'active';
+  const next: TopicStatus = settled ? 'shipped' : 'realizing';
   if (next !== topic.status) return updateTopic(topicId, { status: next });
   return topic;
 }

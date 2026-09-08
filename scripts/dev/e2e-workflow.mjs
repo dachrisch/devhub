@@ -12,6 +12,12 @@
 //   S4  batch work      "Work on selected" advances two backlog cards → pr
 //   S5  topic flow      idea → promote → work → pr (+run timeline) → mark
 //                       shipped → rollout → project last-shipped updated
+//   S6  shaping loop    idea → 3 options → choose → summary updates → reply →
+//                       next options → ready (devhub#171 Phase 2)
+//   S7  realize         ready → realize → promote → work → pr → merge+tag →
+//                       rollout → shipped → Delivered (devhub#171 Phase 3)
+//   S8  auto-merge      realize → worker merges green PR + cuts tag → rollout
+//                       → shipped, no steering (devhub#171 Phase 4)
 //   guard               no `blocked` column exists anywhere on the board
 //
 // The flat board is gone (devhub#167): S1-S4 drive the per-project boards at
@@ -39,6 +45,7 @@ let base = arg('--url', 'http://localhost:3000').replace(/\/$/, '');
 base = new URL(Object.assign(new URL(base), { hostname: 'localhost' })).toString().replace(/\/$/, '');
 const session = arg('--session', DEV_SESSION_ID);
 const mockBase = arg('--mock-url', 'http://localhost:3222').replace(/\/$/, '');
+const mockGithubBase = arg('--mock-github-url', 'http://localhost:3223').replace(/\/$/, '');
 const shotDir = arg('--shots', '.devhub-e2e');
 
 const COOKIE = `devhub_session=${session}`;
@@ -90,6 +97,15 @@ async function setScenario(scenario) {
     body: JSON.stringify(scenario),
   });
   if (!res.ok) throw new Error(`scenario update failed: ${res.status}`);
+}
+
+async function setGithubScenario(scenario) {
+  const res = await fetch(`${mockGithubBase}/__mock/github`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(scenario),
+  });
+  if (!res.ok) throw new Error(`github scenario update failed: ${res.status}`);
 }
 
 // Polls server truth until `predicate` holds for the target issue.
@@ -473,6 +489,200 @@ async function main() {
       `project last-shipped updated ("${s5devhub?.project?.lastShippedTitle}")`
     );
     await screenshot(cdp, sessionId, 's5-topic-flow');
+
+    // ── S6: shaping loop (devhub#171 Phase 2) ─────────────────────────────
+    // create idea → 3 options → choose → summary updates → reply → ready.
+    console.log('\nS6: idea → options → choose → reply → ready');
+    await setScenario({ shape: 'options' });
+    const shaping = await api('/api/topics', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'E2E shaping: sync highlights', projectId: devhubProject.id }),
+    });
+    const shapingId = shaping.topic?.id;
+    assert(shapingId, 'shaping idea created');
+
+    async function waitForOptionRounds(topicId, rounds, label, timeoutMs = 60000) {
+      const deadline = Date.now() + timeoutMs;
+      let last = null;
+      while (Date.now() < deadline) {
+        last = (await api(`/api/topics/${topicId}/messages`)).messages;
+        const withOptions = (last ?? []).filter((m) => m.role === 'assistant' && (m.options?.length ?? 0) > 0);
+        if (withOptions.length >= rounds) return withOptions;
+        await wait(500);
+      }
+      throw new Error(`timeout waiting for ${label}; last=${JSON.stringify(last)}`);
+    }
+
+    const firstRounds = await waitForOptionRounds(shapingId, 1, 'first shaping round');
+    assert(firstRounds[0].options.length === 3, `first round offers 3 options (${firstRounds[0].options.map((o) => o.id).join(',')})`);
+    const afterShape = (await api(`/api/topics/${shapingId}`)).topic;
+    assert(afterShape.status === 'shaping', `topic is shaping (got ${afterShape.status})`);
+    assert(afterShape.shapedSummary?.includes('Mock-shaped'), 'shaped summary written ("So far")');
+
+    const picked = firstRounds[0].options[1];
+    const chosen = await api(`/api/topics/${shapingId}/choose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ optionId: picked.id }),
+    });
+    assert(chosen.topic?.shapedSummary?.includes(picked.title), `choose rewrites the summary to "${picked.title}"`);
+    const threadAfterChoose = (await api(`/api/topics/${shapingId}/messages`)).messages;
+    assert(
+      threadAfterChoose.find((m) => m.id === firstRounds[0].id)?.chosenOption === picked.id,
+      'pick recorded on the options message'
+    );
+
+    await api(`/api/topics/${shapingId}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ body: 'cheaper is better' }),
+    });
+    const secondRounds = await waitForOptionRounds(shapingId, 2, 'second shaping round');
+    assert(secondRounds[1].options.length === 3, 'reply triggers a second options round');
+
+    const ready = await api(`/api/topics/${shapingId}/ready`, { method: 'POST' });
+    assert(ready.topic?.status === 'ready' && ready.topic?.readyAt, 'idea marked ready with readyAt');
+
+    await gotoBoard(`${base}/topics/${shapingId}`, 'idea page (S6)');
+    const s6dom = await waitForDom(
+      cdp, sessionId, 'document.body.innerText', 'idea page thread render',
+      15000, (t) => typeof t === 'string' && t.includes(picked.title) && t.includes('Ready')
+    );
+    assert(s6dom.includes('Choose') || s6dom.includes('Chosen'), 'idea page shows the options thread');
+    await screenshot(cdp, sessionId, 's6-shaping-loop');
+
+    // ── S7: one-click Realize (devhub#171 Phase 3) ─────────────────────────
+    // ready → realize (202) → promote → work → pr → mock merge+tag → sweep →
+    // rollout → topic shipped → idea page shows Delivered. Auto-merge is
+    // toggled OFF first so the PR waits stably for the external merge (this
+    // also covers the per-project opt-out); S8 covers the worker path.
+    console.log('\nS7: realize → pr → merge+tag → rollout → Delivered');
+    await setScenario({ refine: 'ready', develop: 'pr', shape: 'options' });
+    const autoOff = await api(`/api/projects/${devhubProject.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autoMerge: false }),
+    });
+    assert(autoOff.project?.autoMerge === false, 'auto-merge toggled off for S7');
+    const realizeTopic = await api('/api/topics', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'E2E realize: hands-off lamp', projectId: devhubProject.id }),
+    });
+    const realizeId = realizeTopic.topic?.id;
+    assert(realizeId, 'realize idea created');
+    await api(`/api/topics/${realizeId}/ready`, { method: 'POST' });
+    const started = await api(`/api/topics/${realizeId}/realize`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert(started.mode === 'full', `realize accepted (mode=${started.mode})`);
+
+    async function waitForLinkedIssue(topicId, label, timeoutMs = 60000) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const found = (await allIssues()).find((i) => i.topicId === topicId);
+        if (found) return found;
+        await wait(500);
+      }
+      throw new Error(`timeout waiting for linked issue: ${label}`);
+    }
+    const rIssue = await waitForLinkedIssue(realizeId, 'realize promotes to an issue');
+    assert(rIssue.projectId === devhubProject.id, 'realized issue assigned to the devhub project');
+    const rPr = await waitForIssueState(
+      'dachrisch', 'devhub', rIssue.number, (i) => i.state === 'pr', 'realized issue → pr'
+    );
+    assert((rPr.resultPrUrl ?? '').includes('/pull/'), `realized issue reached pr (${rPr.resultPrUrl})`);
+
+    // Drive the merge + release tag through the mock-github control plane,
+    // then refresh so the sweep observes them immediately (the realize waiter
+    // also sweeps on its own cadence).
+    await setGithubScenario({
+      merged: [{ owner: 'dachrisch', repo: 'devhub', number: 999, sha: 'mockmerge7' }],
+      tags: [{ owner: 'dachrisch', repo: 'devhub', name: 'v7.7.7-e2e', sha: 'mockmerge7' }],
+    });
+    await api('/api/issues', { method: 'POST' });
+    const rDone = await waitForIssueState(
+      'dachrisch', 'devhub', rIssue.number, (i) => i.state === 'rollout', 'realized issue → rollout'
+    );
+    assert(rDone.state === 'rollout', 'sweep rolled the realized issue out');
+    async function waitForTopicShipped(topicId, label, timeoutMs = 60000) {
+      const deadline = Date.now() + timeoutMs;
+      let last = null;
+      while (Date.now() < deadline) {
+        last = (await api(`/api/topics/${topicId}`)).topic;
+        if (last?.status === 'shipped') return last;
+        await wait(500);
+      }
+      throw new Error(`timeout waiting for ${label}; last=${JSON.stringify(last)}`);
+    }
+    const rShipped = await waitForTopicShipped(realizeId, 'realized topic → shipped');
+    assert(rShipped.status === 'shipped', 'realized topic shipped');
+
+    await gotoBoard(`${base}/topics/${realizeId}`, 'idea page (S7)');
+    const s7dom = await waitForDom(
+      cdp, sessionId, 'document.body.innerText', 'idea page Delivered render',
+      15000, (t) => typeof t === 'string' && t.includes('Delivered')
+    );
+    assert(s7dom.includes('Delivered'), 'idea page shows Delivered without opening kanban');
+    await screenshot(cdp, sessionId, 's7-realize');
+
+    const autoOn = await api(`/api/projects/${devhubProject.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autoMerge: true }),
+    });
+    assert(autoOn.project?.autoMerge !== false, 'auto-merge restored for S8');
+
+    // ── S8: auto-merge when green (devhub#171 Phase 4) ─────────────────────
+    // Same chain, but NO steering: the worker merges the green PR and cuts
+    // the release tag itself, the sweep observes both, topic ships.
+    console.log('\nS8: realize → worker merge+tag → rollout → Delivered');
+    await setGithubScenario({ merged: [], tags: [] });
+    const autoTopic = await api('/api/topics', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'E2E auto-merge: hands-off lamp', projectId: devhubProject.id }),
+    });
+    const autoId = autoTopic.topic?.id;
+    assert(autoId, 'auto-merge idea created');
+    await api(`/api/topics/${autoId}/ready`, { method: 'POST' });
+    const autoStarted = await api(`/api/topics/${autoId}/realize`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert(autoStarted.mode === 'full', `realize accepted (mode=${autoStarted.mode})`);
+    const aIssue = await waitForLinkedIssue(autoId, 'auto-merge promotes to an issue');
+    // The worker can merge + release within one poll gap, so pr may never be
+    // observable — accept pr or straight-to-rollout here.
+    await waitForIssueState(
+      'dachrisch', 'devhub', aIssue.number, (i) => i.state === 'pr' || i.state === 'rollout', 'auto-merge issue → pr', 60000
+    );
+    const aDone = await waitForIssueState(
+      'dachrisch', 'devhub', aIssue.number, (i) => i.state === 'rollout', 'worker merge+tag → rollout', 150000
+    );
+    assert(aDone.state === 'rollout', 'worker merged green PR and cut the tag without clicks');
+    const ghState = await (await fetch(`${mockGithubBase}/__mock/github`)).json();
+    assert(
+      (ghState.merged ?? []).some((m) => m.key === 'dachrisch/devhub#999'),
+      'mock recorded the worker merge (dachrisch/devhub#999)'
+    );
+    assert(
+      (ghState.tags ?? []).some((t) => t.key === 'dachrisch/devhub' && t.tags.length > 0),
+      'mock recorded the worker release tag'
+    );
+    const aShipped = await waitForTopicShipped(autoId, 'auto-merged topic → shipped');
+    assert(aShipped.status === 'shipped', 'auto-merged topic shipped');
+    await gotoBoard(`${base}/topics/${autoId}`, 'idea page (S8)');
+    const s8dom = await waitForDom(
+      cdp, sessionId, 'document.body.innerText', 'idea page Delivered render',
+      15000, (t) => typeof t === 'string' && t.includes('Delivered')
+    );
+    assert(s8dom.includes('Delivered'), 'idea page shows Delivered after worker merge');
+    await screenshot(cdp, sessionId, 's8-auto-merge');
 
     cdp.close();
     console.log('\n────────────────────────────────────────────');

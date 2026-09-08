@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createTopic, getProject, getTopics, type Topic } from '@/lib/store';
-import { publishTopic } from '@/lib/sse';
+import { appendIdeaMessage, createTopic, getProject, getTopics, type Topic } from '@/lib/store';
+import { publishIdeaMessage, publishTopic } from '@/lib/sse';
+import { runShapingRound } from '@/lib/shape-idea';
 import { getSession, requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
-import { TOPIC_STATUSES, type TopicStatus } from '@/lib/types';
+import { normalizeTopicStatus } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,10 +23,11 @@ export async function GET(req: NextRequest): Promise<NextResponse<{ topics: Topi
     filter.projectId = projectId;
   }
   if (statusParam) {
-    if (!(TOPIC_STATUSES as readonly string[]).includes(statusParam)) {
+    const normalized = normalizeTopicStatus(statusParam);
+    if (!normalized) {
       return NextResponse.json({ error: 'invalid status' }, { status: 400 });
     }
-    filter.status = statusParam as TopicStatus;
+    filter.status = normalized;
   }
   if (areaParam) filter.area = areaParam;
   return NextResponse.json({ topics: getTopics(filter) });
@@ -53,14 +55,32 @@ export async function POST(req: NextRequest): Promise<NextResponse<{ topic: Topi
     }
   }
   const origin = body.origin === 'suggested' ? 'suggested' : 'manual';
+  const shapedSummary =
+    typeof body.shapedSummary === 'string' && body.shapedSummary.trim()
+      ? body.shapedSummary.trim()
+      : typeof body.shaped_summary === 'string' && body.shaped_summary.trim()
+        ? (body.shaped_summary as string).trim()
+        : null;
 
   const topic = createTopic({
     title,
     notes: typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null,
+    shapedSummary,
     projectId,
     area: typeof body.area === 'string' && body.area.trim() ? body.area.trim() : null,
     origin,
   });
   publishTopic(topic.id);
+  // Shaping loop (devhub#171 Phase 2): the idea page opens on the `new`
+  // topic immediately (sync contract kept) while the first shaping round
+  // runs fire-and-forget and lands via `idea-message`/`idea-status` SSE.
+  // One-shot callers (cockpit skills, suggest) create via the store directly
+  // and stay on `new` with no thread.
+  const firstBody = [title, typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null]
+    .filter(Boolean)
+    .join('\n\n');
+  const first = appendIdeaMessage(topic.id, 'user', firstBody || title);
+  publishIdeaMessage(topic.id, first);
+  void runShapingRound(topic.id);
   return NextResponse.json({ topic });
 }

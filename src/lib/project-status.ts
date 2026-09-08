@@ -1,4 +1,5 @@
 import {
+  getActiveTopicsForProject,
   getIssuesByProject,
   getProject,
   getRunsForIssue,
@@ -7,6 +8,7 @@ import {
   type Issue,
   type Project,
   type ProjectStatus,
+  type Topic,
 } from './store';
 
 // "healthy" = no active work but something shipped recently.
@@ -21,8 +23,10 @@ export interface ProjectSummary {
   inFlight: number;
   // Open PRs (subset of inFlight shown separately on the card).
   prCount: number;
-  // Topic ideas attached to the project.
+  // Topic ideas attached to the project (new|shaping|ready|realizing).
   ideas: number;
+  // Top recent ideas for the inline Ideas section on the home card.
+  recentIdeas: Topic[];
 }
 
 const ACTIVE_RUN_STATES = new Set(['developing', 'pr', 'merged']);
@@ -83,8 +87,13 @@ export function summarizeProject(project: Project): ProjectSummary {
     inFlight += s.active;
     prCount += s.pr;
   }
-  const ideas = getTopics({ projectId: project.id, status: 'idea' }).length;
+  const recentIdeas = getActiveTopicsForProject(project.id, 3);
+  const ideas =
+    getTopics({ projectId: project.id, status: 'new' }).length +
+    getTopics({ projectId: project.id, status: 'shaping' }).length +
+    getTopics({ projectId: project.id, status: 'ready' }).length +
+    getTopics({ projectId: project.id, status: 'realizing' }).length;
   const status = deriveProjectStatus(project);
   if (status !== project.status) setProjectStatus(project.id, status);
-  return { project: getProject(project.id) ?? project, status, needsInput, inFlight, prCount, ideas };
+  return { project: getProject(project.id) ?? project, status, needsInput, inFlight, prCount, ideas, recentIdeas };
 }
