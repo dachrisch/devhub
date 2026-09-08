@@ -115,8 +115,18 @@ function prKey(owner, repo, number) {
   return `${owner}/${repo}#${number}`;
 }
 
+async function readJsonBody(input, init) {
+  try {
+    if (typeof init?.body === 'string') return JSON.parse(init.body);
+    if (input instanceof Request) return JSON.parse(await input.text());
+  } catch {
+    // non-JSON or unreadable: callers treat null as absent
+  }
+  return null;
+}
+
 // Returns a Response for GitHub URLs, or null to pass through to real fetch.
-function handleGithub(url, method) {
+async function handleGithub(url, method, input, init) {
   reloadState();
   const path = url.pathname.replace(/\/+$/, '');
   const issueRe = /^\/repos\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
@@ -176,9 +186,53 @@ function handleGithub(url, method) {
 
   m = pullsRe.exec(path);
   if (m) {
+    // Auto-merge worker (devhub#171 Phase 4): green checks + mergeable PR.
     const sha = ghState.merged.get(prKey(m[1], m[2], m[3]));
     if (sha) return mockJsonResponse({ merged: true, merge_commit_sha: sha });
-    return mockJsonResponse({ merged: false, merge_commit_sha: null });
+    return mockJsonResponse({
+      merged: false,
+      merge_commit_sha: null,
+      mergeable: true,
+      mergeable_state: 'clean',
+      head: { sha: 'mockhead' },
+      node_id: 'MOCK_PR_NODE',
+    });
+  }
+
+  // PUT /pulls/{n}/merge: record the merge so the sweep observes it, then ack
+  // like the real API.
+  m = /^\/repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\/merge$/.exec(path);
+  if (m && method === 'PUT') {
+    const sha = `mockmerge-${m[3]}`;
+    ghState.merged.set(prKey(m[1], m[2], m[3]), sha);
+    persistState();
+    return mockJsonResponse({ merged: true, sha, message: 'Pull Request successfully merged' });
+  }
+
+  // Combined commit status for the worker's CI signal: always green here
+  // (red/conflict paths are unit-tested, not e2e-tested).
+  m = /^\/repos\/([^/]+)\/([^/]+)\/commits\/([^/]+)\/status$/.exec(path);
+  if (m) return mockJsonResponse({ state: 'success', statuses: [] });
+
+  // POST /git/tags + POST /git/refs: ack and record the tag so the sweep
+  // finds a release tag containing the merge commit.
+  m = /^\/repos\/([^/]+)\/([^/]+)\/git\/tags$/.exec(path);
+  if (m && method === 'POST') {
+    return mockJsonResponse({ sha: 'mocktagsha' });
+  }
+  m = /^\/repos\/([^/]+)\/([^/]+)\/git\/refs$/.exec(path);
+  if (m && method === 'POST') {
+    const payload = await readJsonBody(input, init);
+    const name = String(payload?.ref ?? '').replace(/^refs\/tags\//, '');
+    const sha = String(payload?.sha ?? '');
+    if (name && sha) {
+      const k = repoKey(m[1], m[2]);
+      const list = ghState.tags.get(k) ?? [];
+      if (!list.some((t) => t.name === name)) list.push({ name, sha });
+      ghState.tags.set(k, list);
+      persistState();
+    }
+    return mockJsonResponse({ ref: payload?.ref ?? 'refs/tags/devhub-auto', object: { sha } }, 201);
   }
 
   if (path.endsWith('/comments')) return mockJsonResponse({});
@@ -213,7 +267,7 @@ async function patchedFetch(input, init) {
   if (url && (url.host === 'api.github.com' || url.host === 'github.com')) {
     if (process.env.DEVHUB_MOCK_GITHUB !== '0') {
       const method = (init?.method ?? (input instanceof Request ? input.method : 'GET') ?? 'GET').toUpperCase();
-      return handleGithub(url, method);
+      return handleGithub(url, method, input, init);
     }
   }
   if (!passthrough) {

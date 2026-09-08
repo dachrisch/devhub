@@ -21,7 +21,24 @@
 >   idea page, mock-github merge/tag control plane (file-backed steering).
 >   Gate green + full e2e S1–S7 PASS (new S7: ready → realize → pr →
 >   merge+tag → rollout → shipped → Delivered without opening kanban).
-> - Next: Phase 4 (auto-merge when green).
+> - Phase 4 (auto-merge when green): `autoMergeAndRelease` worker
+>   (checks-green → REST squash merge; protection-blocked → GraphQL
+>   `enablePullRequestAutoMerge`; merge conflict / red CI → `blocked_reason`)
+>   running on every realize sweep tick, per-project Auto-merge on/off toggle
+>   on the project board (`projects.auto_merge`, default on; off = Realize
+>   stops at an open PR), manual-mode auto-release per run (never marks a
+>   half-merged `both`-scope issue shipped — partial-shipped warning path
+>   untouched). Tag names deviate from the sketch on purpose: `devhub-auto-…`
+>   instead of `v…` so automated tags can't collide with release-please
+>   versions (the sweep accepts any containing tag).
+>   Gate green + full e2e S1–S8 PASS (new S8: realize → worker merges + tags
+>   with zero steering → rollout → shipped → Delivered; S7 now also covers
+>   the toggle off/on + external-merge observation).
+>
+> Still open (live-verify, carried over): token merge rights, branch
+> protection + repo `Allow auto-merge` setting, tag permissions on
+> `code.lehel.xyz` + `WORKSPACE_ROOT` visibility — the worker was proven
+> against mocks only.
 
 ## 1. Vision
 

@@ -16,6 +16,8 @@
 //                       next options → ready (devhub#171 Phase 2)
 //   S7  realize         ready → realize → promote → work → pr → merge+tag →
 //                       rollout → shipped → Delivered (devhub#171 Phase 3)
+//   S8  auto-merge      realize → worker merges green PR + cuts tag → rollout
+//                       → shipped, no steering (devhub#171 Phase 4)
 //   guard               no `blocked` column exists anywhere on the board
 //
 // The flat board is gone (devhub#167): S1-S4 drive the per-project boards at
@@ -552,9 +554,17 @@ async function main() {
 
     // ── S7: one-click Realize (devhub#171 Phase 3) ─────────────────────────
     // ready → realize (202) → promote → work → pr → mock merge+tag → sweep →
-    // rollout → topic shipped → idea page shows Delivered.
+    // rollout → topic shipped → idea page shows Delivered. Auto-merge is
+    // toggled OFF first so the PR waits stably for the external merge (this
+    // also covers the per-project opt-out); S8 covers the worker path.
     console.log('\nS7: realize → pr → merge+tag → rollout → Delivered');
     await setScenario({ refine: 'ready', develop: 'pr', shape: 'options' });
+    const autoOff = await api(`/api/projects/${devhubProject.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autoMerge: false }),
+    });
+    assert(autoOff.project?.autoMerge === false, 'auto-merge toggled off for S7');
     const realizeTopic = await api('/api/topics', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -618,6 +628,61 @@ async function main() {
     );
     assert(s7dom.includes('Delivered'), 'idea page shows Delivered without opening kanban');
     await screenshot(cdp, sessionId, 's7-realize');
+
+    const autoOn = await api(`/api/projects/${devhubProject.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autoMerge: true }),
+    });
+    assert(autoOn.project?.autoMerge !== false, 'auto-merge restored for S8');
+
+    // ── S8: auto-merge when green (devhub#171 Phase 4) ─────────────────────
+    // Same chain, but NO steering: the worker merges the green PR and cuts
+    // the release tag itself, the sweep observes both, topic ships.
+    console.log('\nS8: realize → worker merge+tag → rollout → Delivered');
+    await setGithubScenario({ merged: [], tags: [] });
+    const autoTopic = await api('/api/topics', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'E2E auto-merge: hands-off lamp', projectId: devhubProject.id }),
+    });
+    const autoId = autoTopic.topic?.id;
+    assert(autoId, 'auto-merge idea created');
+    await api(`/api/topics/${autoId}/ready`, { method: 'POST' });
+    const autoStarted = await api(`/api/topics/${autoId}/realize`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert(autoStarted.mode === 'full', `realize accepted (mode=${autoStarted.mode})`);
+    const aIssue = await waitForLinkedIssue(autoId, 'auto-merge promotes to an issue');
+    // The worker can merge + release within one poll gap, so pr may never be
+    // observable — accept pr or straight-to-rollout here.
+    await waitForIssueState(
+      'dachrisch', 'devhub', aIssue.number, (i) => i.state === 'pr' || i.state === 'rollout', 'auto-merge issue → pr', 60000
+    );
+    const aDone = await waitForIssueState(
+      'dachrisch', 'devhub', aIssue.number, (i) => i.state === 'rollout', 'worker merge+tag → rollout', 150000
+    );
+    assert(aDone.state === 'rollout', 'worker merged green PR and cut the tag without clicks');
+    const ghState = await (await fetch(`${mockGithubBase}/__mock/github`)).json();
+    assert(
+      (ghState.merged ?? []).some((m) => m.key === 'dachrisch/devhub#999'),
+      'mock recorded the worker merge (dachrisch/devhub#999)'
+    );
+    assert(
+      (ghState.tags ?? []).some((t) => t.key === 'dachrisch/devhub' && t.tags.length > 0),
+      'mock recorded the worker release tag'
+    );
+    const aShipped = await waitForTopicShipped(autoId, 'auto-merged topic → shipped');
+    assert(aShipped.status === 'shipped', 'auto-merged topic shipped');
+    await gotoBoard(`${base}/topics/${autoId}`, 'idea page (S8)');
+    const s8dom = await waitForDom(
+      cdp, sessionId, 'document.body.innerText', 'idea page Delivered render',
+      15000, (t) => typeof t === 'string' && t.includes('Delivered')
+    );
+    assert(s8dom.includes('Delivered'), 'idea page shows Delivered after worker merge');
+    await screenshot(cdp, sessionId, 's8-auto-merge');
 
     cdp.close();
     console.log('\n────────────────────────────────────────────');

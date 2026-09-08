@@ -3,15 +3,18 @@ import {
   getIssue,
   getIssuesByTopic,
   getProject,
+  getRunsForIssue,
   getTopic,
   refreshTopicStatus,
   setBlockedReason,
+  updateRun,
   updateTopic,
   upsertIssue,
 } from './store';
 import { canDevelop, startWork } from './develop';
 import { createGithubIssue, sweepRollouts } from './github';
-import { publishIssue, publishTopic } from './sse';
+import { autoMergeAndRelease } from './auto-merge';
+import { publishIssue, publishRun, publishTopic } from './sse';
 import { ENV } from './env';
 import type { OpencodeModel } from './opencode';
 import type { Issue, Topic } from './types';
@@ -158,6 +161,11 @@ async function waitForRealization(topicId: number, token: string, budgetMs: numb
     if (Date.now() - lastSweep >= SWEEP_EVERY_MS) {
       lastSweep = Date.now();
       try {
+        await tryAutoMerge(topicId, token);
+      } catch {
+        // worker never throws, but a tick must never kill the waiter
+      }
+      try {
         await sweepRollouts(token);
       } catch {
         // transient GitHub failure: the next pass retries
@@ -176,6 +184,39 @@ async function waitForRealization(topicId: number, token: string, budgetMs: numb
       return { mode: 'timed-out' };
     }
     await sleep(POLL_MS);
+  }
+}
+
+// Auto-merge pass (devhub#171 Phase 4): for every linked run sitting in
+// `pr`, attempt merge → tag/release when the project opted in
+// (`auto_merge = 1`, the default). Idempotent per run; failures land as
+// `blocked_reason` (CI red / merge conflict) so the user is pinged with one
+// plain sentence. The sweep right after observes whatever the worker did.
+async function tryAutoMerge(topicId: number, token: string): Promise<void> {
+  const issues = getIssuesByTopic(topicId);
+  for (const issue of issues) {
+    const fresh = getIssue(issue.id) ?? issue;
+    if (fresh.blockedReason) continue;
+    if (fresh.state !== 'pr' && fresh.state !== 'developing') continue;
+    const project = fresh.projectId != null ? getProject(fresh.projectId) : null;
+    if (!project?.autoMerge) continue;
+    for (const run of getRunsForIssue(fresh.id)) {
+      if (run.state !== 'pr' || !run.prUrl) continue;
+      const result = await autoMergeAndRelease(
+        run,
+        { autoMerge: project.autoMerge, releaseMode: project.releaseMode },
+        token
+      );
+      if (result.outcome === 'failed') {
+        const updated = setBlockedReason(fresh.id, result.reason);
+        if (updated) publishIssue(updated);
+        break;
+      }
+      if (result.released && project.releaseMode === 'manual') {
+        const released = updateRun(run.id, { state: 'released' });
+        if (released) publishRun(released.id, fresh.id);
+      }
+    }
   }
 }
 

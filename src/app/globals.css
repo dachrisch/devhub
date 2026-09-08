@@ -3224,6 +3224,17 @@ button.project-card-new.open {
   font-weight: 600;
 }
 
+.project-sub-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 24px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
 @media (max-width: 640px) {
   .projects-home {
     padding: 10px 12px;
