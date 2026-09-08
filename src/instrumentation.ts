@@ -14,5 +14,6 @@ export async function register() {
     await import('./lib/skills/suggest-feature');
     await import('./lib/skills/promote-topic');
     await import('./lib/skills/shape-idea');
+    await import('./lib/skills/realize-idea');
   }
 }

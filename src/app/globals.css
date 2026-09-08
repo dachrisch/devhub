@@ -3081,6 +3081,73 @@ button.project-card-new.open {
   font: inherit;
 }
 
+.topic-timeline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.topic-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.topic-step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.topic-step.done {
+  color: var(--rollout);
+}
+
+.topic-step.done .topic-step-dot {
+  border-color: var(--rollout);
+}
+
+.topic-step.current {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.topic-step.current .topic-step-dot {
+  border-color: var(--developing);
+  color: var(--developing);
+}
+
+.topic-step.attention {
+  color: var(--blocked);
+  font-weight: 600;
+}
+
+.topic-step.attention .topic-step-dot {
+  border-color: var(--blocked);
+  color: var(--blocked);
+}
+
+.topic-timeline-note {
+  color: var(--muted);
+}
+
+.topic-delivered {
+  font-weight: 650;
+  color: var(--rollout);
+}
+
 .topic-open {
   font-size: 11px;
   text-decoration: none;

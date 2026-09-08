@@ -14,6 +14,8 @@
 //                       shipped → rollout → project last-shipped updated
 //   S6  shaping loop    idea → 3 options → choose → summary updates → reply →
 //                       next options → ready (devhub#171 Phase 2)
+//   S7  realize         ready → realize → promote → work → pr → merge+tag →
+//                       rollout → shipped → Delivered (devhub#171 Phase 3)
 //   guard               no `blocked` column exists anywhere on the board
 //
 // The flat board is gone (devhub#167): S1-S4 drive the per-project boards at
@@ -41,6 +43,7 @@ let base = arg('--url', 'http://localhost:3000').replace(/\/$/, '');
 base = new URL(Object.assign(new URL(base), { hostname: 'localhost' })).toString().replace(/\/$/, '');
 const session = arg('--session', DEV_SESSION_ID);
 const mockBase = arg('--mock-url', 'http://localhost:3222').replace(/\/$/, '');
+const mockGithubBase = arg('--mock-github-url', 'http://localhost:3223').replace(/\/$/, '');
 const shotDir = arg('--shots', '.devhub-e2e');
 
 const COOKIE = `devhub_session=${session}`;
@@ -92,6 +95,15 @@ async function setScenario(scenario) {
     body: JSON.stringify(scenario),
   });
   if (!res.ok) throw new Error(`scenario update failed: ${res.status}`);
+}
+
+async function setGithubScenario(scenario) {
+  const res = await fetch(`${mockGithubBase}/__mock/github`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(scenario),
+  });
+  if (!res.ok) throw new Error(`github scenario update failed: ${res.status}`);
 }
 
 // Polls server truth until `predicate` holds for the target issue.
@@ -537,6 +549,75 @@ async function main() {
     );
     assert(s6dom.includes('Choose') || s6dom.includes('Chosen'), 'idea page shows the options thread');
     await screenshot(cdp, sessionId, 's6-shaping-loop');
+
+    // ── S7: one-click Realize (devhub#171 Phase 3) ─────────────────────────
+    // ready → realize (202) → promote → work → pr → mock merge+tag → sweep →
+    // rollout → topic shipped → idea page shows Delivered.
+    console.log('\nS7: realize → pr → merge+tag → rollout → Delivered');
+    await setScenario({ refine: 'ready', develop: 'pr', shape: 'options' });
+    const realizeTopic = await api('/api/topics', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'E2E realize: hands-off lamp', projectId: devhubProject.id }),
+    });
+    const realizeId = realizeTopic.topic?.id;
+    assert(realizeId, 'realize idea created');
+    await api(`/api/topics/${realizeId}/ready`, { method: 'POST' });
+    const started = await api(`/api/topics/${realizeId}/realize`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert(started.mode === 'full', `realize accepted (mode=${started.mode})`);
+
+    async function waitForLinkedIssue(topicId, label, timeoutMs = 60000) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const found = (await allIssues()).find((i) => i.topicId === topicId);
+        if (found) return found;
+        await wait(500);
+      }
+      throw new Error(`timeout waiting for linked issue: ${label}`);
+    }
+    const rIssue = await waitForLinkedIssue(realizeId, 'realize promotes to an issue');
+    assert(rIssue.projectId === devhubProject.id, 'realized issue assigned to the devhub project');
+    const rPr = await waitForIssueState(
+      'dachrisch', 'devhub', rIssue.number, (i) => i.state === 'pr', 'realized issue → pr'
+    );
+    assert((rPr.resultPrUrl ?? '').includes('/pull/'), `realized issue reached pr (${rPr.resultPrUrl})`);
+
+    // Drive the merge + release tag through the mock-github control plane,
+    // then refresh so the sweep observes them immediately (the realize waiter
+    // also sweeps on its own cadence).
+    await setGithubScenario({
+      merged: [{ owner: 'dachrisch', repo: 'devhub', number: 999, sha: 'mockmerge7' }],
+      tags: [{ owner: 'dachrisch', repo: 'devhub', name: 'v7.7.7-e2e', sha: 'mockmerge7' }],
+    });
+    await api('/api/issues', { method: 'POST' });
+    const rDone = await waitForIssueState(
+      'dachrisch', 'devhub', rIssue.number, (i) => i.state === 'rollout', 'realized issue → rollout'
+    );
+    assert(rDone.state === 'rollout', 'sweep rolled the realized issue out');
+    async function waitForTopicShipped(topicId, label, timeoutMs = 60000) {
+      const deadline = Date.now() + timeoutMs;
+      let last = null;
+      while (Date.now() < deadline) {
+        last = (await api(`/api/topics/${topicId}`)).topic;
+        if (last?.status === 'shipped') return last;
+        await wait(500);
+      }
+      throw new Error(`timeout waiting for ${label}; last=${JSON.stringify(last)}`);
+    }
+    const rShipped = await waitForTopicShipped(realizeId, 'realized topic → shipped');
+    assert(rShipped.status === 'shipped', 'realized topic shipped');
+
+    await gotoBoard(`${base}/topics/${realizeId}`, 'idea page (S7)');
+    const s7dom = await waitForDom(
+      cdp, sessionId, 'document.body.innerText', 'idea page Delivered render',
+      15000, (t) => typeof t === 'string' && t.includes('Delivered')
+    );
+    assert(s7dom.includes('Delivered'), 'idea page shows Delivered without opening kanban');
+    await screenshot(cdp, sessionId, 's7-realize');
 
     cdp.close();
     console.log('\n────────────────────────────────────────────');

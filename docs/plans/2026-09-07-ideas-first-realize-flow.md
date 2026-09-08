@@ -15,7 +15,13 @@
 >   messages/choose/ready APIs + chat UI with options + `idea-message` /
 >   `idea-status` SSE. Gate green + full e2e S1–S6 PASS (new S6: create idea
 >   → 3 options → choose → summary updates → reply → ready).
-> - Next: Phase 3 (one-click Realize), Phase 4 (auto-merge when green).
+> - Phase 3 (one-click Realize): `POST /api/topics/[id]/realize` chaining
+>   promote → startWork → sweep wait (202 + live `issue`/`run`/`topic` SSE),
+>   `realize-idea` router intent + skill, plain-words progress timeline on the
+>   idea page, mock-github merge/tag control plane (file-backed steering).
+>   Gate green + full e2e S1–S7 PASS (new S7: ready → realize → pr →
+>   merge+tag → rollout → shipped → Delivered without opening kanban).
+> - Next: Phase 4 (auto-merge when green).
 
 ## 1. Vision
 

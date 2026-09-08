@@ -9,6 +9,27 @@ import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
 
+// Client-safe copy of realizeStage (src/lib/realize.ts) — the page cannot
+// import that server module (it pulls in undici via develop/opencode).
+type RealizeStage = 'understanding' | 'building' | 'checking' | 'delivered' | 'needs-input';
+const STAGE_LABELS: Record<RealizeStage, string> = {
+  understanding: 'Understanding…',
+  building: 'Building…',
+  checking: 'Checking…',
+  delivered: 'Delivered',
+  'needs-input': 'Needs input',
+};
+function stageFor(status: Topic['status'], issues: Issue[]): RealizeStage {
+  if (status === 'shipped' || (issues.length > 0 && issues.every((i) => i.state === 'rollout' || i.state === 'closed'))) {
+    return 'delivered';
+  }
+  if (issues.some((i) => i.blockedReason)) return 'needs-input';
+  if (issues.some((i) => i.state === 'pr')) return 'checking';
+  if (issues.some((i) => i.state === 'developing')) return 'building';
+  return 'understanding';
+}
+const TIMELINE_STEPS: Exclude<RealizeStage, 'needs-input'>[] = ['understanding', 'building', 'checking', 'delivered'];
+
 // Idea page, the chat home (devhub#171 Phase 2): header with plain status,
 // shaped summary ("So far"), the options thread (hub proposals with one-click
 // Choose + free-text reply box), footer actions (Realize lands in Phase 3,
@@ -34,6 +55,7 @@ export default function TopicDetailPage() {
   const [replyBusy, setReplyBusy] = useState(false);
   const [chooseBusy, setChooseBusy] = useState<string | null>(null);
   const [readyBusy, setReadyBusy] = useState(false);
+  const [realizeBusy, setRealizeBusy] = useState(false);
   const { user, loading, denied, logout } = useAuth();
   const signedIn = Boolean(user);
   const threadLocked =
@@ -231,6 +253,37 @@ export default function TopicDetailPage() {
     }
   }, [readyBusy, topicId, fetchAll]);
 
+  const startRealize = useCallback(async () => {
+    if (realizeBusy || !topic) return;
+    // Ready ideas go immediately; shaping drafts need an explicit confirm
+    // ("enabled when ready or on explicit confirm").
+    if (
+      (topic.status === 'new' || topic.status === 'shaping') &&
+      !window.confirm(
+        'Start realizing with the current draft? The hub will refine, build and merge on its own — pinging you only if it needs input.'
+      )
+    ) {
+      return;
+    }
+    setRealizeBusy(true);
+    try {
+      const res = await fetch(`/api/topics/${topicId}/realize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `realize failed (HTTP ${res.status})`);
+      }
+      await fetchAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRealizeBusy(false);
+    }
+  }, [realizeBusy, topic, topicId, fetchAll]);
+
   if (!signedIn) {
     return (
       <div className="page-wrap">
@@ -244,6 +297,12 @@ export default function TopicDetailPage() {
       </div>
     );
   }
+
+  // Plain-words progress derived from the hidden execution layer (mirrors
+  // realizeStage; the realizing button + timeline below consume it).
+  const stage = topic ? stageFor(topic.status, issues) : null;
+  const stagePos =
+    stage === 'delivered' ? 3 : stage === 'checking' || stage === 'needs-input' ? 2 : stage === 'building' ? 1 : 0;
 
   return (
     <div className="page-wrap">
@@ -388,10 +447,46 @@ export default function TopicDetailPage() {
                 </Link>
               </div>
             )}
+            {(topic.status === 'realizing' || topic.status === 'shipped') && stage && (
+              <div className="topic-timeline" role="status" aria-label="Realization progress">
+                {TIMELINE_STEPS.map((step, idx) => (
+                  <span
+                    key={step}
+                    className={`topic-step ${idx < stagePos ? 'done' : idx === stagePos ? (stage === 'needs-input' ? 'attention' : 'current') : 'todo'}`}
+                  >
+                    <span className="topic-step-dot">
+                      {idx < stagePos || (step === 'delivered' && stage === 'delivered') ? '✓' : idx + 1}
+                    </span>
+                    {STAGE_LABELS[step]}
+                  </span>
+                ))}
+                {stage === 'needs-input' && (
+                  <span className="topic-timeline-note">Answer above — work resumes on its own.</span>
+                )}
+              </div>
+            )}
             <div className="topic-detail-actions">
-              <button type="button" className="card-primary" disabled title="One-click Realize lands in Phase 3 — promote from the project board for now">
-                Realize it
-              </button>
+              {topic.status === 'shipped' ? (
+                <span className="topic-delivered">Delivered ✓</span>
+              ) : topic.status === 'dropped' ? null : topic.status === 'realizing' && stage !== 'needs-input' ? (
+                <button type="button" className="card-primary" disabled title="Realization running — progress streams in below">
+                  {realizeBusy ? 'Starting…' : 'Realizing…'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="card-primary"
+                  disabled={realizeBusy}
+                  onClick={() => void startRealize()}
+                  title={
+                    topic.status === 'ready'
+                      ? 'Refine, build, merge and release — hands-off'
+                      : 'Realize with the current draft (explicit confirm)'
+                  }
+                >
+                  {realizeBusy ? 'Starting…' : stage === 'needs-input' ? 'Resume realizing' : 'Realize it'}
+                </button>
+              )}
               {!threadLocked && topic.status !== 'ready' && (
                 <button type="button" className="ghost" disabled={readyBusy} onClick={() => void markReady()}>
                   {readyBusy ? 'Marking…' : "I'm happy — it's ready"}

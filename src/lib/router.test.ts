@@ -78,4 +78,10 @@ describe('router', () => {
     expect(result.action).toBe('shape-idea');
     expect(result.params.topicId).toBe(5);
   });
+
+  it('parses the realize-idea hands-off intent (devhub#171)', () => {
+    const result = parseIntent(JSON.stringify({ action: 'realize-idea', confidence: 0.9, params: { topicId: 7 } }));
+    expect(result.action).toBe('realize-idea');
+    expect(result.params.topicId).toBe(7);
+  });
 });

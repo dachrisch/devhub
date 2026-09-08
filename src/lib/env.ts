@@ -11,6 +11,7 @@ export interface DevhubEnv {
   opencodeBasicPassword: string;
   opencodePollTimeoutMs: number;
   opencodeRefinementPollTimeoutMs: number;
+  realizeWaitTimeoutMs: number;
   githubClientId: string;
   githubClientSecret: string;
   githubRedirectUri: string;
@@ -39,6 +40,11 @@ export const ENV: DevhubEnv = {
     process.env.OPENCODE_REFINEMENT_POLL_TIMEOUT_MS,
     10 * 60 * 1000
   ),
+  // One-click Realize (devhub#171 Phase 3) waits on the sweep for
+  // merge+release after the develop chain finishes; CI queues and review
+  // latency make an hour a sane default before the waiter gives up with a
+  // plain-words blocked_reason.
+  realizeWaitTimeoutMs: parsePositiveInt(process.env.REALIZE_WAIT_TIMEOUT_MS, 60 * 60 * 1000),
   githubClientId: process.env.GITHUB_CLIENT_ID ?? '',
   githubClientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
   githubRedirectUri: process.env.GITHUB_REDIRECT_URI ?? 'http://localhost:3000/api/auth/callback',
