@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.22.0](https://github.com/dachrisch/devhub/compare/v1.21.1...v1.22.0) (2026-09-09)
+
+
+### Features
+
+* **board:** unified funnel Idea→Ready→Realizing→Rollout→Delivered ([7c2c61f](https://github.com/dachrisch/devhub/commit/7c2c61f2f45785f6c0d8bc862df84d875e423972))
+* **ideas:** auto-promote on ready with shared promote core ([2405171](https://github.com/dachrisch/devhub/commit/2405171e637b1160c496d386817372cc5e64f93a))
+
 ## [1.21.1](https://github.com/dachrisch/devhub/compare/v1.21.0...v1.21.1) (2026-09-09)
 
 
