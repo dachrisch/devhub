@@ -122,3 +122,9 @@ Minimal first step: merge `Released + Closed + PR` into a single collapsed
    `backlog/refinement/developing/pr` + rollout/closed strips.
 5. Add one empty-state hint on home: "pick a project → Board" for first-run.
 6. Collapse history (section 2) so cards own the first screen.
+
+## 4. Follow-up
+
+Section 2's "Now vs Done" proposal is superseded by a bigger structural fix:
+see `docs/plans/2026-09-09-hub-user-journey-redesign.md` for the locked
+unified-funnel board design (topics + issues drawn as one lane).
