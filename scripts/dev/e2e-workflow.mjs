@@ -267,6 +267,9 @@ async function main() {
   const me = await api('/api/auth/me');
   assert(me.user?.login === 'octocat', `signed in as ${me.user?.login}`);
   await setScenario({ refine: 'ready', develop: 'pr' });
+  // Mock-github merge/tag state persists in /tmp across runs — clear it so
+  // the sweep can't roll S7 out before its `pr` assertion observes it.
+  await setGithubScenario({ merged: [], tags: [] });
   const seeded = findIssue(await allIssues(), 'dachrisch', 'devhub', 105);
   assert(seeded?.state === 'developing' && seeded?.blockedReason, 'retry fixture (devhub#105) seeded: developing + blocked_reason');
 
@@ -357,9 +360,9 @@ async function main() {
     assert(s1.resultPrUrl.includes('/pull/'), `devhub#101 reached pr with ${s1.resultPrUrl}`);
     const s1dom = await waitForDom(
       cdp, sessionId, JS.cardInfo('dachrisch/devhub', 101), 'devhub#101 card re-render',
-      15000, (d) => d.inColumn === 'pr'
+      15000, (d) => d.inColumn === 'rollout'
     );
-    assert(s1dom.inColumn === 'pr', 'devhub#101 card sits in the pr column');
+    assert(s1dom.inColumn === 'rollout', 'devhub#101 card sits in the rollout column');
     assert(s1dom.text.includes(s1.resultPrUrl), 'pr card shows the PR URL');
     await guardHeads('S1');
     await screenshot(cdp, sessionId, 's1-happy-path');
@@ -393,7 +396,7 @@ async function main() {
       'Needs input banner'
     );
     assert(String(bannerText).includes('Needs input'), 'card shows the "Needs input" banner');
-    assert((await evaluate(cdp, sessionId, JS.cardInfo('dachrisch/devhub', 102))).inColumn === 'refinement', 'card stayed in refinement');
+    assert((await evaluate(cdp, sessionId, JS.cardInfo('dachrisch/devhub', 102))).inColumn === 'realizing', 'card stayed in realizing');
 
     await setScenario({ refine: 'ready' });
     await clickWorkAndStart(cdp, sessionId, 'dachrisch/devhub', 102, 'devhub#102 (resume)');
@@ -409,7 +412,7 @@ async function main() {
     const s3a = await waitForIssueState('bumbleflies', 'warehouse', 101, (i) => i.state === 'developing' && Boolean(i.blockedReason), 'to fail back into developing');
     assert(s3a.blockedReason.includes('simulated develop failure'), 'blocked_reason carries the develop failure');
     const s3domA = await evaluate(cdp, sessionId, JS.cardInfo('bumbleflies/warehouse', 101));
-    assert(s3domA.inColumn === 'developing', 'card stayed in the developing column');
+    assert(s3domA.inColumn === 'realizing', 'card stayed in the realizing column');
     assert(s3domA.hasBlockedBanner && s3domA.hasWork, 'failed developing card shows Needs input and a Work button');
 
     await setScenario({ develop: 'pr' });
@@ -468,9 +471,9 @@ async function main() {
     await gotoBoard(devhubBoard, 'devhub board (S5)');
     const s5dom = await waitForDom(
       cdp, sessionId, JS.cardInfo('dachrisch/devhub', promotedIssue.number), 'promoted card re-render',
-      15000, (d) => d.inColumn === 'pr'
+      15000, (d) => d.inColumn === 'rollout'
     );
-    assert(s5dom.inColumn === 'pr', 'promoted card sits in the pr column');
+    assert(s5dom.inColumn === 'rollout', 'promoted card sits in the rollout column');
     assert(s5dom.text.includes('●pr'), 'pr card shows the per-run PR chip');
 
     await api(`/api/issues/${promotedIssue.id}/mark-shipped`, {

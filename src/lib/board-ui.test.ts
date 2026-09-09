@@ -5,11 +5,12 @@ import {
   countRepos,
   excerpt,
   matchesIssue,
+  matchesTopic,
   primaryCardAction,
   relTime,
   repoColor,
 } from './board-ui.js';
-import type { Issue } from './types.js';
+import type { Issue, Topic } from './types.js';
 
 function issue(overrides: Partial<Issue> = {}): Issue {
   return {
@@ -191,6 +192,31 @@ describe('relTime', () => {
   it('handles SQLite datetime format', () => {
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     expect(relTime(now)).toMatch(/^\d+s ago$/);
+  });
+});
+
+describe('matchesTopic', () => {
+  const topic: Pick<Topic, 'title' | 'notes' | 'status'> = {
+    title: 'Smart album auto-suggest',
+    notes: 'Surface a suggested album name from EXIF clustering',
+    status: 'shaping',
+  };
+
+  it('matches empty query', () => {
+    expect(matchesTopic(topic, '')).toBe(true);
+    expect(matchesTopic(topic, '   ')).toBe(true);
+  });
+
+  it('matches across title, notes and status', () => {
+    expect(matchesTopic(topic, 'album')).toBe(true);
+    expect(matchesTopic(topic, 'exif')).toBe(true);
+    expect(matchesTopic(topic, 'shaping')).toBe(true);
+    expect(matchesTopic(topic, 'album exif')).toBe(true);
+  });
+
+  it('rejects non-matching tokens', () => {
+    expect(matchesTopic(topic, 'webhook')).toBe(false);
+    expect(matchesTopic(topic, 'album webhook')).toBe(false);
   });
 });
 

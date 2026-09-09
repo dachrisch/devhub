@@ -3,14 +3,49 @@
 import type { CSSProperties } from 'react';
 import { repoColor } from '@/lib/board-ui';
 
-export interface BoardToolbarProps {
+export interface RepoChipsProps {
   repos: string[];
   repoFilter: string | null;
   onRepoFilterChange: (repo: string | null) => void;
+}
+
+// Standalone repo filter chips (also rendered in the sticky mobile filter row
+// under the status tabs, where the full toolbar would cost too much chrome).
+export function RepoChips({ repos, repoFilter, onRepoFilterChange }: RepoChipsProps) {
+  if (repos.length <= 1) return null;
+  return (
+    <div className="repo-chips" role="group" aria-label="Filter by repo">
+      <button
+        className={`repo-chip${repoFilter === null ? ' active' : ''}`}
+        onClick={() => onRepoFilterChange(null)}
+      >
+        All
+      </button>
+      {repos.map((r) => {
+        const color = repoColor(r);
+        return (
+          <button
+            key={r}
+            className={`repo-chip${repoFilter === r ? ' active' : ''}`}
+            onClick={() => onRepoFilterChange(repoFilter === r ? null : r)}
+            style={{ '--chip-color': color } as CSSProperties}
+          >
+            <span className="repo-chip-dot" />
+            {r}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export interface BoardToolbarProps extends RepoChipsProps {
   lastRefreshed: Date | null;
   refreshing: boolean;
   onRefresh: () => void;
   showLastRefreshed: boolean;
+  // Hide the chips (the mobile filter row renders its own copy).
+  hideChips?: boolean;
 }
 
 function fmtTime(d: Date): string {
@@ -28,32 +63,12 @@ export function BoardToolbar({
   refreshing,
   onRefresh,
   showLastRefreshed,
+  hideChips = false,
 }: BoardToolbarProps) {
   return (
     <div className="board-toolbar">
-      {repos.length > 1 && (
-        <div className="repo-chips" role="group" aria-label="Filter by repo">
-          <button
-            className={`repo-chip${repoFilter === null ? ' active' : ''}`}
-            onClick={() => onRepoFilterChange(null)}
-          >
-            All
-          </button>
-          {repos.map((r) => {
-            const color = repoColor(r);
-            return (
-              <button
-                key={r}
-                className={`repo-chip${repoFilter === r ? ' active' : ''}`}
-                onClick={() => onRepoFilterChange(repoFilter === r ? null : r)}
-                style={{ '--chip-color': color } as CSSProperties}
-              >
-                <span className="repo-chip-dot" />
-                {r}
-              </button>
-            );
-          })}
-        </div>
+      {!hideChips && (
+        <RepoChips repos={repos} repoFilter={repoFilter} onRepoFilterChange={onRepoFilterChange} />
       )}
       <div className="toolbar-actions">
         {showLastRefreshed && lastRefreshed && (

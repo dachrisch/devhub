@@ -14,10 +14,14 @@ streamed live to the UI.
    if you're a member of `GITHUB_ALLOWED_ORG`; the org membership is re-checked on each refresh.
 2. **Ingest** — `POST /api/issues` (Refresh) fetches open issues from all repos you can access
    whose GitHub topics intersect `GITHUB_TOPICS` (PRs and bot-authored issues are skipped).
-3. **Board** — issues render in four columns: `backlog`, `developing`, `pr`, `blocked`.
-4. **Develop** — "Develop this" on a card calls `POST /api/issues/[id]/develop`. The server
-   opens an opencode session, streams its events, and on completion sets the issue to `pr`
-   (with the PR URL) or `blocked` (with a `CANNOT FULFILL` reason).
+3. **Board** — each project draws one funnel: `idea` (shaping topics) → `ready`
+   (ready topics + backlog issues) → `realizing` (refinement + developing) →
+   `rollout` (open PRs + released) — with delivered history collapsed below.
+   Marking an idea ready files its GitHub issue automatically.
+4. **Develop** — "Work" on a card calls `POST /api/issues/[id]/develop`. The server
+   runs a refinement check first (auto-refining unclear issues, surfacing blocking
+   questions as "Needs input"), then implements and opens a PR. Failures keep the
+   card in its stage with `blocked_reason`; the next Work click resumes.
 5. **Live status** — `GET /api/stream` is a Server-Sent Events feed the board subscribes to on
    load, so cards update without polling.
 
@@ -94,6 +98,8 @@ Safe change order: `typecheck` → `lint` → `test` → `build`.
 | `POST` | `/api/issues`              | Refresh / ingest open issues (auth)       |
 | `GET`  | `/api/issues/[id]`          | Issue detail + event log (auth required)  |
 | `POST` | `/api/issues/[id]/develop`  | Start an opencode session, returns 202    |
+| `POST` | `/api/topics/[id]/ready`    | Mark an idea ready (auto-files its GitHub issue) |
+| `POST` | `/api/topics/[id]/realize`  | Realize an idea hands-off (refine → build → merge), returns 202 |
 | `GET`  | `/api/stream`               | SSE feed of status + opencode events      |
 
 ## Project layout

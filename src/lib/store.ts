@@ -1149,9 +1149,12 @@ export function deleteTopic(id: number): void {
   getDb().prepare('DELETE FROM topics WHERE id = ?').run(id);
 }
 
-// Recomputes a topic's status from its linked issues: any unsettled issue →
-// `realizing`; issues exist and all settled (rollout|closed) → `shipped`; no
-// issues → leave `new|shaping|ready|dropped` untouched (devhub#171 §5.1).
+// Recomputes a topic's status from its linked issues (unified funnel):
+// all settled (rollout|closed) → `shipped`; started work
+// (refinement|developing|pr|rollout) → `realizing`; fresh promotion
+// (backlog only) → `ready`; no issues → leave untouched (devhub#171 §5.1).
+// A reopened terminal topic (`dropped`/`shipped` with live work) still reads
+// as `realizing`, as before.
 export function refreshTopicStatus(topicId: number): Topic | null {
   const topic = getTopic(topicId);
   if (!topic) return null;
@@ -1160,9 +1163,19 @@ export function refreshTopicStatus(topicId: number): Topic | null {
     .all(topicId) as { state: IssueState }[];
   if (issues.length === 0) return topic;
   const settled = issues.every((i) => i.state === 'rollout' || i.state === 'closed');
-  const next: TopicStatus = settled ? 'shipped' : 'realizing';
-  if (next !== topic.status) return updateTopic(topicId, { status: next });
-  return topic;
+  const started = issues.some(
+    (i) => i.state === 'refinement' || i.state === 'developing' || i.state === 'pr' || i.state === 'rollout'
+  );
+  let next: TopicStatus;
+  if (settled) next = 'shipped';
+  else if (started) next = 'realizing';
+  else if (topic.status === 'dropped' || topic.status === 'shipped') next = 'realizing';
+  else next = 'ready';
+  if (next === topic.status) return topic;
+  return updateTopic(topicId, {
+    status: next,
+    ...(next === 'ready' && !topic.readyAt ? { readyAt: new Date().toISOString() } : {}),
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -55,6 +55,7 @@ export default function TopicDetailPage() {
   const [replyBusy, setReplyBusy] = useState(false);
   const [chooseBusy, setChooseBusy] = useState<string | null>(null);
   const [readyBusy, setReadyBusy] = useState(false);
+  const [promotionError, setPromotionError] = useState<string | null>(null);
   const [realizeBusy, setRealizeBusy] = useState(false);
   const { user, loading, denied, logout } = useAuth();
   const signedIn = Boolean(user);
@@ -236,14 +237,23 @@ export default function TopicDetailPage() {
     [chooseBusy, topicId, fetchAll]
   );
 
+  // Mark ready also files the GitHub issue (auto-promotion). Filing can fail
+  // while shaping succeeds (e.g. no service repo yet) — the banner carries
+  // the retry, and the button below stays available until an issue exists.
   const markReady = useCallback(async () => {
     if (readyBusy) return;
     setReadyBusy(true);
     try {
       const res = await fetch(`/api/topics/${topicId}/ready`, { method: 'POST' });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error ?? `mark ready failed (HTTP ${res.status})`);
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+        promotion?: { ok: boolean; error?: string };
+      } | null;
+      if (!res.ok) throw new Error(data?.error ?? `mark ready failed (HTTP ${res.status})`);
+      if (data?.promotion && !data.promotion.ok) {
+        setPromotionError(data.promotion.error ?? 'filing the GitHub issue failed');
+      } else {
+        setPromotionError(null);
       }
       await fetchAll();
     } catch (err) {
@@ -447,6 +457,14 @@ export default function TopicDetailPage() {
                 </Link>
               </div>
             )}
+            {promotionError && (
+              <div className="banner" role="alert">
+                <span>Ready, but filing the GitHub issue failed: {promotionError} — fix it, then retry below.</span>
+                <button className="ghost" onClick={() => setPromotionError(null)}>
+                  Dismiss
+                </button>
+              </div>
+            )}
             {(topic.status === 'realizing' || topic.status === 'shipped') && stage && (
               <div className="topic-timeline" role="status" aria-label="Realization progress">
                 {TIMELINE_STEPS.map((step, idx) => (
@@ -487,9 +505,9 @@ export default function TopicDetailPage() {
                   {realizeBusy ? 'Starting…' : stage === 'needs-input' ? 'Resume realizing' : 'Realize it'}
                 </button>
               )}
-              {!threadLocked && topic.status !== 'ready' && (
+              {!threadLocked && (topic.status !== 'ready' || issues.length === 0) && (
                 <button type="button" className="ghost" disabled={readyBusy} onClick={() => void markReady()}>
-                  {readyBusy ? 'Marking…' : "I'm happy — it's ready"}
+                  {readyBusy ? 'Marking…' : topic.status === 'ready' ? 'File GitHub issue' : "I'm happy — it's ready"}
                 </button>
               )}
               <button type="button" className="ghost" disabled={busy || topic.status === 'dropped'} onClick={() => void archive()}>

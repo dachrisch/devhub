@@ -15,7 +15,7 @@ import type { ModelOption } from '@/lib/types';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
 import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
 import { ProjectsHome } from '@/components/board/projects-home';
-import { RecentlyClosed, RecentlyReleased } from '@/components/board/released-strips';
+import { DeliveredSection } from '@/components/board/delivered-section';
 import {
   ActionStatusStrip,
   actionFromApi,
@@ -534,15 +534,19 @@ export default function BoardPage() {
         </div>
       )}
 
-      <RecentlyReleased issues={issues} />
-      <RecentlyClosed issues={issues} />
-
       <ProjectsHome
         selectedId={null}
         onSelect={(id) => {
           if (id != null) router.push(`/projects/${id}`);
         }}
         refreshKey={projectTick}
+      />
+
+      {/* History lives below the projects, muted and collapsed — never above
+          the first card. */}
+      <DeliveredSection
+        issues={issues.filter((i) => i.state === 'rollout' || i.state === 'closed')}
+        topics={[]}
       />
 
       {searchSheetOpen && isMobile && (
