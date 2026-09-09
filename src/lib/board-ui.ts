@@ -1,4 +1,4 @@
-import type { Issue, IssueState, Topic } from './types';
+import type { Issue, IssueState, Topic, TopicStatus } from './types';
 
 export const REPO_COLORS = [
   '#58a6ff',
@@ -44,6 +44,16 @@ export function matchesIssue(issue: Issue, query: string): boolean {
     .join(' ')
     .toLowerCase();
   return global.every((term) => haystack.includes(term));
+}
+
+// Idea-page thread lock (needs-input reply spec): the thread accepts input
+// while shaping (new/shaping/ready) and while a realization is blocked
+// waiting on the operator. Finished topics stay read-only, and a live,
+// unblocked realization stays quiet — no mid-run chatter.
+export function isTopicThreadLocked(status: TopicStatus, needsInput: boolean): boolean {
+  if (status === 'dropped' || status === 'shipped') return true;
+  if (status === 'realizing') return !needsInput;
+  return false;
 }
 
 // Topic search for the unified funnel: plain tokens match across

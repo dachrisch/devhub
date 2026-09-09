@@ -4,13 +4,14 @@ import {
   closedReasonLabel,
   countRepos,
   excerpt,
+  isTopicThreadLocked,
   matchesIssue,
   matchesTopic,
   primaryCardAction,
   relTime,
   repoColor,
 } from './board-ui.js';
-import type { Issue, Topic } from './types.js';
+import type { Issue, Topic, TopicStatus } from './types.js';
 
 function issue(overrides: Partial<Issue> = {}): Issue {
   return {
@@ -217,6 +218,27 @@ describe('matchesTopic', () => {
   it('rejects non-matching tokens', () => {
     expect(matchesTopic(topic, 'webhook')).toBe(false);
     expect(matchesTopic(topic, 'album webhook')).toBe(false);
+  });
+});
+
+describe('isTopicThreadLocked', () => {
+  it('leaves shaping topics open', () => {
+    for (const status of ['new', 'shaping', 'ready'] as TopicStatus[]) {
+      expect(isTopicThreadLocked(status, false)).toBe(false);
+      expect(isTopicThreadLocked(status, true)).toBe(false);
+    }
+  });
+
+  it('locks finished topics', () => {
+    for (const status of ['dropped', 'shipped'] as TopicStatus[]) {
+      expect(isTopicThreadLocked(status, false)).toBe(true);
+      expect(isTopicThreadLocked(status, true)).toBe(true);
+    }
+  });
+
+  it('unlocks a blocked realization, locks a live one', () => {
+    expect(isTopicThreadLocked('realizing', true)).toBe(false);
+    expect(isTopicThreadLocked('realizing', false)).toBe(true);
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canRealize, realizeStage } from './realize';
+import { canRealize, realizeStage, shouldResumeOnReply } from './realize';
 import type { Issue, Topic } from './types';
 
 function topic(status: Topic['status']): Topic {
@@ -90,5 +90,27 @@ describe('canRealize guards (devhub#171 Phase 3)', () => {
   it('reports done when every linked issue settled', () => {
     expect(canRealize(topic('realizing'), [issue('rollout')], false)).toEqual({ ok: true, action: 'done' });
     expect(canRealize(topic('ready'), [issue('rollout'), issue('closed')], false)).toEqual({ ok: true, action: 'done' });
+  });
+});
+
+describe('shouldResumeOnReply (needs-input reply spec)', () => {
+  const blocked = [{ blockedReason: 'Which auth?' }];
+  const clear = [{ blockedReason: null }];
+  it('resumes a blocked realization when no loop is live', () => {
+    expect(shouldResumeOnReply('realizing', blocked, false)).toBe(true);
+  });
+  it('never resumes finished topics', () => {
+    expect(shouldResumeOnReply('dropped', blocked, false)).toBe(false);
+    expect(shouldResumeOnReply('shipped', blocked, false)).toBe(false);
+  });
+  it('never resumes shaping topics (replies shape, they do not resume)', () => {
+    expect(shouldResumeOnReply('new', blocked, false)).toBe(false);
+    expect(shouldResumeOnReply('shaping', blocked, false)).toBe(false);
+    expect(shouldResumeOnReply('ready', blocked, false)).toBe(false);
+  });
+  it('never resumes an unblocked or already-live realization', () => {
+    expect(shouldResumeOnReply('realizing', clear, false)).toBe(false);
+    expect(shouldResumeOnReply('realizing', [], false)).toBe(false);
+    expect(shouldResumeOnReply('realizing', blocked, true)).toBe(false);
   });
 });
