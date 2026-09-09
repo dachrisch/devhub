@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { assignIssue, getIssueByGithub, getProject, getTopic, refreshTopicStatus, updateTopic, upsertIssue } from '@/lib/store';
-import { publishIssue, publishTopic } from '@/lib/sse';
-import { createGithubIssue } from '@/lib/github';
+import { getTopic } from '@/lib/store';
+import { promoteTopicToIssue } from '@/lib/promote';
 import { requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
 import type { Issue } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Promote a topic idea to a real GitHub issue (devhub#167). Always creates the
-// issue (keeps the label/comment mirror) and links it back to the topic.
+// Promote a topic idea to a real GitHub issue (devhub#167). Idempotent: a
+// topic that already has a linked issue returns it instead of filing a
+// duplicate — pass `{ force: true }` for a deliberate follow-up issue.
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -28,35 +28,14 @@ export async function POST(
   if (!Number.isInteger(topicId)) return NextResponse.json({ error: 'invalid id' }, { status: 400 });
   const topic = getTopic(topicId);
   if (!topic) return NextResponse.json({ error: 'not found' }, { status: 404 });
-  const project = topic.projectId != null ? getProject(topic.projectId) : null;
-  const owner = project?.serviceRepoOwner;
-  const repo = project?.serviceRepoName;
-  if (!owner || !repo) {
-    return NextResponse.json({ error: 'topic has no service repo (assign it to a project first)' }, { status: 400 });
-  }
-  const body = (await req.json().catch(() => ({}))) as { title?: unknown; body?: unknown };
-  const title = (typeof body.title === 'string' && body.title.trim()) || topic.title;
-  const issueBody =
-    (typeof body.body === 'string' && body.body) ||
-    [topic.notes, topic.area ? `Area: ${topic.area}` : null].filter(Boolean).join('\n\n') ||
-    null;
+  const body = (await req.json().catch(() => ({}))) as { title?: unknown; body?: unknown; force?: unknown };
   try {
-    const created = await createGithubIssue(owner, repo, title, issueBody, token);
-    const stored = upsertIssue({
-      githubIssueId: 0,
-      owner,
-      repo,
-      number: created.number,
-      title,
-      body: issueBody,
-      htmlUrl: created.htmlUrl,
+    const result = await promoteTopicToIssue(topic, token, {
+      title: typeof body.title === 'string' && body.title.trim() ? body.title : undefined,
+      body: typeof body.body === 'string' && body.body ? body.body : undefined,
+      createNew: body.force === true,
     });
-    const withLinks = assignIssue(stored.id, { projectId: project!.id, topicId: topic.id });
-    publishIssue(withLinks ?? getIssueByGithub(owner, repo, created.number)!);
-    updateTopic(topic.id, { status: 'realizing' });
-    refreshTopicStatus(topic.id);
-    publishTopic(topic.id);
-    return NextResponse.json({ issue: withLinks ?? stored, url: created.htmlUrl });
+    return NextResponse.json({ issue: result.issue, url: result.url });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 502 });
   }

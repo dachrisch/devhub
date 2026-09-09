@@ -75,6 +75,9 @@ describe('canRealize guards (devhub#171 Phase 3)', () => {
   it('starts fresh ideas and retries blocked work', () => {
     expect(canRealize(topic('new'), [], false)).toEqual({ ok: true, action: 'full' });
     expect(canRealize(topic('ready'), [issue('backlog')], false)).toEqual({ ok: true, action: 'full' });
+    // Auto-promote race: a ready idea with no linked issue yet still goes full
+    // (realizeTopic promotes first, then works the fresh backlog issue).
+    expect(canRealize(topic('ready'), [], false)).toEqual({ ok: true, action: 'full' });
     expect(canRealize(topic('realizing'), [issue('developing', 'Needs input')], false)).toEqual({ ok: true, action: 'full' });
   });
 

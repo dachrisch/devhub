@@ -387,9 +387,12 @@ describe('projects & topics (devhub#167)', () => {
     });
     const issue = store.getIssueByGithub('acme', 'topic-repo', 3)!;
     store.assignIssue(issue.id, { projectId: project.id, topicId: inbox.id });
-    // Open work flips the topic to realizing.
+    // Fresh promotion (backlog only) reads as ready…
+    expect(store.refreshTopicStatus(inbox.id)?.status).toBe('ready');
+    // …started work flips the topic to realizing…
+    store.setIssueState(issue.id, 'developing');
     expect(store.refreshTopicStatus(inbox.id)?.status).toBe('realizing');
-    // Settling every linked issue ships the topic.
+    // …and settling every linked issue ships the topic.
     store.setRollout(issue.id, 'v9.9.9');
     expect(store.refreshTopicStatus(inbox.id)?.status).toBe('shipped');
 

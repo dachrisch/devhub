@@ -1,5 +1,4 @@
 import {
-  assignIssue,
   getIssue,
   getIssuesByTopic,
   getProject,
@@ -8,11 +7,10 @@ import {
   refreshTopicStatus,
   setBlockedReason,
   updateRun,
-  updateTopic,
-  upsertIssue,
 } from './store';
 import { canDevelop, startWork } from './develop';
-import { createGithubIssue, sweepRollouts } from './github';
+import { sweepRollouts } from './github';
+import { promoteTopicToIssue } from './promote';
 import { autoMergeAndRelease } from './auto-merge';
 import { publishIssue, publishRun, publishTopic } from './sse';
 import { ENV } from './env';
@@ -221,30 +219,5 @@ async function tryAutoMerge(topicId: number, token: string): Promise<void> {
 }
 
 async function promoteTopicForRealize(topic: Topic, token: string): Promise<void> {
-  const project = topic.projectId != null ? getProject(topic.projectId) : null;
-  const owner = project?.serviceRepoOwner;
-  const repo = project?.serviceRepoName;
-  if (!owner || !repo) {
-    throw new Error('topic has no service repo (assign it to a project first)');
-  }
-  const title = topic.title;
-  const issueBody =
-    [topic.notes, topic.shapedSummary ? `Shaped: ${topic.shapedSummary}` : null, topic.area ? `Area: ${topic.area}` : null]
-      .filter(Boolean)
-      .join('\n\n') || null;
-  const created = await createGithubIssue(owner, repo, title, issueBody, token);
-  const stored = upsertIssue({
-    githubIssueId: 0,
-    owner,
-    repo,
-    number: created.number,
-    title,
-    body: issueBody,
-    htmlUrl: created.htmlUrl,
-  });
-  const withLinks = assignIssue(stored.id, { projectId: project!.id, topicId: topic.id });
-  if (withLinks) publishIssue(withLinks);
-  updateTopic(topic.id, { status: 'realizing' });
-  refreshTopicStatus(topic.id);
-  publishTopic(topic.id);
+  await promoteTopicToIssue(topic, token);
 }
