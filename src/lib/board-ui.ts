@@ -1,4 +1,4 @@
-import type { Issue, IssueState } from './types';
+import type { Issue, IssueState, Topic } from './types';
 
 export const REPO_COLORS = [
   '#58a6ff',
@@ -44,6 +44,15 @@ export function matchesIssue(issue: Issue, query: string): boolean {
     .join(' ')
     .toLowerCase();
   return global.every((term) => haystack.includes(term));
+}
+
+// Topic search for the unified funnel: plain tokens match across
+// title/notes/status. No field filters — topics have no repo/number.
+export function matchesTopic(topic: Pick<Topic, 'title' | 'notes' | 'status'>, query: string): boolean {
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  const haystack = [topic.title, topic.notes ?? '', topic.status].join(' ').toLowerCase();
+  return tokens.every((term) => haystack.includes(term));
 }
 
 export function relTime(iso: string): string {

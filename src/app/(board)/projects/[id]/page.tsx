@@ -4,23 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import type { Issue, IssueState, Topic } from '@/lib/types';
-import { matchesIssue, notifyStateChange, runSupersededByBroadcast } from '@/lib/board-ui';
+import { matchesIssue, matchesTopic, notifyStateChange, runSupersededByBroadcast } from '@/lib/board-ui';
+import { funnelColumnForIssue, funnelColumnForTopicWithIssues } from '@/lib/funnel';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
 import { KanbanBoard } from '@/components/board/kanban-board';
-import { BoardToolbar } from '@/components/board/board-toolbar';
-
-// Staleness is irrelevant here; sorting/grouping is by status then recency.
-// Dropped ideas stay hidden behind search; every other status gets a group.
-const TOPIC_GROUPS: { status: Topic['status']; label: string }[] = [
-  { status: 'new', label: 'New' },
-  { status: 'shaping', label: 'Shaping' },
-  { status: 'ready', label: 'Ready' },
-  { status: 'realizing', label: 'Realizing' },
-  { status: 'shipped', label: 'Delivered' },
-];
+import { BoardToolbar, RepoChips } from '@/components/board/board-toolbar';
+import { DeliveredSection } from '@/components/board/delivered-section';
+import { MobileTopicCard, TopicCard } from '@/components/board/topic-card';
 
 function statusBadge(status: string | null): string {
   return status ?? 'stale';
@@ -43,7 +36,6 @@ export default function ProjectBoardPage() {
   const [projectError, setProjectError] = useState<string | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
-  const [topicFilter, setTopicFilter] = useState<number | null>(null);
   const [query, setQuery] = useState('');
   const [repoFilter, setRepoFilter] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -202,21 +194,67 @@ export default function ProjectBoardPage() {
   }, [signedIn, validId, projectId, clearJustStarted, fetchTopics, refetchIssues]);
 
   const scopedIssues = useMemo(
-    () =>
-      issues.filter(
-        (i) =>
-          i.projectId === projectId &&
-          (!topicFilter || i.topicId === topicFilter) &&
-          matchesIssue(i, query)
-      ),
-    [issues, projectId, topicFilter, query]
+    () => issues.filter((i) => i.projectId === projectId && matchesIssue(i, query)),
+    [issues, projectId, query]
   );
+
+  // Linked issue states per topic: the funnel column of a topic follows its
+  // work once promoted (backlog reads as ready, started work as realizing).
+  const issueStatesByTopic = useMemo(() => {
+    const map = new Map<number, IssueState[]>();
+    for (const i of issues) {
+      if (i.projectId !== projectId || i.topicId == null) continue;
+      const arr = map.get(i.topicId) ?? [];
+      arr.push(i.state);
+      map.set(i.topicId, arr);
+    }
+    return map;
+  }, [issues, projectId]);
+
+  const columnOfTopic = useCallback(
+    (t: Topic) => funnelColumnForTopicWithIssues(t.status, issueStatesByTopic.get(t.id) ?? []),
+    [issueStatesByTopic]
+  );
+
+  // Live funnel pools vs delivered history (closed issues + shipped/dropped
+  // topics render muted below the board, never as columns).
+  const liveIssues = useMemo(
+    () => scopedIssues.filter((i) => funnelColumnForIssue(i.state) !== 'delivered'),
+    [scopedIssues]
+  );
+  const deliveredIssues = useMemo(
+    () =>
+      scopedIssues.filter(
+        (i) => i.state === 'closed' && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter)
+      ),
+    [scopedIssues, repoFilter]
+  );
+  const liveTopics = useMemo(() => topics.filter((t) => columnOfTopic(t) !== 'delivered'), [topics, columnOfTopic]);
+  const deliveredTopics = useMemo(
+    () => topics.filter((t) => columnOfTopic(t) === 'delivered' && matchesTopic(t, query)),
+    [topics, columnOfTopic, query]
+  );
+
+  const deliveredRef = useRef<HTMLElement | null>(null);
+  const scrollToDone = useCallback(() => {
+    deliveredRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   const repos = useMemo(() => {
     const set = new Set<string>();
     for (const i of scopedIssues) set.add(`${i.owner}/${i.repo}`);
     return Array.from(set).sort();
   }, [scopedIssues]);
+
+  // Batch bar names the real direction (backlog → refinement reads forward,
+  // refinement → backlog reads back — never the ambiguous "Advance").
+  const selectedIssues = useMemo(() => issues.filter((i) => selectedIds.has(i.id)), [issues, selectedIds]);
+  const advanceLabel =
+    selectedIssues.length > 0 && selectedIssues.every((i) => i.state === 'backlog')
+      ? `Move to Refinement (${selectedIds.size})`
+      : selectedIssues.length > 0 && selectedIssues.every((i) => i.state === 'refinement')
+        ? `Move to Backlog (${selectedIds.size})`
+        : `Move (${selectedIds.size})`;
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -305,6 +343,33 @@ export default function ProjectBoardPage() {
       }
     },
     [fetchTopics, refetchIssues]
+  );
+
+  // Topic cards for the funnel columns. Unlinked ideas (no issue yet) keep a
+  // manual "→ issue" promote affordance until auto-promotion lands (Phase 2).
+  const renderTopicCard = useCallback(
+    (topic: Topic, mobile: boolean) => {
+      const promotable =
+        (topic.status === 'new' || topic.status === 'shaping' || topic.status === 'ready') &&
+        !(issueStatesByTopic.get(topic.id)?.length);
+      const extra = promotable ? (
+        <button
+          type="button"
+          className="ghost topic-promote"
+          disabled={promotingId === topic.id}
+          onClick={() => void promoteTopic(topic.id)}
+          title="Promote to a GitHub issue"
+        >
+          {promotingId === topic.id ? '…' : '→ issue'}
+        </button>
+      ) : undefined;
+      return mobile ? (
+        <MobileTopicCard topic={topic} footerExtra={extra} />
+      ) : (
+        <TopicCard topic={topic} footerExtra={extra} />
+      );
+    },
+    [issueStatesByTopic, promotingId, promoteTopic]
   );
 
   // Per-project auto-merge opt-out (devhub#171 Phase 4): off means Realize
@@ -504,10 +569,10 @@ export default function ProjectBoardPage() {
                 Work on selected ({selectedIds.size})
               </button>
               <button className="advance-btn" onClick={advanceSelected} disabled={refreshing}>
-                Advance selected ({selectedIds.size})
+                {advanceLabel}
               </button>
               <div className="keyboard-hints">
-                <span>Ctrl+Enter to advance</span>
+                <span>Ctrl+Enter to move</span>
                 <span>Esc to clear</span>
               </div>
             </div>
@@ -556,100 +621,9 @@ export default function ProjectBoardPage() {
           </div>
         )}
 
-        <div className="topics-rail" role="toolbar" aria-label="Topics">
-          <span className="released-label">Topics</span>
-          <button type="button" className="ghost" disabled={suggestBusy} onClick={() => void suggestNext()} title="Propose the next feature as a suggested topic">
-            {suggestBusy ? 'Suggesting…' : 'Suggest next'}
-          </button>
-          <div className="topics-groups">
-            {TOPIC_GROUPS.map(({ status, label }) => {
-              const items = topics.filter((t) => t.status === status);
-              if (items.length === 0) return null;
-              return (
-                <div className="topics-group" key={status}>
-                  <span className="topics-group-label">{label}</span>
-                  <div className="topics-chips">
-                    {items.map((t) => (
-                      <span key={t.id} className="topic-chip-wrap">
-                        <button
-                          className={`topic-chip${topicFilter === t.id ? ' active' : ''}`}
-                          onClick={() => setTopicFilter(topicFilter === t.id ? null : t.id)}
-                          title={t.notes ?? t.title}
-                        >
-                          {t.title}
-                        </button>
-                        <Link href={`/topics/${t.id}`} className="ghost topic-open" title={`Open idea #${t.id}`}>
-                          open →
-                        </Link>
-                        {(status === 'new' || status === 'shipped') && (
-                          <button
-                            type="button"
-                            className="ghost topic-promote"
-                            disabled={promotingId === t.id}
-                            onClick={() => void promoteTopic(t.id)}
-                            title={status === 'new' ? 'Promote to a GitHub issue' : 'Promote again as a follow-up issue'}
-                          >
-                            {promotingId === t.id ? '…' : '→ issue'}
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-            {topics.length === 0 && <span className="topics-empty">no topics yet — add an idea</span>}
-          </div>
-          {ideaOpen ? (
-            <span className="topics-idea-form">
-              <input
-                className="search"
-                placeholder="Idea title…"
-                value={ideaTitle}
-                autoFocus
-                onChange={(e) => setIdeaTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void addIdea();
-                  if (e.key === 'Escape') {
-                    setIdeaOpen(false);
-                    setIdeaTitle('');
-                  }
-                }}
-              />
-              <button type="button" className="card-primary" disabled={!ideaTitle.trim() || ideaBusy} onClick={() => void addIdea()}>
-                {ideaBusy ? 'Saving…' : 'Save'}
-              </button>
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => {
-                  setIdeaOpen(false);
-                  setIdeaTitle('');
-                }}
-              >
-                Cancel
-              </button>
-            </span>
-          ) : (
-            <button type="button" className="ghost" onClick={() => setIdeaOpen(true)}>
-              + Add idea
-            </button>
-          )}
-        </div>
-
-        {topicFilter != null && (
-          <div className="project-filter-banner" role="status">
-            <span>
-              Showing issues for topic <strong>#{topicFilter}</strong>.
-            </span>
-            <button className="ghost" onClick={() => setTopicFilter(null)}>
-              Show all
-            </button>
-          </div>
-        )}
-
         <KanbanBoard
-          issues={scopedIssues}
+          issues={liveIssues}
+          topics={liveTopics}
           query={query}
           repoFilter={repoFilter}
           isMobile={isMobile}
@@ -662,14 +636,75 @@ export default function ProjectBoardPage() {
               refreshing={refreshing}
               onRefresh={refresh}
               showLastRefreshed={false}
+              hideChips={isMobile}
             />
+          }
+          filterChips={
+            isMobile ? (
+              <RepoChips repos={repos} repoFilter={repoFilter} onRepoFilterChange={setRepoFilter} />
+            ) : undefined
           }
           justStartedIds={justStartedIds}
           markJustStarted={markJustStarted}
           clearJustStarted={clearJustStarted}
           selectedIds={selectedIds}
           toggleSelection={toggleSelection}
+          columnOfTopic={columnOfTopic}
+          renderTopicCard={renderTopicCard}
+          columnExtras={{
+            idea: (
+              <div className="idea-col-actions">
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={suggestBusy}
+                  onClick={() => void suggestNext()}
+                  title="Propose the next feature as a suggested topic"
+                >
+                  {suggestBusy ? 'Suggesting…' : 'Suggest next'}
+                </button>
+                {ideaOpen ? (
+                  <span className="topics-idea-form">
+                    <input
+                      className="search"
+                      placeholder="Idea title…"
+                      value={ideaTitle}
+                      autoFocus
+                      onChange={(e) => setIdeaTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void addIdea();
+                        if (e.key === 'Escape') {
+                          setIdeaOpen(false);
+                          setIdeaTitle('');
+                        }
+                      }}
+                    />
+                    <button type="button" className="card-primary" disabled={!ideaTitle.trim() || ideaBusy} onClick={() => void addIdea()}>
+                      {ideaBusy ? 'Saving…' : 'Save'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => {
+                        setIdeaOpen(false);
+                        setIdeaTitle('');
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button type="button" className="ghost" onClick={() => setIdeaOpen(true)}>
+                    + Add idea
+                  </button>
+                )}
+              </div>
+            ),
+          }}
+          doneCount={deliveredIssues.length + deliveredTopics.length}
+          onShowDone={scrollToDone}
         />
+        <DeliveredSection issues={deliveredIssues} topics={deliveredTopics} sectionRef={deliveredRef} />
       </main>
     </div>
   );

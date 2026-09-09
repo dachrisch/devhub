@@ -1,14 +1,18 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import type { Issue, IssueState } from '@/lib/types';
-import { countRepos, KANBAN_COLUMNS, matchesIssue } from '@/lib/board-ui';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import type { Issue, Topic } from '@/lib/types';
+import type { FunnelColumn } from '@/lib/funnel';
+import { FUNNEL_COLUMNS, funnelColumnForIssue, funnelColumnForTopic } from '@/lib/funnel';
+import { countRepos, matchesIssue, matchesTopic } from '@/lib/board-ui';
 import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
 import { IssueCard, IssueCardSheet, MobileIssueCard } from '@/components/board/issue-card';
+import { MobileTopicCard, TopicCard } from '@/components/board/topic-card';
 
 export interface KanbanBoardProps {
-  // The issue pool to render (already scoped to the page's context).
+  // Live pools (delivered history renders separately below the board).
   issues: Issue[];
+  topics: Topic[];
   query: string;
   repoFilter: string | null;
   // Shared viewport decision (MOBILE_QUERY) from the page — one subscription
@@ -23,10 +27,35 @@ export interface KanbanBoardProps {
   clearJustStarted: (id: number) => void;
   selectedIds: Set<number>;
   toggleSelection: (issueId: number) => void;
+  // Funnel mapping. Defaults read status/state alone; the project board
+  // passes a topic resolver that also consults linked issues.
+  columnOfIssue?: (issue: Issue) => FunnelColumn;
+  columnOfTopic?: (topic: Topic) => FunnelColumn;
+  // Topic card renderer (the page injects promote affordances for unlinked
+  // ideas). Defaults to the plain Discuss card.
+  renderTopicCard?: (topic: Topic, mobile: boolean) => React.ReactNode;
+  // Extra chrome pinned to the top of a column (e.g. Suggest-next + Add-idea
+  // in the idea column).
+  columnExtras?: Partial<Record<FunnelColumn, React.ReactNode>>;
+  // Delivered history lives below the board; the mobile strip surfaces it as
+  // a badge button that scrolls down to it.
+  doneCount?: number;
+  onShowDone?: () => void;
+  // Repo filter chips pinned under the status tabs on mobile, where the full
+  // toolbar (inside the scroll container) is too easy to miss.
+  filterChips?: React.ReactNode;
+}
+
+interface Cell {
+  key: string;
+  updatedAt: string;
+  blocked: boolean;
+  node: React.ReactNode;
 }
 
 export function KanbanBoard({
   issues,
+  topics,
   query,
   repoFilter,
   isMobile,
@@ -36,12 +65,19 @@ export function KanbanBoard({
   clearJustStarted,
   selectedIds,
   toggleSelection,
+  columnOfIssue = (issue) => funnelColumnForIssue(issue.state),
+  columnOfTopic = (topic) => funnelColumnForTopic(topic.status),
+  renderTopicCard,
+  columnExtras,
+  doneCount,
+  onShowDone,
+  filterChips,
 }: KanbanBoardProps) {
-  const [sorts, setSorts] = useState<Partial<Record<IssueState, 'newest' | 'oldest'>>>({});
-  const [activeColumn, setActiveColumn] = useState<IssueState>('backlog');
+  const [sorts, setSorts] = useState<Partial<Record<FunnelColumn, 'newest' | 'oldest'>>>({});
+  const [activeColumn, setActiveColumn] = useState<FunnelColumn>('idea');
   const [openActionsFor, setOpenActionsFor] = useState<Issue | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
-  const columnRefs = useRef<Map<IssueState, HTMLElement>>(new Map());
+  const columnRefs = useRef<Map<FunnelColumn, HTMLElement>>(new Map());
 
   useEffect(() => {
     // Tab state on mobile is driven directly by the status strip (only one
@@ -51,10 +87,10 @@ export function KanbanBoard({
 
     const observer = new IntersectionObserver(
       (entries) => {
-        let best: { col: IssueState; ratio: number } | null = null;
+        let best: { col: FunnelColumn; ratio: number } | null = null;
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
-          let col: IssueState | null = null;
+          let col: FunnelColumn | null = null;
           for (const [c, el] of columnRefs.current.entries()) {
             if (el === entry.target) {
               col = c;
@@ -79,36 +115,99 @@ export function KanbanBoard({
     return () => observer.disconnect();
   }, [isMobile]);
 
+  const counts = Object.fromEntries(
+    FUNNEL_COLUMNS.map((c) => [
+      c,
+      issues.filter((i) => columnOfIssue(i) === c).length + topics.filter((t) => columnOfTopic(t) === c).length,
+    ])
+  ) as Record<FunnelColumn, number>;
+
+  const cellsFor = (col: FunnelColumn): Cell[] => {
+    const dir = sorts[col] === 'oldest' ? 1 : -1;
+    const colIssues = issues.filter(
+      (i) => columnOfIssue(i) === col && matchesIssue(i, query) && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter)
+    );
+    const colTopics = topics.filter((t) => columnOfTopic(t) === col && matchesTopic(t, query));
+    const cells: Cell[] = [
+      ...colTopics.map((topic) => ({
+        key: `topic-${topic.id}`,
+        updatedAt: topic.updatedAt,
+        blocked: false,
+        node:
+          renderTopicCard?.(topic, isMobile) ??
+          (isMobile ? <MobileTopicCard topic={topic} /> : <TopicCard topic={topic} />),
+      })),
+      ...colIssues.map((issue) => {
+        const justStarted = justStartedIds.has(issue.id);
+        const onStarted = () => markJustStarted(issue.id);
+        const onStartFailed = () => clearJustStarted(issue.id);
+        return {
+          key: `issue-${issue.id}`,
+          updatedAt: issue.updatedAt,
+          // Cards needing input float to the top of their column.
+          blocked: Boolean(issue.blockedReason) && !justStarted,
+          node: isMobile ? (
+            <MobileIssueCard
+              key={issue.id}
+              issue={issue}
+              justStarted={justStarted}
+              onStarted={onStarted}
+              onStartFailed={onStartFailed}
+              onOpenActions={() => setOpenActionsFor(issue)}
+            />
+          ) : (
+            <IssueCard
+              key={issue.id}
+              issue={issue}
+              justStarted={justStarted}
+              onStarted={onStarted}
+              onStartFailed={onStartFailed}
+              selected={selectedIds.has(issue.id)}
+              onToggleSelection={toggleSelection}
+            />
+          ),
+        };
+      }),
+    ];
+    cells.sort((a, b) => {
+      if (a.blocked !== b.blocked) return a.blocked ? -1 : 1;
+      return a.updatedAt.localeCompare(b.updatedAt) * dir;
+    });
+    return cells;
+  };
+
+  const toggleSort = (col: FunnelColumn) =>
+    setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }));
+
+  // Delivered history is not a column — it renders below the board — but on
+  // mobile the strip's Done badge scrolls straight to it.
+  const visibleColumns = isMobile ? [activeColumn] : FUNNEL_COLUMNS;
+
   return (
     <>
       {isMobile && (
         <MobileStatusStrip
-          columns={KANBAN_COLUMNS}
-          counts={Object.fromEntries(
-            KANBAN_COLUMNS.map((c) => [c, issues.filter((i) => i.state === c).length])
-          ) as Record<IssueState, number>}
+          columns={FUNNEL_COLUMNS}
+          counts={counts}
           active={activeColumn}
           onSelect={setActiveColumn}
+          doneCount={doneCount}
+          onShowDone={onShowDone}
         />
       )}
+      {isMobile && filterChips && <div className="mobile-filter-row">{filterChips}</div>}
 
       <div className="board" ref={boardRef}>
         {/* On mobile the toolbar lives inside the scroll container so it scrolls
             away with the board instead of eating into the fixed chrome. */}
         {isMobile && toolbar}
         {/* Mobile renders a single column (the active tab); desktop shows all
-            four columns side by side with scroll-sync to the status strip. */}
-        {(isMobile ? [activeColumn] : KANBAN_COLUMNS).map((col) => {
-          const items = issues
-            .filter((i) => i.state === col && matchesIssue(i, query) && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter))
-            .sort((a, b) => {
-              // Cards needing input float to the top of their column.
-              if (Boolean(a.blockedReason) !== Boolean(b.blockedReason)) {
-                return a.blockedReason ? -1 : 1;
-              }
-              const dir = sorts[col] === 'oldest' ? 1 : -1;
-              return a.updatedAt.localeCompare(b.updatedAt) * dir;
-            });
+            four live columns side by side with scroll-sync to the status strip. */}
+        {visibleColumns.map((col) => {
+          const cells = cellsFor(col);
+          const colIssues = issues.filter((i) => columnOfIssue(i) === col);
+          const extras = columnExtras?.[col];
+          const sortLabel = sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest';
           return (
             <section
               className="column"
@@ -124,64 +223,37 @@ export function KanbanBoard({
               {isMobile ? (
                 <div className="column-meta">
                   <span>
-                    {items.length} issues · {countRepos(items)} repos
+                    {cells.length} items · {countRepos(colIssues)} repos
                   </span>
                   <button
                     className="sort-toggle"
-                    onClick={() =>
-                      setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
-                    }
+                    onClick={() => toggleSort(col)}
                     title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
                     aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
                   >
-                    {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
+                    {sortLabel}
                   </button>
                 </div>
               ) : (
                 <div className="column-head">
                   <span className={`dot ${col}`} />
                   {col}
-                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({items.length})</span>
+                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({cells.length})</span>
                   <button
                     className="sort-toggle"
-                    onClick={() =>
-                      setSorts((s) => ({ ...s, [col]: s[col] === 'oldest' ? 'newest' : 'oldest' }))
-                    }
+                    onClick={() => toggleSort(col)}
                     title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
                     aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
                   >
-                    {sorts[col] === 'oldest' ? '↑ oldest' : '↓ newest'}
+                    {sortLabel}
                   </button>
                 </div>
               )}
-              {items.length === 0 ? (
+              {extras}
+              {cells.length === 0 ? (
                 <div className="empty">nothing here</div>
               ) : (
-                items.map((issue) => {
-                  const justStarted = justStartedIds.has(issue.id);
-                  const onStarted = () => markJustStarted(issue.id);
-                  const onStartFailed = () => clearJustStarted(issue.id);
-                  return isMobile ? (
-                    <MobileIssueCard
-                      key={issue.id}
-                      issue={issue}
-                      justStarted={justStarted}
-                      onStarted={onStarted}
-                      onStartFailed={onStartFailed}
-                      onOpenActions={() => setOpenActionsFor(issue)}
-                    />
-                  ) : (
-                    <IssueCard
-                      key={issue.id}
-                      issue={issue}
-                      justStarted={justStarted}
-                      onStarted={onStarted}
-                      onStartFailed={onStartFailed}
-                      selected={selectedIds.has(issue.id)}
-                      onToggleSelection={toggleSelection}
-                    />
-                  );
-                })
+                cells.map((cell) => <Fragment key={cell.key}>{cell.node}</Fragment>)
               )}
             </section>
           );

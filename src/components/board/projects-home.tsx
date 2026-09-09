@@ -143,6 +143,9 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
         <div className="empty">loading projects…</div>
       ) : (
         <>
+          {summaries.length > 0 && (
+            <div className="projects-hint">Pick one to open its board →</div>
+          )}
           <div className="projects-grid">
             {summaries.map(({ project, status, needsInput, inFlight, prCount, ideas, recentIdeas }) => (
               <ProjectCard

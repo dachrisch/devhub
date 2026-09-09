@@ -713,6 +713,69 @@ header h1 {
   background: var(--closed);
 }
 
+/* Unified-funnel column dots (2026-09-09 redesign). History (pr/rollout as
+   live rollout, delivered as archive) no longer gets full-saturation
+   treatment of its own. */
+.dot.idea {
+  background: var(--refinement);
+}
+.dot.ready {
+  background: var(--backlog);
+}
+.dot.realizing {
+  background: var(--developing);
+}
+.dot.rollout {
+  background: var(--rollout);
+}
+.dot.delivered {
+  background: var(--closed);
+}
+
+/* Delivered history below the board: muted, collapsed, never competing with
+   the live columns above it. */
+.delivered-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  min-height: 36px;
+  opacity: 0.75;
+}
+
+.delivered-item {
+  background: transparent;
+}
+
+.delivered-tag {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* Idea-column actions (Suggest next + Add idea) pinned under the column head. */
+.idea-col-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px 0;
+}
+
+.idea-col-actions .topics-idea-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.idea-col-actions .topics-idea-form .search {
+  flex: 1;
+  min-width: 0;
+}
+
 .released-strip,
 .closed-strip {
   display: flex;
@@ -2023,6 +2086,22 @@ button:disabled {
     gap: 8px;
   }
 
+  /* Repo filter pinned under the status tabs (the in-scroll toolbar hides it
+     too easily). Renders nothing when there is a single repo. */
+  .mobile-filter-row {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+
+  .mobile-filter-row:empty {
+    display: none;
+  }
+
+  .mobile-filter-row .repo-chips {
+    padding: 0;
+  }
+
   .repo-chip {
     padding: 8px 14px;
     min-height: 44px;
@@ -2163,6 +2242,21 @@ button:disabled {
   .status-strip-tab.active .status-strip-badge {
     color: var(--bg);
     background: var(--muted);
+  }
+
+  .status-strip-done {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: none;
+    height: 44px;
+    padding: 0 12px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 13.5px;
+    cursor: pointer;
+    opacity: 0.75;
   }
 
   .status-strip-more {
@@ -2712,6 +2806,12 @@ button:disabled {
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   padding: 12px 24px;
+}
+
+.projects-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
 }
 
 .projects-grid {

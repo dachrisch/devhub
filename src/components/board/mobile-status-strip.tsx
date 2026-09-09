@@ -1,40 +1,45 @@
 'use client';
 
 import { useState, type KeyboardEvent } from 'react';
-import type { IssueState } from '@/lib/types';
+import type { FunnelColumn } from '@/lib/funnel';
 
 // Shared id scheme between the tabs (rendered here) and the tabpanel they
 // control (the single visible column, rendered by the board page). Kept in
 // one place so `aria-controls`/`aria-labelledby` can never drift apart.
-export const statusTabId = (col: IssueState) => `status-tab-${col}`;
-export const statusPanelId = (col: IssueState) => `status-panel-${col}`;
+export const statusTabId = (col: FunnelColumn) => `status-tab-${col}`;
+export const statusPanelId = (col: FunnelColumn) => `status-panel-${col}`;
 
 interface MobileStatusStripProps {
-  columns: IssueState[];
-  counts: Record<IssueState, number>;
-  active: IssueState;
-  onSelect: (column: IssueState) => void;
+  columns: readonly FunnelColumn[];
+  counts: Record<FunnelColumn, number>;
+  active: FunnelColumn;
+  onSelect: (column: FunnelColumn) => void;
+  // Delivered history lives below the board, not in a tab: a muted badge
+  // button that scrolls to it. Deliberately role="button", not a tab, so the
+  // tabs pattern keeps controlling exactly the visible column.
+  doneCount?: number;
+  onShowDone?: () => void;
 }
 
 // Cap on tabs surfaced directly in the strip before the rest fall into the
 // "More" overflow menu, so the strip never crowds a narrow screen.
 const MAX_MAIN_TABS = 4;
 
-export function MobileStatusStrip({ columns, counts, active, onSelect }: MobileStatusStripProps) {
+export function MobileStatusStrip({ columns, counts, active, onSelect, doneCount, onShowDone }: MobileStatusStripProps) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const countOf = (col: IssueState) => counts[col] ?? 0;
+  const countOf = (col: FunnelColumn) => counts[col] ?? 0;
 
   // Populated columns are surfaced as tabs; the active column is always
   // surfaced too (even at zero count) so the tab stays in sync with what's
   // on screen. Anything left over — empty inactive columns plus any tabs that
   // overflowed the cap — lives behind the "More" tab.
   const populated = columns.filter((col) => countOf(col) > 0);
-  const main = Array.from(new Set<IssueState>([...populated, active])).slice(0, MAX_MAIN_TABS);
-  const more: IssueState[] = columns.filter((col) => !main.includes(col));
+  const main = Array.from(new Set<FunnelColumn>([...populated, active])).slice(0, MAX_MAIN_TABS);
+  const more: FunnelColumn[] = columns.filter((col) => !main.includes(col));
   const hasMore = more.length > 0;
   const activeIsMore = hasMore && !main.includes(active);
 
-  const select = (col: IssueState) => {
+  const select = (col: FunnelColumn) => {
     onSelect(col);
     setMoreOpen(false);
   };
@@ -56,7 +61,7 @@ export function MobileStatusStrip({ columns, counts, active, onSelect }: MobileS
     e.preventDefault();
     const target = tabs[next];
     target.focus();
-    const col = target.dataset.column as IssueState | undefined;
+    const col = target.dataset.column as FunnelColumn | undefined;
     if (col) select(col);
   };
 
@@ -79,7 +84,7 @@ export function MobileStatusStrip({ columns, counts, active, onSelect }: MobileS
             role="tab"
             aria-selected={isActive}
             aria-controls={statusPanelId(col)}
-            // Keep the accessible name aligned with the visible "Backlog 21"
+            // Keep the accessible name aligned with the visible "Ready 21"
             // label (WCAG 2.5.3 Label in Name).
             aria-label={`${col}, ${countOf(col)} items`}
             tabIndex={isActive ? 0 : -1}
@@ -129,6 +134,19 @@ export function MobileStatusStrip({ columns, counts, active, onSelect }: MobileS
             </div>
           )}
         </div>
+      )}
+
+      {doneCount != null && doneCount > 0 && onShowDone && (
+        <button
+          type="button"
+          className="status-strip-done"
+          onClick={onShowDone}
+          aria-label={`Delivered history, ${doneCount} items, below the board`}
+        >
+          <span className="dot delivered" aria-hidden="true" />
+          <span>Done</span>
+          <span className="status-strip-badge">{doneCount}</span>
+        </button>
       )}
     </nav>
   );
