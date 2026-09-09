@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.2](https://github.com/dachrisch/devhub/compare/v1.22.1...v1.22.2) (2026-09-09)
+
+
+### Bug Fixes
+
+* **deps:** update react monorepo to v19.3.0 ([a447429](https://github.com/dachrisch/devhub/commit/a447429a41dcd4e99f523dbb811ecc045a77e79f))
+
 ## [1.22.1](https://github.com/dachrisch/devhub/compare/v1.22.0...v1.22.1) (2026-09-09)
 
 
