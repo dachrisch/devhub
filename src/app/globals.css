@@ -3175,6 +3175,18 @@ button.project-card-new.open {
   align-items: flex-end;
 }
 
+.topic-reply-target {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.topic-resume-note {
+  font-size: 12px;
+  color: var(--developing);
+  margin-top: 6px;
+}
+
 .topic-reply-input {
   flex: 1;
   resize: vertical;

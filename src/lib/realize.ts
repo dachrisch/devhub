@@ -73,6 +73,17 @@ export function canRealize(
   return { ok: true, action: 'full' };
 }
 
+// Resume trigger for inline blocker answers (needs-input reply spec): a
+// reply/choice posted while the topic is realizing and blocked restarts the
+// loop with the answer as its command. Pure for testability.
+export function shouldResumeOnReply(
+  status: Topic['status'],
+  issues: Pick<Issue, 'blockedReason'>[],
+  live: boolean
+): boolean {
+  return status === 'realizing' && !live && issues.some((i) => i.blockedReason);
+}
+
 // One realize loop per topic; a second click while the loop runs gets a 409
 // instead of a duplicate chain (same rule as liveShapingRuns).
 const liveRealizeRuns = new Set<number>();

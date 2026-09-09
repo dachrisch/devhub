@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import type { IdeaMessage, Issue, Project, Topic } from '@/lib/types';
 import { TOPIC_STATUS_LABELS } from '@/lib/types';
+import { isTopicThreadLocked } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
@@ -56,11 +57,15 @@ export default function TopicDetailPage() {
   const [chooseBusy, setChooseBusy] = useState<string | null>(null);
   const [readyBusy, setReadyBusy] = useState(false);
   const [promotionError, setPromotionError] = useState<string | null>(null);
+  const [resumeNote, setResumeNote] = useState<string | null>(null);
   const [realizeBusy, setRealizeBusy] = useState(false);
   const { user, loading, denied, logout } = useAuth();
   const signedIn = Boolean(user);
-  const threadLocked =
-    topic != null && (topic.status === 'dropped' || topic.status === 'shipped' || topic.status === 'realizing');
+  // Blocked realizations unlock the thread: the reply/choice is the answer
+  // and resumes the loop. Unknown state defaults to locked.
+  const needsInput = issues.some((i) => i.blockedReason);
+  const threadLocked = topic == null || isTopicThreadLocked(topic.status, needsInput);
+  const firstBlocked = issues.find((i) => i.blockedReason);
 
   const fetchMessages = useCallback(async () => {
     if (!validId || !signedIn) return;
@@ -200,10 +205,15 @@ export default function TopicDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body: text }),
       });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error ?? `reply failed (HTTP ${res.status})`);
-      }
+      const data = (await res.json().catch(() => null)) as { error?: string; resumed?: boolean } | null;
+      if (!res.ok) throw new Error(data?.error ?? `reply failed (HTTP ${res.status})`);
+      // A stored-but-not-resumed answer (loop already running) says so
+      // honestly instead of implying work restarted.
+      setResumeNote(
+        data?.resumed === false
+          ? 'Saved — a run is already going; your note applies on the next resume.'
+          : null
+      );
       setReply('');
       await fetchAll();
     } catch (err) {
@@ -223,10 +233,13 @@ export default function TopicDetailPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ optionId }),
         });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(data?.error ?? `choose failed (HTTP ${res.status})`);
-        }
+        const data = (await res.json().catch(() => null)) as { error?: string; resumed?: boolean } | null;
+        if (!res.ok) throw new Error(data?.error ?? `choose failed (HTTP ${res.status})`);
+        setResumeNote(
+          data?.resumed === false
+            ? 'Saved — a run is already going; your pick applies on the next resume.'
+            : null
+        );
         await fetchAll();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -414,26 +427,46 @@ export default function TopicDetailPage() {
               )}
             </div>
             {!threadLocked && (
-              <div className="topic-reply">
-                <textarea
-                  className="search topic-reply-input"
-                  placeholder="…or describe it your way"
-                  value={reply}
-                  rows={2}
-                  onChange={(e) => setReply(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void sendReply();
-                  }}
-                />
-                <button
-                  type="button"
-                  className="card-primary"
-                  disabled={!reply.trim() || replyBusy}
-                  onClick={() => void sendReply()}
-                >
-                  {replyBusy ? 'Sending…' : 'Send'}
-                </button>
-              </div>
+              <>
+                {topic.status === 'realizing' && firstBlocked && (
+                  <div className="topic-reply-target" role="status">
+                    Answering{' '}
+                    <Link href={`/issues/${firstBlocked.id}`}>
+                      {firstBlocked.owner}/{firstBlocked.repo} #{firstBlocked.number}
+                    </Link>{' '}
+                    — work resumes on its own.
+                  </div>
+                )}
+                <div className="topic-reply">
+                  <textarea
+                    className="search topic-reply-input"
+                    placeholder={
+                      topic.status === 'realizing'
+                        ? 'Answer the blocker — work resumes on its own'
+                        : '…or describe it your way'
+                    }
+                    value={reply}
+                    rows={2}
+                    onChange={(e) => setReply(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void sendReply();
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="card-primary"
+                    disabled={!reply.trim() || replyBusy}
+                    onClick={() => void sendReply()}
+                  >
+                    {replyBusy ? 'Sending…' : 'Send'}
+                  </button>
+                </div>
+                {resumeNote && (
+                  <div className="topic-resume-note" role="status">
+                    {resumeNote}
+                  </div>
+                )}
+              </>
             )}
             {topic.status === 'dropped' && (
               <div className="banner" role="status">

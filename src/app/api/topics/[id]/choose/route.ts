@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { chooseIdeaOption, getIdeaMessages, getTopic, updateTopic, type Topic } from '@/lib/store';
+import { chooseIdeaOption, getIdeaMessages, getIssuesByTopic, getTopic, updateTopic, type Topic } from '@/lib/store';
 import { publishIdeaMessage, publishTopic } from '@/lib/sse';
+import { isRealizeLive, realizeTopic, shouldResumeOnReply } from '@/lib/realize';
 import { requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
 
 export const runtime = 'nodejs';
@@ -12,12 +13,18 @@ type RouteContext = { params: Promise<{ id: string }> };
 // rewrites the shaped summary ("So far: …") to the chosen option. The topic
 // stays shaping until the user marks it ready (POST .../ready) or realizes
 // it (Phase 3).
+//
+// Needs-input reply spec: choosing while a realization is blocked also
+// resumes the loop with the pick as its command. The summary rewrite is
+// skipped there — the summary is shaping history, and the pick's content
+// travels as the resume command instead.
 export async function POST(
   req: NextRequest,
   ctx: RouteContext
-): Promise<NextResponse<{ topic: Topic } | { error: string }>> {
+): Promise<NextResponse<{ topic: Topic; resumed?: boolean } | { error: string }>> {
+  let token: string;
   try {
-    await requireMember(req);
+    token = (await requireMember(req)).token;
   } catch (err) {
     if (err instanceof UnauthorizedError) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
     if (err instanceof ForbiddenError) return NextResponse.json({ error: 'not a bumbleflies member' }, { status: 403 });
@@ -29,9 +36,6 @@ export async function POST(
   if (!Number.isInteger(topicId) || topicId <= 0) return NextResponse.json({ error: 'invalid id' }, { status: 400 });
   const topic = getTopic(topicId);
   if (!topic) return NextResponse.json({ error: 'not found' }, { status: 404 });
-  if (topic.status === 'dropped' || topic.status === 'shipped' || topic.status === 'realizing') {
-    return NextResponse.json({ error: `topic is ${topic.status}, options are locked` }, { status: 400 });
-  }
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const optionId = typeof body.optionId === 'string' ? body.optionId.trim() : '';
   if (!optionId) return NextResponse.json({ error: 'optionId is required' }, { status: 400 });
@@ -40,6 +44,33 @@ export async function POST(
   const holder = [...messages].reverse().find((m) => m.options?.some((o) => o.id === optionId));
   if (!holder) return NextResponse.json({ error: 'unknown optionId' }, { status: 400 });
   const option = holder.options!.find((o) => o.id === optionId)!;
+
+  // Blocked realization: the pick is the answer — record it and resume.
+  if (topic.status === 'realizing') {
+    const issues = getIssuesByTopic(topicId);
+    if (!issues.some((i) => i.blockedReason)) {
+      return NextResponse.json({ error: `topic is ${topic.status}, options are locked` }, { status: 400 });
+    }
+    const picked = chooseIdeaOption(holder.id, optionId);
+    if (!picked) return NextResponse.json({ error: 'could not record the pick' }, { status: 400 });
+    publishIdeaMessage(topicId, picked);
+    publishTopic(topicId);
+    const resume = shouldResumeOnReply(topic.status, issues, isRealizeLive(topicId));
+    if (resume) {
+      const command = `Chosen option: ${[option.title, option.desc].filter(Boolean).join(' — ')}`;
+      void realizeTopic(topicId, token, { command }).then((outcome) => {
+        if (outcome.mode !== 'delivered' && outcome.mode !== 'needs-input') {
+          console.log(`[realize-reply] topic #${topicId} ended: ${outcome.mode}`);
+        }
+      });
+    }
+    const fresh = getTopic(topicId)!;
+    return NextResponse.json({ topic: fresh, resumed: resume });
+  }
+
+  if (topic.status === 'dropped' || topic.status === 'shipped') {
+    return NextResponse.json({ error: `topic is ${topic.status}, options are locked` }, { status: 400 });
+  }
   const picked = chooseIdeaOption(holder.id, optionId);
   if (!picked) return NextResponse.json({ error: 'could not record the pick' }, { status: 400 });
   publishIdeaMessage(topicId, picked);
