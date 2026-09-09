@@ -1,7 +1,9 @@
 # DevHub hub redesign — unified funnel (2026-09-09)
 
 Status: design locked, mocked as a Claude Design canvas — not yet implemented.
-Canvas: https://claude.ai/code/artifact/8b0671f5-515d-4b83-a0ea-f084a3644ebe
+Canvas (live, editable): https://claude.ai/code/artifact/8b0671f5-515d-4b83-a0ea-f084a3644ebe
+Canvas (static snapshot, checked in): `docs/plans/assets/2026-09-09-hub-user-journey-canvas.html`
+— open it directly in a browser; no network or claude.ai account needed.
 Follow-up to: `docs/plans/2026-09-09-hub-user-journey-review.md` (same branch).
 
 ## Decision
