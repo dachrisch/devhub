@@ -10,7 +10,7 @@ vi.mock('undici', () => {
   };
 });
 
-const { runDevelop, extractPrUrl, buildDevelopPrompt, defaultModels, discoverModels, getAvailableModels, resolveModels, sanitizeModels, cancelSession, createSession, OpencodeUnavailableError } =
+const { runDevelop, extractPrUrl, buildDevelopPrompt, repoPathFor, defaultModels, discoverModels, getAvailableModels, resolveModels, sanitizeModels, cancelSession, createSession, OpencodeUnavailableError } =
   await import('./opencode.js');
 
 function jsonRes(body: unknown, ok = true) {
@@ -79,6 +79,10 @@ describe('opencode client', () => {
     expect(prompt).toContain('devhub/p7-i5-infra');
     expect(prompt).toContain('https://github.com/dachrisch/widget/pull/11');
     expect(prompt).toContain('Run role: infra');
+  });
+
+  it('resolves the provisioned checkout root for a repo name', () => {
+    expect(repoPathFor('widget')).toBe('/root/dev/widget');
   });
 
   it('cancelSession aborts then deletes the session, ignoring failures', async () => {
@@ -379,6 +383,49 @@ describe('opencode client', () => {
       text: async () => '{"_tag":"NotFoundError"}',
     }));
     await expect(createSession(defaultModels()[0])).rejects.toThrow(/^opencode session create failed: 404/);
+  });
+
+  it('createSession sends location.directory in the request body when a directory is given', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async () => jsonRes({ data: { id: 'ses_1' } }));
+
+    await createSession(defaultModels()[0], '/root/dev/widget');
+
+    const body = JSON.parse(fakeFetch.mock.calls[0][1].body as string);
+    expect(body.location).toEqual({ directory: '/root/dev/widget' });
+  });
+
+  it('createSession omits location from the request body when no directory is given', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async () => jsonRes({ data: { id: 'ses_1' } }));
+
+    await createSession(defaultModels()[0]);
+
+    const body = JSON.parse(fakeFetch.mock.calls[0][1].body as string);
+    expect(body.location).toBeUndefined();
+  });
+
+  it('runDevelop forwards its directory argument to createSession as location.directory', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async (url: string, opts: { method?: string }) => {
+      if (opts?.method === 'POST' && String(url).endsWith('/api/session')) {
+        return jsonRes({ data: { id: 'ses_1' } });
+      }
+      if (String(url).includes('/prompt')) return jsonRes({ data: { id: 'msg_1' } });
+      if (String(url).includes('/event')) return emptyStreamRes();
+      if (String(url).includes('/message')) {
+        return jsonRes({
+          data: [{ type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'done' }] }],
+        });
+      }
+      return jsonRes({}, false);
+    });
+
+    await runDevelop('x', () => {}, [{ id: 'test-model', providerID: 'opencode' }], undefined, undefined, '/root/dev/widget');
+
+    const createCall = fakeFetch.mock.calls.find((c) => String(c[0]).endsWith('/api/session'));
+    const body = JSON.parse(createCall?.[1]?.body as string);
+    expect(body.location).toEqual({ directory: '/root/dev/widget' });
   });
 
   it('runDevelop rides out a mid-run edge 404 (server restart) and recovers', async () => {

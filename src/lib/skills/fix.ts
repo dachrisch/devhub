@@ -2,7 +2,7 @@ import { registerSkill } from './index';
 import type { SkillContext, SkillResult } from './types';
 import { getIssue, appendEvent, setSessionId, setResult, setBlockedReason } from '../store';
 import { remember } from '../knowledge';
-import { buildDevelopPrompt, extractPrUrl, runDevelop, type OpencodeEvent } from '../opencode';
+import { buildDevelopPrompt, extractPrUrl, repoPathFor, runDevelop, type OpencodeEvent } from '../opencode';
 import { publishIssue, publishOpencodeEvent } from '../sse';
 import { mirrorComment } from '../utils';
 import { setIssueStateLabels } from '../github';
@@ -36,11 +36,18 @@ registerSkill(
         ctx.onEvent(event);
       };
 
-      const text = await runDevelop(prompt, onEvent, ctx.models, (sid) => {
-        sessionIds.push(sid);
-        setSessionId(issue.id, sid);
-        ctx.onStartSession(sid);
-      });
+      const text = await runDevelop(
+        prompt,
+        onEvent,
+        ctx.models,
+        (sid) => {
+          sessionIds.push(sid);
+          setSessionId(issue.id, sid);
+          ctx.onStartSession(sid);
+        },
+        undefined,
+        repoPathFor(issue.repo)
+      );
 
       const prUrl = extractPrUrl(text);
       if (prUrl) {

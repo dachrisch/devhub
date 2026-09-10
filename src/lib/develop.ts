@@ -20,6 +20,7 @@ import {
   buildDevelopPrompt,
   extractPrUrl,
   getAvailableModels,
+  repoPathFor,
   resolveModels,
   runDevelop,
   sanitizeModels,
@@ -190,13 +191,20 @@ async function runSingleChildRun(
       { role: run.role, repoOwner: run.repoOwner, repoName: run.repoName, projectId },
       carryOver
     );
-    const text = await runDevelop(prompt, onEvent, models, (sessionId) => {
-      updateRun(run.id, { sessionId });
-      publishRun(run.id, issue.id);
-      setSessionId(issue.id, sessionId);
-      const withSession = getIssue(issue.id);
-      if (withSession) publishIssue(withSession);
-    });
+    const text = await runDevelop(
+      prompt,
+      onEvent,
+      models,
+      (sessionId) => {
+        updateRun(run.id, { sessionId });
+        publishRun(run.id, issue.id);
+        setSessionId(issue.id, sessionId);
+        const withSession = getIssue(issue.id);
+        if (withSession) publishIssue(withSession);
+      },
+      undefined,
+      repoPathFor(run.repoName)
+    );
 
     const prUrl = extractPrUrl(text);
     if (prUrl) {
