@@ -216,8 +216,8 @@ export default function ProjectBoardPage() {
     [issueStatesByTopic]
   );
 
-  // Live funnel pools vs delivered history (closed issues + shipped/dropped
-  // topics render muted below the board, never as columns).
+  // Live funnel pools vs delivered history (closed + rollout issues and
+  // shipped/dropped topics render muted below the board, never as columns).
   const liveIssues = useMemo(
     () => scopedIssues.filter((i) => funnelColumnForIssue(i.state) !== 'delivered'),
     [scopedIssues]
@@ -225,7 +225,9 @@ export default function ProjectBoardPage() {
   const deliveredIssues = useMemo(
     () =>
       scopedIssues.filter(
-        (i) => i.state === 'closed' && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter)
+        (i) =>
+          (i.state === 'closed' || i.state === 'rollout') &&
+          (!repoFilter || `${i.owner}/${i.repo}` === repoFilter)
       ),
     [scopedIssues, repoFilter]
   );
