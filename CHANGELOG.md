@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.23.2](https://github.com/dachrisch/devhub/compare/v1.23.1...v1.23.2) (2026-09-10)
+
+
+### Bug Fixes
+
+* **ui:** theme the board scrollbars instead of the default OS ones ([4e97658](https://github.com/dachrisch/devhub/commit/4e976588278c2245b1b4aaab3c91f9b01089bf03))
+* **ui:** theme the remaining unstyled scroll regions ([a69c961](https://github.com/dachrisch/devhub/commit/a69c96176c142f0ea9a5aa0bae8edec829fb8e24))
+
 ## [1.23.1](https://github.com/dachrisch/devhub/compare/v1.23.0...v1.23.1) (2026-09-10)
 
 
