@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.23.0](https://github.com/dachrisch/devhub/compare/v1.22.3...v1.23.0) (2026-09-10)
+
+
+### Features
+
+* **develop:** thread ideaContext through the develop chain ([8b69fca](https://github.com/dachrisch/devhub/commit/8b69fca65b709fdf888d1b7ed405c9f361876fe8))
+* idea context hand-off to first develop run (Tier 2) ([fbd5674](https://github.com/dachrisch/devhub/commit/fbd5674b782ae90209f4ca18de4fc0cbc4200556))
+* **opencode:** add IdeaContext type and prompt section ([6febc6e](https://github.com/dachrisch/devhub/commit/6febc6e7f9867341228b976ed46d0d0a1044ffab))
+* **realize:** pass idea context to the first develop run ([5b13f4b](https://github.com/dachrisch/devhub/commit/5b13f4b33e83a5f36d3570b8e7ef840cb1966bf7))
+* **shape-idea:** add buildIdeaContext pure function ([b7a0e1f](https://github.com/dachrisch/devhub/commit/b7a0e1f5378ce09d74f923b331620081b03939ef))
+
 ## [1.22.3](https://github.com/dachrisch/devhub/compare/v1.22.2...v1.22.3) (2026-09-10)
 
 
