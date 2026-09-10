@@ -1091,6 +1091,21 @@ button.action-item:hover {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.action-detail-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.action-detail-body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.action-detail-body::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .action-detail-meta {
@@ -1160,6 +1175,21 @@ button.action-item:hover {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.action-transcript::-webkit-scrollbar {
+  width: 8px;
+}
+
+.action-transcript::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.action-transcript::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .action-detail-actions {
@@ -1622,6 +1652,21 @@ button:disabled {
 .model-picker-list {
   max-height: 220px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.model-picker-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.model-picker-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.model-picker-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .model-picker-empty {
@@ -2642,6 +2687,21 @@ button:disabled {
     display: flex;
     flex-direction: column;
     gap: 20px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .search-sheet-body::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .search-sheet-body::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+
+  .search-sheet-body::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   .search-sheet-section {
@@ -2783,6 +2843,21 @@ button:disabled {
     border-top: 1px solid var(--border);
     border-radius: 20px 20px 0 0;
     padding: 10px 14px calc(env(safe-area-inset-bottom, 0px) + 12px);
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .cockpit-sheet::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .cockpit-sheet::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+
+  .cockpit-sheet::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   /* 16px prevents iOS Safari focus auto-zoom on modal inputs */
