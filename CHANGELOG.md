@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.3](https://github.com/dachrisch/devhub/compare/v1.22.2...v1.22.3) (2026-09-10)
+
+
+### Bug Fixes
+
+* **board:** retire shipped rollout cards to delivered history ([#183](https://github.com/dachrisch/devhub/issues/183)) ([dce99ff](https://github.com/dachrisch/devhub/commit/dce99ffc969bca32fbe71ea1b05ba4acb2e5e912))
+
 ## [1.22.2](https://github.com/dachrisch/devhub/compare/v1.22.1...v1.22.2) (2026-09-09)
 
 
