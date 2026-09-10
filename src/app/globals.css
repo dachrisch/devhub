@@ -46,13 +46,21 @@ a:hover {
 }
 
 /* Main landmark wraps everything below the header; it takes over the flex
-   sizing the board previously got directly from .page-wrap. */
+   sizing the board previously got directly from .page-wrap.
+   overflow-y is auto (not hidden) so routes whose content isn't itself a
+   self-scrolling flex:1 child (Projects Home, welcome screen) can still be
+   reached in full on short viewports — the Kanban board's own .board
+   (flex:1; min-height:0; overflow:auto) already fills board-main exactly
+   and scrolls internally, so this never produces a visible outer scrollbar
+   on that route. */
 .board-main {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 header {
