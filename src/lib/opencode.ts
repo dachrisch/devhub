@@ -245,12 +245,21 @@ async function tagTransport(fetchCall: () => Promise<{ status: number; text: () 
   return { status: res.status, body };
 }
 
-export async function createSession(model: OpencodeModel): Promise<string> {
+// Resolves the provisioned checkout root for a repo name — the same directory
+// buildDevelopPrompt tells the agent to `cd` into. Passed to createSession so
+// opencode's own session-location metadata (used e.g. by opencode-mem to
+// scope memory per project) matches where the agent actually works, instead
+// of defaulting to the server process's cwd.
+export function repoPathFor(repoName: string): string {
+  return `${ENV.openWorkspaceRoot}/${repoName}`;
+}
+
+export async function createSession(model: OpencodeModel, directory?: string): Promise<string> {
   const { status, body } = await tagTransport(() =>
     undiciFetch(`${ENV.opencodeBaseUrl}/api/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ model }),
+      body: JSON.stringify(directory ? { model, location: { directory } } : { model }),
       dispatcher: insecureDispatcher,
     })
   );
@@ -432,14 +441,15 @@ export async function runDevelop(
   onEvent: (event: OpencodeEvent) => void,
   models: OpencodeModel[] = MODEL_TIERS,
   onSession?: (sessionId: string) => void,
-  timeoutMs?: number
+  timeoutMs?: number,
+  directory?: string
 ): Promise<string> {
   let lastError: unknown;
   for (const model of models) {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       let sessionId: string | null = null;
       try {
-        sessionId = await createSession(model);
+        sessionId = await createSession(model, directory);
         onSession?.(sessionId);
         const controller = new AbortController();
         const streamDone = streamEvents(sessionId, onEvent, controller.signal);
@@ -490,7 +500,7 @@ export function buildDevelopPrompt(
   const repoName = run?.repoName ?? issue.repo;
   const role = run?.role ?? 'service';
   const projectSuffix = run && 'projectId' in run && typeof run.projectId === 'number' ? `p${run.projectId}-` : '';
-  const repoPath = `${ENV.openWorkspaceRoot}/${repoName}`;
+  const repoPath = repoPathFor(repoName);
   const worktreePath = `${repoPath}/.worktrees/${issue.id}-${role}`;
   const branch = `devhub/${projectSuffix}i${issue.number}-${role}`;
 
