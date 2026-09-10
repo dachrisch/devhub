@@ -61,6 +61,21 @@ a:hover {
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.board-main::-webkit-scrollbar {
+  width: 8px;
+}
+
+.board-main::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.board-main::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 header {
@@ -640,6 +655,22 @@ header h1 {
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.board::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.board::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.board::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .column {
