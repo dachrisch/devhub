@@ -81,6 +81,24 @@ describe('opencode client', () => {
     expect(prompt).toContain('Run role: infra');
   });
 
+  it('renders the idea-context section when ideaContext is passed, omits it otherwise', () => {
+    const ideaContext = {
+      summary: 'Add OAuth login with refresh tokens.',
+      considered: [
+        { title: 'Session cookies', desc: 'Simple', tradeoff: 'Harder to scale', chosen: false },
+        { title: 'OAuth + refresh tokens', desc: 'Industry standard', chosen: true },
+      ],
+    };
+    const withContext = buildDevelopPrompt(sampleIssue as never, '', undefined, undefined, ideaContext);
+    expect(withContext).toContain('## Why this idea was shaped this way');
+    expect(withContext).toContain('Add OAuth login with refresh tokens.');
+    expect(withContext).toContain('[CHOSEN] OAuth + refresh tokens: Industry standard');
+    expect(withContext).toContain('Session cookies: Simple (tradeoff: Harder to scale)');
+
+    const withoutContext = buildDevelopPrompt(sampleIssue as never, '');
+    expect(withoutContext).not.toContain('## Why this idea was shaped this way');
+  });
+
   it('resolves the provisioned checkout root for a repo name', () => {
     expect(repoPathFor('widget')).toBe('/root/dev/widget');
   });

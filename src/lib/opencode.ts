@@ -487,11 +487,17 @@ export interface DevelopCarryOver {
   summary: string;
 }
 
+export interface IdeaContext {
+  summary: string;
+  considered: { title: string; desc: string; tradeoff?: string; chosen: boolean }[];
+}
+
 export function buildDevelopPrompt(
   issue: Issue,
   command: string,
   run?: DevelopRun | DevelopRunContext | null,
-  carryOver?: DevelopCarryOver | null
+  carryOver?: DevelopCarryOver | null,
+  ideaContext?: IdeaContext | null
 ): string {
   // Per-repo child run (devhub#167): one session → one repo → one PR. The repo
   // path, branch and worktree all follow the run's repo; legacy callers pass
@@ -529,6 +535,18 @@ export function buildDevelopPrompt(
       carryOver.summary ? `Summary: ${carryOver.summary}` : '',
       `Align with it (shared types, naming, migration order) — do not duplicate its changes here.`,
       '',
+    );
+  }
+
+  if (ideaContext) {
+    const optionLines = ideaContext.considered.map(
+      (o) => `- ${o.chosen ? '[CHOSEN] ' : ''}${o.title}: ${o.desc}${o.tradeoff ? ` (tradeoff: ${o.tradeoff})` : ''}`
+    );
+    parts.push(
+      `## Why this idea was shaped this way`,
+      ideaContext.summary,
+      ...(optionLines.length > 0 ? ['', 'Options considered:', ...optionLines] : []),
+      ''
     );
   }
 
