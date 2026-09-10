@@ -32,7 +32,7 @@ describe('funnel columns', () => {
       ['refinement', 'realizing'],
       ['developing', 'realizing'],
       ['pr', 'rollout'],
-      ['rollout', 'rollout'],
+      ['rollout', 'delivered'],
       ['closed', 'delivered'],
     ];
     for (const [state, column] of cases) {
@@ -51,12 +51,14 @@ describe('funnel columns', () => {
     expect(funnelColumnForTopicWithIssues('ready', ['backlog', 'refinement'])).toBe('realizing');
     expect(funnelColumnForTopicWithIssues('ready', ['developing'])).toBe('realizing');
     expect(funnelColumnForTopicWithIssues('ready', ['pr'])).toBe('realizing');
-    expect(funnelColumnForTopicWithIssues('ready', ['rollout'])).toBe('realizing');
+    expect(funnelColumnForTopicWithIssues('ready', ['pr', 'rollout'])).toBe('realizing');
   });
 
   it('moves a topic to delivered once all linked work settles', () => {
     expect(funnelColumnForTopicWithIssues('realizing', ['closed'])).toBe('delivered');
     expect(funnelColumnForTopicWithIssues('ready', ['closed', 'closed'])).toBe('delivered');
+    expect(funnelColumnForTopicWithIssues('realizing', ['rollout'])).toBe('delivered');
+    expect(funnelColumnForTopicWithIssues('ready', ['closed', 'rollout'])).toBe('delivered');
   });
 
   it('keeps shipped/dropped topics delivered even with live linked issues', () => {
