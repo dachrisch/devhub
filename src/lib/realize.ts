@@ -1,4 +1,5 @@
 import {
+  getIdeaMessages,
   getIssue,
   getIssuesByTopic,
   getProject,
@@ -9,12 +10,13 @@ import {
   updateRun,
 } from './store';
 import { canDevelop, startWork } from './develop';
+import { buildIdeaContext } from './shape-idea';
 import { sweepRollouts } from './github';
 import { promoteTopicToIssue } from './promote';
 import { autoMergeAndRelease } from './auto-merge';
 import { publishIssue, publishRun, publishTopic } from './sse';
 import { ENV } from './env';
-import type { OpencodeModel } from './opencode';
+import type { IdeaContext, OpencodeModel } from './opencode';
 import type { Issue, Topic } from './types';
 
 // One-click Realize (devhub#171 Phase 3): single entry chaining
@@ -132,15 +134,16 @@ export async function realizeTopic(
     // Promote first when the idea has no linked issue yet (same contract as
     // POST /api/topics/[id]/promote: always creates the GitHub issue).
     let issues = getIssuesByTopic(topicId);
+    let ideaContext: IdeaContext | null = null;
     if (issues.length === 0) {
-      await promoteTopicForRealize(topic, token);
+      ideaContext = await promoteTopicForRealize(topic, token);
       issues = getIssuesByTopic(topicId);
     }
     const issue = issues.find((i) => canDevelop(i)) ?? issues[0];
     if (issue && decision.action === 'full' && canDevelop(getIssue(issue.id) ?? issue)) {
       // Await the Work chain (refinement → develop → PR) before the sweep
       // wait so failures surface here with the run's blocked_reason intact.
-      await startWork(getIssue(issue.id) ?? issue, opts.command ?? '', token, opts.selectedModel ?? null);
+      await startWork(getIssue(issue.id) ?? issue, opts.command ?? '', token, opts.selectedModel ?? null, ideaContext);
     }
     return await waitForRealization(topicId, token, opts.waitTimeoutMs ?? ENV.realizeWaitTimeoutMs);
   } finally {
@@ -229,6 +232,7 @@ async function tryAutoMerge(topicId: number, token: string): Promise<void> {
   }
 }
 
-async function promoteTopicForRealize(topic: Topic, token: string): Promise<void> {
+async function promoteTopicForRealize(topic: Topic, token: string): Promise<IdeaContext | null> {
   await promoteTopicToIssue(topic, token);
+  return buildIdeaContext(topic, getIdeaMessages(topic.id));
 }

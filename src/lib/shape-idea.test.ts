@@ -17,7 +17,8 @@ vi.mock('undici', () => {
 });
 
 const store = await import('./store.js');
-const { buildShapePrompt, parseShapeResult, runShapingRound } = await import('./shape-idea.js');
+const { buildShapePrompt, parseShapeResult, runShapingRound, buildIdeaContext } = await import('./shape-idea.js');
+import type { IdeaMessage, Topic } from './types.js';
 
 afterAll(() => {
   for (const f of [tmpDb, `${tmpDb}-wal`, `${tmpDb}-shm`]) {
@@ -142,5 +143,80 @@ describe('shape-idea (devhub#171 Phase 2)', () => {
     expect(assistant?.options).toBeNull();
     expect(assistant?.body).toContain("reply below and I'll try again");
     expect(store.getTopic(topic.id)?.status).toBe('shaping');
+  });
+});
+
+describe('buildIdeaContext', () => {
+  const baseTopic: Topic = {
+    id: 1,
+    projectId: null,
+    area: null,
+    title: 'Add auth',
+    notes: null,
+    shapedSummary: null,
+    status: 'ready',
+    mergedIntoTopicId: null,
+    readyAt: null,
+    origin: 'manual',
+    createdAt: '2026-09-01T00:00:00Z',
+    updatedAt: '2026-09-01T00:00:00Z',
+  };
+
+  it('returns null when there is no shaped summary (empty/unshaped thread)', () => {
+    expect(buildIdeaContext(baseTopic, [])).toBeNull();
+  });
+
+  it('marks the chosen option from the most recent options-bearing message', () => {
+    const topic = { ...baseTopic, shapedSummary: 'Add OAuth login with refresh tokens.' };
+    const messages: IdeaMessage[] = [
+      {
+        id: 1,
+        topicId: 1,
+        role: 'user',
+        body: 'how should we do auth?',
+        options: null,
+        chosenOption: null,
+        createdAt: '2026-09-01T00:00:00Z',
+      },
+      {
+        id: 2,
+        topicId: 1,
+        role: 'assistant',
+        body: 'Here are three approaches...',
+        options: [
+          { id: 'opt-1', title: 'Session cookies', desc: 'Simple, no refresh needed', tradeoff: 'Harder to scale across services' },
+          { id: 'opt-2', title: 'OAuth + refresh tokens', desc: 'Industry standard', tradeoff: null },
+          { id: 'opt-3', title: 'Magic links', desc: 'No passwords', tradeoff: 'Requires email deliverability' },
+        ],
+        chosenOption: 'opt-2',
+        createdAt: '2026-09-01T00:05:00Z',
+      },
+    ];
+    const result = buildIdeaContext(topic, messages);
+    expect(result?.summary).toBe('Add OAuth login with refresh tokens.');
+    expect(result?.considered).toEqual([
+      { title: 'Session cookies', desc: 'Simple, no refresh needed', tradeoff: 'Harder to scale across services', chosen: false },
+      { title: 'OAuth + refresh tokens', desc: 'Industry standard', tradeoff: undefined, chosen: true },
+      { title: 'Magic links', desc: 'No passwords', tradeoff: 'Requires email deliverability', chosen: false },
+    ]);
+  });
+
+  it('returns an empty considered list when no message ever offered options', () => {
+    const topic = { ...baseTopic, shapedSummary: 'Just a plain idea, no options offered.' };
+    const messages: IdeaMessage[] = [
+      {
+        id: 1,
+        topicId: 1,
+        role: 'user',
+        body: 'do X',
+        options: null,
+        chosenOption: null,
+        createdAt: '2026-09-01T00:00:00Z',
+      },
+    ];
+    expect(buildIdeaContext(topic, messages)).toEqual({
+      summary: 'Just a plain idea, no options offered.',
+      considered: [],
+    });
   });
 });

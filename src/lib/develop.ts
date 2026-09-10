@@ -25,6 +25,7 @@ import {
   runDevelop,
   sanitizeModels,
   type DevelopCarryOver,
+  type IdeaContext,
   type OpencodeEvent,
   type OpencodeModel,
 } from './opencode';
@@ -84,7 +85,8 @@ export async function startDevelop(
   issue: Issue,
   command: string,
   token: string,
-  selectedModel?: OpencodeModel | null
+  selectedModel?: OpencodeModel | null,
+  ideaContext?: IdeaContext | null
 ): Promise<void> {
   const developing = setIssueState(issue.id, 'developing');
   if (developing) publishIssue(developing);
@@ -115,16 +117,26 @@ export async function startDevelop(
   }
 
   try {
-    for (const run of runs) {
+    for (const [index, run] of runs.entries()) {
       const fresh = getRunsForIssue(issue.id).find((r) => r.id === run.id) ?? run;
       // Skip runs that already produced a PR — retry touches only failed/missing.
       if (fresh.state === 'pr' || fresh.state === 'merged' || fresh.state === 'released') {
         if (fresh.prUrl) carryOver = { prUrl: fresh.prUrl, summary: (fresh.resultText ?? '').slice(0, 2000) };
         continue;
       }
-      await runSingleChildRun(issue, fresh, command, token, models, projectId, carryOver, (next) => {
-        carryOver = next;
-      });
+      await runSingleChildRun(
+        issue,
+        fresh,
+        command,
+        token,
+        models,
+        projectId,
+        carryOver,
+        (next) => {
+          carryOver = next;
+        },
+        index === 0 ? (ideaContext ?? null) : null
+      );
       const after = getRunsForIssue(issue.id).find((r) => r.id === run.id);
       // A failed run stops the chain; the card stays `developing` with a
       // repo-named blocked_reason and the next Work click retries only it.
@@ -176,7 +188,8 @@ async function runSingleChildRun(
   models: OpencodeModel[],
   projectId: number | null,
   carryOver: DevelopCarryOver | null,
-  onCarryOver: (next: DevelopCarryOver) => void
+  onCarryOver: (next: DevelopCarryOver) => void,
+  ideaContext: IdeaContext | null = null
 ): Promise<void> {
   updateRun(run.id, { state: 'developing', blockedReason: null });
   publishRun(run.id, issue.id);
@@ -189,7 +202,8 @@ async function runSingleChildRun(
       issue,
       command,
       { role: run.role, repoOwner: run.repoOwner, repoName: run.repoName, projectId },
-      carryOver
+      carryOver,
+      ideaContext
     );
     const text = await runDevelop(
       prompt,
@@ -248,12 +262,13 @@ async function runRefinement(
   issue: Issue,
   command: string,
   token: string,
-  selectedModel?: OpencodeModel | null
+  selectedModel?: OpencodeModel | null,
+  ideaContext?: IdeaContext | null
 ): Promise<void> {
   if (liveRefinementRuns.has(issue.id)) return;
   liveRefinementRuns.add(issue.id);
   try {
-    await runRefinementInner(issue, command, token, selectedModel);
+    await runRefinementInner(issue, command, token, selectedModel, ideaContext);
   } finally {
     liveRefinementRuns.delete(issue.id);
   }
@@ -263,7 +278,8 @@ async function runRefinementInner(
   issue: Issue,
   command: string,
   token: string,
-  selectedModel?: OpencodeModel | null
+  selectedModel?: OpencodeModel | null,
+  ideaContext?: IdeaContext | null
 ): Promise<void> {
   clearBlockedReason(issue.id);
   appendEvent(issue.id, 'refinement', { status: 'started' });
@@ -322,7 +338,7 @@ async function runRefinementInner(
   // Proceed to develop with the freshly-loaded issue — the body may have been
   // refined above, and the develop prompt must implement the improved text.
   const fresh = getIssue(issue.id) ?? issue;
-  await startDevelop(fresh, command, token, selectedModel);
+  await startDevelop(fresh, command, token, selectedModel, ideaContext);
 }
 
 // Unified entry point behind the single "Work" button (devhub#132). Routes by
@@ -335,24 +351,25 @@ export async function startWork(
   issue: Issue,
   command: string,
   token: string,
-  selectedModel?: OpencodeModel | null
+  selectedModel?: OpencodeModel | null,
+  ideaContext?: IdeaContext | null
 ): Promise<void> {
   if (issue.state === 'backlog') {
     const moved = setIssueState(issue.id, 'refinement');
     if (moved) publishIssue(moved);
     void mirrorLabels(issue, 'refinement', token);
-    return await runRefinement(moved ?? issue, command, token, selectedModel);
+    return await runRefinement(moved ?? issue, command, token, selectedModel, ideaContext);
   }
 
   if (issue.state === 'refinement') {
-    return await runRefinement(issue, command, token, selectedModel);
+    return await runRefinement(issue, command, token, selectedModel, ideaContext);
   }
 
   if (issue.state === 'developing') {
     // Only reachable when a previous run failed (see canDevelop): a live run
     // must never get a concurrent duplicate session in the same worktree.
     clearBlockedReason(issue.id);
-    return await startDevelop(issue, command, token, selectedModel);
+    return await startDevelop(issue, command, token, selectedModel, ideaContext);
   }
 
   // pr / rollout / closed — nothing to do.

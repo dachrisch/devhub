@@ -13,6 +13,7 @@ import {
   resolveModels,
   runDevelop,
   sanitizeModels,
+  type IdeaContext,
   type OpencodeModel,
 } from './opencode';
 import { publishIdeaMessage, publishIdeaStatus, publishTopic } from './sse';
@@ -74,6 +75,26 @@ export function buildShapePrompt(topic: Topic, messages: IdeaMessage[]): string 
   ]
     .filter((line) => line !== null)
     .join('\n');
+}
+
+// Derives the idea's shaping hand-off from data that already exists (no new
+// schema): the topic's rolling shaped summary, plus whichever options-bearing
+// message is most recent (chosen/chosen_option lives on that same row — see
+// chooseIdeaOption in store.ts). Returns null when the idea never completed
+// a shaping round (buildDevelopPrompt then omits the section entirely).
+export function buildIdeaContext(topic: Topic, messages: IdeaMessage[]): IdeaContext | null {
+  if (!topic.shapedSummary) return null;
+  const withOptions = [...messages].reverse().find((m) => m.options && m.options.length > 0);
+  if (!withOptions?.options) return { summary: topic.shapedSummary, considered: [] };
+  return {
+    summary: topic.shapedSummary,
+    considered: withOptions.options.map((o) => ({
+      title: o.title,
+      desc: o.desc,
+      tradeoff: o.tradeoff ?? undefined,
+      chosen: o.id === withOptions.chosenOption,
+    })),
+  };
 }
 
 function extractJsonBlock(raw: string): string {
