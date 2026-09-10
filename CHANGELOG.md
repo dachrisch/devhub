@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.23.1](https://github.com/dachrisch/devhub/compare/v1.23.0...v1.23.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* **mobile:** make board-main scrollable so overflow content is reachable ([3c4e6d6](https://github.com/dachrisch/devhub/commit/3c4e6d63302714c21c3bff6871b3ce3bcac80c6f))
+* **mobile:** make board-main scrollable so overflow content is reachable ([5fc9013](https://github.com/dachrisch/devhub/commit/5fc901318875e5cb137f0e41eed89cebb3b3e8cf))
+
 ## [1.23.0](https://github.com/dachrisch/devhub/compare/v1.22.3...v1.23.0) (2026-09-10)
 
 
