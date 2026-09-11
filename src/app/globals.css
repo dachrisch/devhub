@@ -2405,7 +2405,12 @@ button:disabled {
     color: var(--muted);
   }
 
-  .column-meta .sort-toggle {
+  /* Groups the sort toggle and the (formerly standalone) refresh button on
+     the right of the row, instead of giving refresh its own near-empty row. */
+  .column-meta-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin-left: auto;
   }
 
