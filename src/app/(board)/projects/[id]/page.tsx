@@ -4,7 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import type { Issue, IssueState, Topic } from '@/lib/types';
-import { matchesIssue, matchesTopic, notifyStateChange, runSupersededByBroadcast } from '@/lib/board-ui';
+import {
+  matchesIssue,
+  matchesTopic,
+  notifyStateChange,
+  runSupersededByBroadcast,
+  topicCardVisible,
+} from '@/lib/board-ui';
 import { funnelColumnForIssue, funnelColumnForTopicWithIssues } from '@/lib/funnel';
 import { useAuth } from '@/components/use-auth';
 import { Avatar, WelcomeScreen } from '@/components/auth-ui';
@@ -231,10 +237,20 @@ export default function ProjectBoardPage() {
       ),
     [scopedIssues, repoFilter]
   );
-  const liveTopics = useMemo(() => topics.filter((t) => columnOfTopic(t) !== 'delivered'), [topics, columnOfTopic]);
+  // Once a topic has spawned an issue, the issue card is the live
+  // representation of that work — a topic card next to it would just
+  // duplicate the same idea on the board (and in delivered history).
+  const visibleTopics = useMemo(
+    () => topics.filter((t) => topicCardVisible((issueStatesByTopic.get(t.id) ?? []).length)),
+    [topics, issueStatesByTopic]
+  );
+  const liveTopics = useMemo(
+    () => visibleTopics.filter((t) => columnOfTopic(t) !== 'delivered'),
+    [visibleTopics, columnOfTopic]
+  );
   const deliveredTopics = useMemo(
-    () => topics.filter((t) => columnOfTopic(t) === 'delivered' && matchesTopic(t, query)),
-    [topics, columnOfTopic, query]
+    () => visibleTopics.filter((t) => columnOfTopic(t) === 'delivered' && matchesTopic(t, query)),
+    [visibleTopics, columnOfTopic, query]
   );
 
   const deliveredRef = useRef<HTMLElement | null>(null);

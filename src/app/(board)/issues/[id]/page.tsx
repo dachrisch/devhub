@@ -224,7 +224,14 @@ export default function RecapPage() {
             </Link>
           )}
           {breadcrumb.projectName && breadcrumb.topicTitle && <span className="recap-crumb-sep">/</span>}
-          {breadcrumb.topicTitle && <span className="recap-crumb-topic">{breadcrumb.topicTitle}</span>}
+          {breadcrumb.topicTitle &&
+            (issue.topicId != null ? (
+              <Link href={`/topics/${issue.topicId}`} className="recap-crumb-topic recap-link">
+                {breadcrumb.topicTitle}
+              </Link>
+            ) : (
+              <span className="recap-crumb-topic">{breadcrumb.topicTitle}</span>
+            ))}
         </div>
       )}
 
