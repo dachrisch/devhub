@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.23.3](https://github.com/dachrisch/devhub/compare/v1.23.2...v1.23.3) (2026-09-11)
+
+
+### Bug Fixes
+
+* **board:** fold a promoted topic's card into its issue card ([a80d08c](https://github.com/dachrisch/devhub/commit/a80d08cdcf930301631061e26d2fc3094c787111))
+* **board:** fold a promoted topic's card into its issue card ([b414fa0](https://github.com/dachrisch/devhub/commit/b414fa022c2e217873dbddb5b4b6cb3d5e3e4fb1))
+
 ## [1.23.2](https://github.com/dachrisch/devhub/compare/v1.23.1...v1.23.2) (2026-09-10)
 
 
