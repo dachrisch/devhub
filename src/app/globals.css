@@ -995,8 +995,11 @@ button.action-item:hover {
 }
 
 .action-item-status {
-  flex: none;
   color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .action-item.success .action-item-status {
@@ -2077,7 +2080,7 @@ button:disabled {
     display: block;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 80px;
+    padding: 0 0 80px;
     gap: 0;
     scroll-behavior: smooth;
   }
@@ -2397,7 +2400,7 @@ button:disabled {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 12px 2px 8px;
+    padding: 12px 12px 8px;
     font-size: 12px;
     color: var(--muted);
   }
@@ -2937,6 +2940,7 @@ button:disabled {
 .project-card {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--border);
@@ -3096,6 +3100,8 @@ button.project-card-new.open {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .project-idea-link:hover {
