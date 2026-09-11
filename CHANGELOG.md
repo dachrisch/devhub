@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.23.5](https://github.com/dachrisch/devhub/compare/v1.23.4...v1.23.5) (2026-09-11)
+
+
+### Bug Fixes
+
+* **board:** fold mobile refresh into the column-meta row ([a643622](https://github.com/dachrisch/devhub/commit/a643622fb9f6fc40f3254bd00e7d056c6bce19a9))
+* **board:** unify mobile board gutter to 16px ([424911a](https://github.com/dachrisch/devhub/commit/424911a4c051df7b3b222660da7cb2fed7168b0f))
+* **board:** unify mobile board gutter to 16px ([523dad3](https://github.com/dachrisch/devhub/commit/523dad3b7024b2fa24710c1842a1e68b2bbb2d2e))
+
 ## [1.23.4](https://github.com/dachrisch/devhub/compare/v1.23.3...v1.23.4) (2026-09-11)
 
 
