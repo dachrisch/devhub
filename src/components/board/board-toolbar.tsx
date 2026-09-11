@@ -52,6 +52,24 @@ function fmtTime(d: Date): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+export interface RefreshButtonProps {
+  refreshing: boolean;
+  onRefresh: () => void;
+}
+
+// Manual refresh control shared by the desktop toolbar and the mobile
+// column-meta row (see kanban-board.tsx).
+export function RefreshButton({ refreshing, onRefresh }: RefreshButtonProps) {
+  return (
+    <button className="refresh-btn" onClick={onRefresh} disabled={refreshing} aria-label="Refresh issues">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={refreshing ? 'spin' : ''}>
+        <path d="M8 2.5a5.487 5.487 0 00-4.131 1.869l1.204 1.204A.25.25 0 014.896 6H1.25A.25.25 0 011 5.75V2.104a.25.25 0 01.427-.177l1.38 1.38A7.001 7.001 0 0114.95 7.16a.75.75 0 01-1.49.178A5.501 5.501 0 008 2.5zM1.705 8.005a.75.75 0 01.834.656 5.501 5.501 0 009.592 2.97l-1.204-1.204a.25.25 0 01.177-.427h3.646a.25.25 0 01.25.25v3.646a.25.25 0 01-.427.177l-1.38-1.38A7.001 7.001 0 011.05 8.84a.75.75 0 01.656-.834z"/>
+      </svg>
+      {refreshing ? 'Refreshing…' : 'Refresh'}
+    </button>
+  );
+}
+
 // Repo filter chips + manual refresh. On desktop it sits above the board;
 // on mobile it renders inside the scroll container (see the board page) and
 // the "Last refreshed" stamp is dropped — SSE live updates make it redundant.
@@ -74,12 +92,7 @@ export function BoardToolbar({
         {showLastRefreshed && lastRefreshed && (
           <span className="last-refreshed">Last refreshed {fmtTime(lastRefreshed)}</span>
         )}
-        <button className="refresh-btn" onClick={onRefresh} disabled={refreshing} aria-label="Refresh issues">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={refreshing ? 'spin' : ''}>
-            <path d="M8 2.5a5.487 5.487 0 00-4.131 1.869l1.204 1.204A.25.25 0 014.896 6H1.25A.25.25 0 011 5.75V2.104a.25.25 0 01.427-.177l1.38 1.38A7.001 7.001 0 0114.95 7.16a.75.75 0 01-1.49.178A5.501 5.501 0 008 2.5zM1.705 8.005a.75.75 0 01.834.656 5.501 5.501 0 009.592 2.97l-1.204-1.204a.25.25 0 01.177-.427h3.646a.25.25 0 01.25.25v3.646a.25.25 0 01-.427.177l-1.38-1.38A7.001 7.001 0 011.05 8.84a.75.75 0 01.656-.834z"/>
-          </svg>
-          {refreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
+        <RefreshButton refreshing={refreshing} onRefresh={onRefresh} />
       </div>
     </div>
   );

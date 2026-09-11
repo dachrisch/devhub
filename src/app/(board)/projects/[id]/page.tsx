@@ -17,7 +17,7 @@ import { Avatar, WelcomeScreen } from '@/components/auth-ui';
 import { Logo } from '@/components/logo';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
 import { KanbanBoard } from '@/components/board/kanban-board';
-import { BoardToolbar, RepoChips } from '@/components/board/board-toolbar';
+import { RepoChips } from '@/components/board/board-toolbar';
 import { DeliveredSection } from '@/components/board/delivered-section';
 import { MobileTopicCard, TopicCard } from '@/components/board/topic-card';
 
@@ -645,18 +645,8 @@ export default function ProjectBoardPage() {
           query={query}
           repoFilter={repoFilter}
           isMobile={isMobile}
-          toolbar={
-            <BoardToolbar
-              repos={repos}
-              repoFilter={repoFilter}
-              onRepoFilterChange={setRepoFilter}
-              lastRefreshed={null}
-              refreshing={refreshing}
-              onRefresh={refresh}
-              showLastRefreshed={false}
-              hideChips={isMobile}
-            />
-          }
+          refreshing={refreshing}
+          onRefresh={refresh}
           filterChips={
             isMobile ? (
               <RepoChips repos={repos} repoFilter={repoFilter} onRepoFilterChange={setRepoFilter} />

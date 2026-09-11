@@ -2400,13 +2400,25 @@ button:disabled {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 12px 12px 8px;
+    padding: 12px 16px 8px;
     font-size: 12px;
     color: var(--muted);
   }
 
-  .column-meta .sort-toggle {
+  /* Groups the sort toggle and the (formerly standalone) refresh button on
+     the right of the row, instead of giving refresh its own near-empty row. */
+  .column-meta-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin-left: auto;
+  }
+
+  /* Align with .column-meta / .board-toolbar's 16px mobile gutter — was left
+     at its pre-mobile default (10px) and sat slightly off the shared edge. */
+  .idea-col-actions {
+    padding-left: 16px;
+    padding-right: 16px;
   }
 }
 
@@ -2419,7 +2431,7 @@ button:disabled {
   .mobile-card {
     display: flex;
     flex-direction: column;
-    margin: 10px;
+    margin: 10px 16px;
     background: var(--panel-2);
     border: 1px solid var(--border);
     border-radius: 12px;

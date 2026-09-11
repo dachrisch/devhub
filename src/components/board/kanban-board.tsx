@@ -6,6 +6,7 @@ import type { FunnelColumn } from '@/lib/funnel';
 import { FUNNEL_COLUMNS, funnelColumnForIssue, funnelColumnForTopic } from '@/lib/funnel';
 import { countRepos, matchesIssue, matchesTopic } from '@/lib/board-ui';
 import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
+import { RefreshButton } from '@/components/board/board-toolbar';
 import { IssueCard, IssueCardSheet, MobileIssueCard } from '@/components/board/issue-card';
 import { MobileTopicCard, TopicCard } from '@/components/board/topic-card';
 
@@ -18,9 +19,10 @@ export interface KanbanBoardProps {
   // Shared viewport decision (MOBILE_QUERY) from the page — one subscription
   // per document keeps both shells in sync.
   isMobile: boolean;
-  // ReactNode rendered above the board on desktop and inside the scroll
-  // container on mobile (e.g. BoardToolbar).
-  toolbar: React.ReactNode;
+  // Manual refresh, surfaced inline in the mobile column-meta row (desktop
+  // relies on SSE live updates instead).
+  refreshing: boolean;
+  onRefresh: () => void;
   // Runs started from this client whose confirmation hasn't arrived via SSE.
   justStartedIds: Set<number>;
   markJustStarted: (id: number) => void;
@@ -59,7 +61,8 @@ export function KanbanBoard({
   query,
   repoFilter,
   isMobile,
-  toolbar,
+  refreshing,
+  onRefresh,
   justStartedIds,
   markJustStarted,
   clearJustStarted,
@@ -198,9 +201,6 @@ export function KanbanBoard({
       {isMobile && filterChips && <div className="mobile-filter-row">{filterChips}</div>}
 
       <div className="board" ref={boardRef}>
-        {/* On mobile the toolbar lives inside the scroll container so it scrolls
-            away with the board instead of eating into the fixed chrome. */}
-        {isMobile && toolbar}
         {/* Mobile renders a single column (the active tab); desktop shows all
             four live columns side by side with scroll-sync to the status strip. */}
         {visibleColumns.map((col) => {
@@ -225,14 +225,17 @@ export function KanbanBoard({
                   <span>
                     {cells.length} items · {countRepos(colIssues)} repos
                   </span>
-                  <button
-                    className="sort-toggle"
-                    onClick={() => toggleSort(col)}
-                    title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                    aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                  >
-                    {sortLabel}
-                  </button>
+                  <span className="column-meta-actions">
+                    <button
+                      className="sort-toggle"
+                      onClick={() => toggleSort(col)}
+                      title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                      aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
+                    >
+                      {sortLabel}
+                    </button>
+                    <RefreshButton refreshing={refreshing} onRefresh={onRefresh} />
+                  </span>
                 </div>
               ) : (
                 <div className="column-head">
