@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.23.4](https://github.com/dachrisch/devhub/compare/v1.23.3...v1.23.4) (2026-09-11)
+
+
+### Bug Fixes
+
+* **board:** correct mobile edge spacing and text overflow ([13d82dc](https://github.com/dachrisch/devhub/commit/13d82dc73c1e5108c4e0db34d1c6ec805d50964b))
+* **board:** correct mobile edge spacing and text overflow ([e95598d](https://github.com/dachrisch/devhub/commit/e95598d002f66d54a5b7e27655c38cd5adb1f70d))
+
 ## [1.23.3](https://github.com/dachrisch/devhub/compare/v1.23.2...v1.23.3) (2026-09-11)
 
 
