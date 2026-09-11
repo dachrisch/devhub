@@ -401,6 +401,38 @@ describe('projects & topics (devhub#167)', () => {
     expect(store.getIssue(issue.id)?.topicId).toBeNull();
   });
 
+  it('keeps topic status synced automatically as its issue changes state (no explicit refresh call)', () => {
+    const project = store.createProject({ name: 'proj-topic-autosync' });
+    const topic = store.createTopic({ title: 'Autosync idea' });
+    store.updateTopic(topic.id, { projectId: project.id });
+
+    store.upsertIssue({
+      githubIssueId: 105,
+      owner: 'acme',
+      repo: 'autosync-repo',
+      number: 5,
+      title: 'Autosync work',
+      body: null,
+      htmlUrl: 'https://github.com/acme/autosync-repo/issues/5',
+    });
+    const issue = store.getIssueByGithub('acme', 'autosync-repo', 5)!;
+    store.assignIssue(issue.id, { projectId: project.id, topicId: topic.id });
+
+    store.setIssueState(issue.id, 'refinement');
+    expect(store.getTopic(topic.id)?.status).toBe('realizing');
+
+    store.setResult(issue.id, 'pr', 'https://github.com/acme/autosync-repo/pull/1', 'done');
+    expect(store.getTopic(topic.id)?.status).toBe('realizing');
+
+    store.setClosed(issue.id, 'not_planned');
+    expect(store.getTopic(topic.id)?.status).toBe('shipped');
+
+    // A reopened terminal topic with live work reads as realizing again (see
+    // refreshTopicStatus), not back to ready.
+    store.reopenIssue(issue.id);
+    expect(store.getTopic(topic.id)?.status).toBe('realizing');
+  });
+
   it('persists issue scope and manages develop runs idempotently', () => {
     store.upsertIssue({
       githubIssueId: 104,

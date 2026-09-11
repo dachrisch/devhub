@@ -428,7 +428,9 @@ export function setIssueState(id: number, state: IssueState): Issue | null {
   getDb()
     .prepare(`UPDATE issues SET state = ?, updated_at = datetime('now') WHERE id = ?`)
     .run(state, id);
-  return getIssue(id);
+  const issue = getIssue(id);
+  if (issue?.topicId != null) refreshTopicStatus(issue.topicId);
+  return issue;
 }
 
 export function recoverStuckDeveloping(): number {
@@ -484,7 +486,9 @@ export function setResult(id: number, state: IssueState, resultPrUrl: string | n
       `UPDATE issues SET state = ?, result_pr_url = ?, result_text = ?, updated_at = datetime('now') WHERE id = ?`
     )
     .run(state, resultPrUrl, resultText, id);
-  return getIssue(id);
+  const issue = getIssue(id);
+  if (issue?.topicId != null) refreshTopicStatus(issue.topicId);
+  return issue;
 }
 
 export function setLinkedPrUrl(id: number, linkedPrUrl: string | null): void {
@@ -498,7 +502,9 @@ export function setRollout(id: number, releaseTag: string): Issue | null {
       `UPDATE issues SET state = 'rollout', release_tag = ?, released_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
     )
     .run(releaseTag, id);
-  return getIssue(id);
+  const issue = getIssue(id);
+  if (issue?.topicId != null) refreshTopicStatus(issue.topicId);
+  return issue;
 }
 
 // Terminal state for issues closed on GitHub outside DevHub's own pipeline
@@ -510,7 +516,9 @@ export function setClosed(id: number, reason: string | null): Issue | null {
       `UPDATE issues SET state = 'closed', state_reason = ?, updated_at = datetime('now') WHERE id = ?`
     )
     .run(reason, id);
-  return getIssue(id);
+  const issue = getIssue(id);
+  if (issue?.topicId != null) refreshTopicStatus(issue.topicId);
+  return issue;
 }
 
 // Re-admits a card that GitHub reopened (the issue is open again): back to
@@ -521,7 +529,9 @@ export function reopenIssue(id: number): Issue | null {
       `UPDATE issues SET state = 'backlog', state_reason = NULL, session_id = NULL, blocked_reason = NULL, updated_at = datetime('now') WHERE id = ?`
     )
     .run(id);
-  return getIssue(id);
+  const issue = getIssue(id);
+  if (issue?.topicId != null) refreshTopicStatus(issue.topicId);
+  return issue;
 }
 
 export function appendEvent(issueId: number, kind: string, payload: unknown): IssueEvent {
