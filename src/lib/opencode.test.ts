@@ -10,7 +10,7 @@ vi.mock('undici', () => {
   };
 });
 
-const { runDevelop, extractPrUrl, buildDevelopPrompt, repoPathFor, defaultModels, discoverModels, getAvailableModels, resolveModels, sanitizeModels, cancelSession, createSession, OpencodeUnavailableError } =
+const { runDevelop, extractPrUrl, buildDevelopPrompt, repoPathFor, ensureWorktree, defaultModels, discoverModels, getAvailableModels, resolveModels, sanitizeModels, cancelSession, createSession, OpencodeUnavailableError } =
   await import('./opencode.js');
 
 function jsonRes(body: unknown, ok = true) {
@@ -49,11 +49,15 @@ describe('opencode client', () => {
     expect(extractPrUrl('CANNOT FULFILL: no tests')).toBeNull();
   });
 
-  it('builds a self-contained develop prompt with repo path and termination rule', () => {
-    const prompt = buildDevelopPrompt(sampleIssue as never, 'use vitest');
-    expect(prompt).toContain('/root/dev/widget');
-    expect(prompt).toContain('.worktrees/3-service');
-    expect(prompt).toContain('devhub/i5-service');
+  const sampleWorktree = {
+    directory: '/root/.local/share/opencode/worktree/h1/3-service',
+    branch: 'opencode/3-service',
+  };
+
+  it('builds a self-contained develop prompt rooted at the provisioned worktree', () => {
+    const prompt = buildDevelopPrompt(sampleIssue as never, 'use vitest', sampleWorktree);
+    expect(prompt).toContain(sampleWorktree.directory);
+    expect(prompt).toContain(sampleWorktree.branch);
     expect(prompt).toContain('Issue #5');
     expect(prompt).toContain('use vitest');
     expect(prompt).toContain('CANNOT FULFILL:');
@@ -61,22 +65,32 @@ describe('opencode client', () => {
     expect(prompt).toContain('opencode-contribution');
   });
 
-  it('instructs the agent to adopt a leftover worktree instead of failing', () => {
-    const prompt = buildDevelopPrompt(sampleIssue as never, '');
-    expect(prompt).toContain('git worktree add .worktrees/3-service -b devhub/i5-service');
-    expect(prompt).toContain('if [ -d ".worktrees/3-service" ]; then');
-    expect(prompt).toContain('git checkout devhub/i5-service');
+  it('does not ask the agent to create or adopt a worktree itself', () => {
+    const prompt = buildDevelopPrompt(sampleIssue as never, '', sampleWorktree);
+    expect(prompt).not.toContain('git worktree add');
+    expect(prompt).not.toContain('adopt it in place');
   });
 
-  it('builds a per-run prompt with the run repo, project branch prefix and carry-over', () => {
+  it('tells the agent to remove the provisioned worktree by its real path as the last step', () => {
+    const prompt = buildDevelopPrompt(sampleIssue as never, '', sampleWorktree);
+    expect(prompt).toContain(`git worktree remove ${sampleWorktree.directory}`);
+  });
+
+  it('builds a per-run prompt with the run repo (owner-qualified checkout root) and carry-over', () => {
+    const runWorktree = {
+      directory: '/root/.local/share/opencode/worktree/h2/3-infra',
+      branch: 'opencode/3-infra',
+    };
     const prompt = buildDevelopPrompt(
       sampleIssue as never,
       '',
+      runWorktree,
       { role: 'infra', repoOwner: 'dachrisch', repoName: 'infra', projectId: 7 },
       { prUrl: 'https://github.com/dachrisch/widget/pull/11', summary: 'service PR' }
     );
-    expect(prompt).toContain('/root/dev/infra');
-    expect(prompt).toContain('devhub/p7-i5-infra');
+    expect(prompt).toContain(runWorktree.directory);
+    expect(prompt).toContain(runWorktree.branch);
+    expect(prompt).toContain('/root/dev/dachrisch/infra');
     expect(prompt).toContain('https://github.com/dachrisch/widget/pull/11');
     expect(prompt).toContain('Run role: infra');
   });
@@ -89,18 +103,58 @@ describe('opencode client', () => {
         { title: 'OAuth + refresh tokens', desc: 'Industry standard', chosen: true },
       ],
     };
-    const withContext = buildDevelopPrompt(sampleIssue as never, '', undefined, undefined, ideaContext);
+    const withContext = buildDevelopPrompt(sampleIssue as never, '', sampleWorktree, undefined, undefined, ideaContext);
     expect(withContext).toContain('## Why this idea was shaped this way');
     expect(withContext).toContain('Add OAuth login with refresh tokens.');
     expect(withContext).toContain('[CHOSEN] OAuth + refresh tokens: Industry standard');
     expect(withContext).toContain('Session cookies: Simple (tradeoff: Harder to scale)');
 
-    const withoutContext = buildDevelopPrompt(sampleIssue as never, '');
+    const withoutContext = buildDevelopPrompt(sampleIssue as never, '', sampleWorktree);
     expect(withoutContext).not.toContain('## Why this idea was shaped this way');
   });
 
-  it('resolves the provisioned checkout root for a repo name', () => {
-    expect(repoPathFor('widget')).toBe('/root/dev/widget');
+  it('resolves the provisioned checkout root for a repo owner/name', () => {
+    expect(repoPathFor('dachrisch', 'widget')).toBe('/root/dev/dachrisch/widget');
+  });
+
+  it('ensureWorktree reuses an existing worktree whose directory ends with the given name', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async (url: string, opts?: { method?: string }) => {
+      expect(opts?.method ?? 'GET').toBe('GET');
+      expect(String(url)).toBe(
+        `https://code.lehel.xyz/experimental/worktree?directory=${encodeURIComponent('/root/dev/dachrisch/widget')}`
+      );
+      return jsonRes(['/root/.local/share/opencode/worktree/abc/3-service']);
+    });
+
+    const result = await ensureWorktree('dachrisch', 'widget', '3-service');
+    expect(result).toEqual({
+      directory: '/root/.local/share/opencode/worktree/abc/3-service',
+      branch: 'opencode/3-service',
+    });
+  });
+
+  it('ensureWorktree creates a new worktree when none matches the name', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async (url: string, opts?: { method?: string; body?: string }) => {
+      const method = opts?.method ?? 'GET';
+      if (method === 'GET') {
+        return jsonRes(['/root/.local/share/opencode/worktree/abc/other-run']);
+      }
+      expect(method).toBe('POST');
+      expect(JSON.parse(String(opts?.body))).toEqual({ name: '3-service' });
+      return jsonRes({
+        name: '3-service',
+        branch: 'opencode/3-service',
+        directory: '/root/.local/share/opencode/worktree/xyz/3-service',
+      });
+    });
+
+    const result = await ensureWorktree('dachrisch', 'widget', '3-service');
+    expect(result).toEqual({
+      directory: '/root/.local/share/opencode/worktree/xyz/3-service',
+      branch: 'opencode/3-service',
+    });
   });
 
   it('cancelSession aborts then deletes the session, ignoring failures', async () => {

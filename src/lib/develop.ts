@@ -18,9 +18,9 @@ import {
 } from './store';
 import {
   buildDevelopPrompt,
+  ensureWorktree,
   extractPrUrl,
   getAvailableModels,
-  repoPathFor,
   resolveModels,
   runDevelop,
   sanitizeModels,
@@ -198,9 +198,11 @@ async function runSingleChildRun(
     publishOpencodeEvent(issue.id, event);
   };
   try {
+    const worktree = await ensureWorktree(run.repoOwner, run.repoName, `${issue.id}-${run.role}`);
     const prompt = buildDevelopPrompt(
       issue,
       command,
+      worktree,
       { role: run.role, repoOwner: run.repoOwner, repoName: run.repoName, projectId },
       carryOver,
       ideaContext
@@ -217,7 +219,7 @@ async function runSingleChildRun(
         if (withSession) publishIssue(withSession);
       },
       undefined,
-      repoPathFor(run.repoName)
+      worktree.directory
     );
 
     const prUrl = extractPrUrl(text);
