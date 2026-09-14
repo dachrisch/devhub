@@ -2,7 +2,7 @@ import { registerSkill } from './index';
 import type { SkillContext, SkillResult } from './types';
 import { getIssue, appendEvent, setSessionId, setResult, setBlockedReason } from '../store';
 import { remember } from '../knowledge';
-import { buildDevelopPrompt, extractPrUrl, repoPathFor, runDevelop, type OpencodeEvent } from '../opencode';
+import { buildDevelopPrompt, ensureWorktree, extractPrUrl, runDevelop, type OpencodeEvent } from '../opencode';
 import { publishIssue, publishOpencodeEvent } from '../sse';
 import { mirrorComment } from '../utils';
 import { setIssueStateLabels } from '../github';
@@ -27,7 +27,8 @@ registerSkill(
     ctx.onStatus(`Fixing issue #${issue.number} in ${issue.repo}...`);
 
     try {
-      const prompt = buildDevelopPrompt(issue, (ctx.params.command as string) || '');
+      const worktree = await ensureWorktree(issue.owner, issue.repo, `${issue.id}-service`);
+      const prompt = buildDevelopPrompt(issue, (ctx.params.command as string) || '', worktree);
       const sessionIds: string[] = [];
 
       const onEvent = (event: OpencodeEvent) => {
@@ -46,7 +47,7 @@ registerSkill(
           ctx.onStartSession(sid);
         },
         undefined,
-        repoPathFor(issue.repo)
+        worktree.directory
       );
 
       const prUrl = extractPrUrl(text);

@@ -245,13 +245,55 @@ async function tagTransport(fetchCall: () => Promise<{ status: number; text: () 
   return { status: res.status, body };
 }
 
-// Resolves the provisioned checkout root for a repo name — the same directory
-// buildDevelopPrompt tells the agent to `cd` into. Passed to createSession so
-// opencode's own session-location metadata (used e.g. by opencode-mem to
-// scope memory per project) matches where the agent actually works, instead
-// of defaulting to the server process's cwd.
-export function repoPathFor(repoName: string): string {
-  return `${ENV.openWorkspaceRoot}/${repoName}`;
+// Resolves the provisioned checkout root for a repo — owner-qualified,
+// matching how provision-dev actually clones repos on the opencode host
+// (`<workspaceRoot>/<owner>/<repo>`). This is the repo opencode's worktree
+// API operates against (see ensureWorktree below); the session itself is
+// rooted in the per-run worktree it returns, not this shared checkout.
+export function repoPathFor(repoOwner: string, repoName: string): string {
+  return `${ENV.openWorkspaceRoot}/${repoOwner}/${repoName}`;
+}
+
+// opencode's native worktree API (create/list/remove) isolates each run in
+// its own git worktree, server-side — replacing the old approach of having
+// the agent run `git worktree add` by hand in its own first prompt step,
+// which left the session's own tools (edit/read/LSP) rooted at the shared
+// checkout the whole time regardless of where the agent `cd`'d. `name` is
+// the caller's deterministic per-run key (e.g. `${issue.id}-${role}`); a
+// prior attempt's worktree is adopted in place rather than recreated so a
+// failed run's retry keeps whatever progress was already committed.
+export async function ensureWorktree(repoOwner: string, repoName: string, name: string): Promise<{ directory: string; branch: string }> {
+  const repoPath = repoPathFor(repoOwner, repoName);
+  const directoryParam = `directory=${encodeURIComponent(repoPath)}`;
+
+  const { status: listStatus, body: listBody } = await tagTransport(() =>
+    undiciFetch(`${ENV.opencodeBaseUrl}/experimental/worktree?${directoryParam}`, {
+      headers: authHeaders(),
+      dispatcher: insecureDispatcher,
+    })
+  );
+  if (listStatus !== 200) {
+    throw new Error(`opencode worktree list failed: ${listStatus}: ${listBody.slice(0, 200)}`);
+  }
+  const existing = JSON.parse(listBody) as string[];
+  const reused = existing.find((dir) => dir.endsWith(`/${name}`));
+  if (reused) {
+    return { directory: reused, branch: `opencode/${name}` };
+  }
+
+  const { status, body } = await tagTransport(() =>
+    undiciFetch(`${ENV.opencodeBaseUrl}/experimental/worktree?${directoryParam}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ name }),
+      dispatcher: insecureDispatcher,
+    })
+  );
+  if (status !== 200) {
+    throw new Error(`opencode worktree create failed: ${status}: ${body.slice(0, 200)}`);
+  }
+  const created = JSON.parse(body) as { directory: string; branch: string };
+  return { directory: created.directory, branch: created.branch };
 }
 
 export async function createSession(model: OpencodeModel, directory?: string): Promise<string> {
@@ -495,28 +537,28 @@ export interface IdeaContext {
 export function buildDevelopPrompt(
   issue: Issue,
   command: string,
+  worktree: { directory: string; branch: string },
   run?: DevelopRun | DevelopRunContext | null,
   carryOver?: DevelopCarryOver | null,
   ideaContext?: IdeaContext | null
 ): string {
   // Per-repo child run (devhub#167): one session → one repo → one PR. The repo
-  // path, branch and worktree all follow the run's repo; legacy callers pass
-  // no run and keep the single-repo behavior (issue.owner/issue.repo).
+  // path and worktree follow the run's repo; legacy callers pass no run and
+  // keep the single-repo behavior (issue.owner/issue.repo).
   const repoOwner = run?.repoOwner ?? issue.owner;
   const repoName = run?.repoName ?? issue.repo;
   const role = run?.role ?? 'service';
-  const projectSuffix = run && 'projectId' in run && typeof run.projectId === 'number' ? `p${run.projectId}-` : '';
-  const repoPath = repoPathFor(repoName);
-  const worktreePath = `${repoPath}/.worktrees/${issue.id}-${role}`;
-  const branch = `devhub/${projectSuffix}i${issue.number}-${role}`;
+  const repoPath = repoPathFor(repoOwner, repoName);
+  const worktreePath = worktree.directory;
+  const branch = worktree.branch;
 
   const parts = [
     `You are implementing a GitHub issue on a personal dev command board (DevHub).`,
     `You have access to opencode skills — use the opencode-contribution skill for code changes, testing, and PR workflow.`,
     ``,
     `## Repository`,
-    `Checkout (already provisioned — do NOT clone): ${repoPath}`,
-    `Owner: ${repoOwner}   Repo: ${repoName}   Issue #${issue.number}`,
+    `Checkout: ${worktreePath} (an isolated git worktree, already provisioned for you — this is your session's working directory; do NOT clone, do NOT create another worktree)`,
+    `Owner: ${repoOwner}   Repo: ${repoName}   Issue #${issue.number}   Branch: ${branch}`,
     `Issue URL: ${issue.htmlUrl}`,
     `Run role: ${role} (this session touches ONLY ${repoOwner}/${repoName})`,
     ``,
@@ -560,49 +602,28 @@ export function buildDevelopPrompt(
     `### 0. Check if work is needed`,
     `Before doing anything, verify whether this issue is already resolved:`,
     `\`\`\`bash`,
-    `cd ${repoPath}`,
     `# Check if the issue is closed on GitHub`,
     `gh issue view ${issue.number} --repo ${issue.owner}/${issue.repo} --json state,stateReason`,
     `\`\`\``,
-    `- If the issue is **closed**, do NOT implement. Clean up any leftover worktree and branch, then end with \`ALREADY RESOLVED: Issue #${issue.number} is already closed\`.`,
+    `- If the issue is **closed**, do NOT implement. Remove your worktree per step 5, then end with \`ALREADY RESOLVED: Issue #${issue.number} is already closed\`.`,
     `- Also search for a linked or merged PR: \`gh pr list --repo ${repoOwner}/${repoName} --state all --search "${issue.number} in:title,body"\``,
     `- If a merged PR addresses this issue, end with \`ALREADY RESOLVED: PR already merged for this issue\`.`,
     ``,
-    `### 1. Set up an isolated worktree`,
-    `A previous attempt may have left the worktree or branch behind — adopt it in place instead of failing or creating duplicates:`,
-    `\`\`\`bash`,
-    `cd ${repoPath}`,
-    `git fetch origin`,
-    `if [ -d ".worktrees/${issue.id}-${role}" ]; then`,
-    `  cd .worktrees/${issue.id}-${role}`,
-    `  git checkout ${branch} 2>/dev/null || true`,
-    `else`,
-    `  git worktree add .worktrees/${issue.id}-${role} -b ${branch}`,
-    `  cd .worktrees/${issue.id}-${role}`,
-    `fi`,
-    `\`\`\``,
-    ``,
-    `### 2. Work only inside the worktree`,
-    `\`\`\`bash`,
-    `cd ${worktreePath}`,
-    `\`\`\``,
-    `All file edits, commits, and command execution happen here.`,
-    ``,
-    `### 3. Understand the project`,
+    `### 1. Understand the project`,
     `- Read CONTRIBUTING.md, README.md, package.json (or equivalent) for project conventions.`,
     `- Check recent commits: \`git log --oneline -10\``,
     `- Identify lint, test, and build commands.`,
     ``,
-    `### 4. Implement the change`,
+    `### 2. Implement the change`,
     `- Make focused, minimal changes that address the issue.`,
     `- Follow existing code style and conventions.`,
     `- Commit with descriptive messages using the project's convention.`,
     ``,
-    `### 5. Verify`,
+    `### 3. Verify`,
     `- Run lint and tests. Fix until they pass.`,
     `- Do not submit a PR with failing checks.`,
     ``,
-    `### 6. Open a Pull Request`,
+    `### 4. Open a Pull Request`,
     `\`\`\`bash`,
     `gh pr create --base master --head ${branch} \\`,
     `  --title "<type>: <short description>" \\`,
@@ -610,10 +631,10 @@ export function buildDevelopPrompt(
     `\`\`\``,
     `Use your authenticated \`gh\` (GitHub CLI) — the checkout is already provisioned for the correct owner.`,
     ``,
-    `### 7. Clean up the worktree`,
+    `### 5. Clean up the worktree`,
     `\`\`\`bash`,
     `cd ${repoPath}`,
-    `git worktree remove .worktrees/${issue.id}-${role}`,
+    `git worktree remove ${worktreePath}`,
     `\`\`\``,
     ``,
     `## CRITICAL: Final message format`,
