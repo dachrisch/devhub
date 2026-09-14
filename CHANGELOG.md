@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.23.7](https://github.com/dachrisch/devhub/compare/v1.23.6...v1.23.7) (2026-09-14)
+
+
+### Bug Fixes
+
+* **opencode:** root develop sessions in per-run worktrees via opencode's native API ([c4ebc94](https://github.com/dachrisch/devhub/commit/c4ebc943fb7bd49630e27207b7309b9c7b2a21f4))
+* **opencode:** root develop sessions in per-run worktrees via opencode's native API ([cfdcee3](https://github.com/dachrisch/devhub/commit/cfdcee322fae26fb71e5315507671768a7a07cee))
+
 ## [1.23.6](https://github.com/dachrisch/devhub/compare/v1.23.5...v1.23.6) (2026-09-11)
 
 
