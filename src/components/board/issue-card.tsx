@@ -42,6 +42,7 @@ export function IssueCard({ issue, justStarted, onStarted, onStartFailed, select
     setSelectedModel,
     start,
     transition,
+    merge,
   } = useCardActions(issue.id, { onStarted, onStartFailed });
 
   const isAuthError = error && (/401/.test(error) || /403/.test(error) || /auth/i.test(error));
@@ -55,6 +56,9 @@ export function IssueCard({ issue, justStarted, onStarted, onStartFailed, select
         break;
       case 'to-backlog':
         if (!busy && !live) void transition('backlog');
+        break;
+      case 'merge':
+        if (!busy && !live) void merge();
         break;
       case 'open-github':
         window.open(issue.htmlUrl, '_blank', 'noopener,noreferrer');
@@ -238,6 +242,7 @@ export function IssueCardSheet({
     setSelectedModel,
     start,
     transition,
+    merge,
   } = useCardActions(issue.id, { onStarted, onStartFailed });
 
   const handleSelect = (id: CardActionId) => {
@@ -250,6 +255,9 @@ export function IssueCardSheet({
         break;
       case 'to-backlog':
         void transition('backlog');
+        break;
+      case 'merge':
+        void merge();
         break;
       case 'select-batch':
         onToggleSelection(issue.id);

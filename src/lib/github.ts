@@ -357,6 +357,37 @@ export function markIssueShipped(issueId: number, releaseTag?: string): Issue | 
   return updated;
 }
 
+// Merges a GitHub pull request using the repo's default merge strategy.
+// Returns the merge commit SHA on success. Throws on GitHub API errors so the
+// caller can surface the GitHub reason (e.g. 405 = already merged,
+// 409 = conflicts) to the UI.
+export async function mergePullRequest(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  token: string,
+  fetchFn: FetchFn = fetch
+): Promise<string> {
+  const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/merge`;
+  const res = await fetchFn(url, {
+    method: 'PUT',
+    headers: {
+      ...ghHeaders(token),
+      'Content-Type': 'application/json',
+    },
+  });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = (await res.json()) as { message?: string };
+      detail = body.message ?? '';
+    } catch { /* non-JSON */ }
+    throw new Error(detail || `GitHub merge failed (${res.status})`);
+  }
+  const data = (await res.json()) as { sha: string };
+  return data.sha;
+}
+
 export type { UpsertIssueInput };
 
 // States re-checked against GitHub on every refresh. `developing` is left to
