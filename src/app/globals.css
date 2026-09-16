@@ -2078,7 +2078,9 @@ button:disabled {
 
   .board {
     display: block;
+    flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
     padding: 0 0 80px;
     gap: 0;
@@ -2092,6 +2094,9 @@ button:disabled {
     background: transparent;
     border: none;
     border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
   }
 
   .column-head,
@@ -2283,6 +2288,8 @@ button:disabled {
     display: none;
   }
 
+  /* Fade overlay at the scrolled end: decorative only, must never
+     intercept taps on the trailing Done pill. */
   .status-strip::after {
     content: '';
     position: sticky;
@@ -2337,13 +2344,33 @@ button:disabled {
     gap: 7px;
     flex: none;
     height: 44px;
+    min-width: 44px;
     padding: 0 12px;
     border: none;
+    border-radius: 8px;
     background: transparent;
     color: var(--muted);
     font-size: 13.5px;
     cursor: pointer;
     opacity: 0.75;
+  }
+
+  .status-strip-done:hover {
+    opacity: 1;
+    color: var(--text);
+  }
+
+  .status-strip-done:active {
+    opacity: 1;
+    color: var(--text);
+    background: var(--panel-2);
+  }
+
+  .status-strip-done:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    opacity: 1;
+    color: var(--text);
   }
 
   .status-strip-more {
@@ -2419,6 +2446,26 @@ button:disabled {
   .idea-col-actions {
     padding-left: 16px;
     padding-right: 16px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Empty columns fill the viewport instead of clustering chrome top-left:
+     the board/column stretch to the available height and the empty state
+     centers within it. */
+  .column .empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40vh;
+    padding: 48px 24px;
+    text-align: center;
+  }
+
+  /* Done-pill scroll target: clear the sticky status strip on arrival. */
+  .delivered-section {
+    scroll-margin-top: 56px;
   }
 }
 
