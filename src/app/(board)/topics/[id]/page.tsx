@@ -31,17 +31,6 @@ function stageFor(status: Topic['status'], issues: Issue[]): RealizeStage {
 }
 const TIMELINE_STEPS: Exclude<RealizeStage, 'needs-input'>[] = ['understanding', 'building', 'checking', 'delivered'];
 
-// Plain-words state for the work panel rows (issue states stay on the expert
-// recap; the studio speaks the same words as the realize timeline).
-const TOPIC_WORK_STATE: Record<Issue['state'], string> = {
-  backlog: 'queued',
-  refinement: 'understanding',
-  developing: 'building',
-  pr: 'checking',
-  rollout: 'released',
-  closed: 'closed',
-};
-
 // Idea page, the chat home (devhub#171 Phase 2): header with plain status,
 // shaped summary ("So far"), the options thread (hub proposals with one-click
 // Choose + free-text reply box), footer actions (Realize lands in Phase 3,
@@ -588,45 +577,26 @@ export default function TopicDetailPage() {
                 </button>
               </div>
             )}
-            {issues.length > 0 ? (
-              <div className="topic-work-panel" aria-label="Work attached to this idea">
-                <span className="released-label">Work ({issues.length})</span>
+            <details className="topic-how">
+              <summary>How it was built ({issues.length})</summary>
+              {issues.length === 0 ? (
+                <div className="empty">nothing built yet — this idea has no linked issues.</div>
+              ) : (
                 <ul className="released-list">
                   {issues.map((i) => (
                     <li key={i.id} className="released-item">
                       <span className={`dot ${i.state}`} />
-                      <Link href={`/issues/${i.id}`} className="released-title topic-work-link">
-                        {i.owner}/{i.repo} #{i.number}: {i.title}
-                      </Link>
-                      <span className="topic-work-state">{TOPIC_WORK_STATE[i.state] ?? i.state}</span>
-                      {(i.resultPrUrl || i.linkedPrUrl) && (
-                        <a
-                          className="ghost"
-                          href={i.resultPrUrl ?? i.linkedPrUrl ?? ''}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          PR ↗
-                        </a>
-                      )}
+                      <span className="released-title">
+                        {i.owner}/{i.repo} #{i.number}: {i.title} ({i.state})
+                      </span>
                       <Link href={`/issues/${i.id}`} className="ghost">
                         Recap →
                       </Link>
-                      {i.blockedReason && (
-                        <div className="topic-work-blocked" role="alert">
-                          Needs input: {i.blockedReason}
-                        </div>
-                      )}
                     </li>
                   ))}
                 </ul>
-              </div>
-            ) : (
-              <details className="topic-how">
-                <summary>How it was built (0)</summary>
-                <div className="empty">nothing built yet — this idea has no linked issues.</div>
-              </details>
-            )}
+              )}
+            </details>
           </>
         )}
       </main>
