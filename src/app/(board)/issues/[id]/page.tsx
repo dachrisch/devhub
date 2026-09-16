@@ -216,6 +216,18 @@ export default function RecapPage() {
         </a>
       </div>
 
+      {/* Idea studio return path (unified funnel Phase 3): a prominent chip,
+          not a crumb — this is how the operator gets back to the shaping
+          thread, chosen option, and work panel beyond this run view. */}
+      {issue.topicId != null && (
+        <Link href={`/topics/${issue.topicId}`} className="issue-studio-chip recap-link">
+          <span className="dot idea" />
+          <span className="issue-studio-label">Idea studio</span>
+          {breadcrumb?.topicTitle && <span className="issue-studio-title">{breadcrumb.topicTitle}</span>}
+          <span className="issue-studio-arrow">↗</span>
+        </Link>
+      )}
+
       {breadcrumb && (breadcrumb.projectName || breadcrumb.topicTitle) && (
         <div className="recap-breadcrumb">
           {breadcrumb.projectName && (
@@ -224,14 +236,7 @@ export default function RecapPage() {
             </Link>
           )}
           {breadcrumb.projectName && breadcrumb.topicTitle && <span className="recap-crumb-sep">/</span>}
-          {breadcrumb.topicTitle &&
-            (issue.topicId != null ? (
-              <Link href={`/topics/${issue.topicId}`} className="recap-crumb-topic recap-link">
-                {breadcrumb.topicTitle}
-              </Link>
-            ) : (
-              <span className="recap-crumb-topic">{breadcrumb.topicTitle}</span>
-            ))}
+          {breadcrumb.topicTitle && <span className="recap-crumb-topic">{breadcrumb.topicTitle}</span>}
         </div>
       )}
 

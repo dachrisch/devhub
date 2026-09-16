@@ -3298,6 +3298,73 @@ button.project-card-new.open {
   font-weight: 600;
 }
 
+/* Work panel (unified funnel Phase 3): visible attached-work list on the
+   studio, replacing the collapsed "How it was built" details when work exists. */
+.topic-work-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+}
+
+.topic-work-panel .released-label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.topic-work-link {
+  font-weight: 600;
+}
+
+.topic-work-state {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.topic-work-blocked {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel-2);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+/* Idea-studio chip on the issue recap page — the one-hop return path the
+   operator uses to get back to the shaping thread (Phase 3). */
+.issue-studio-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  padding: 5px 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.issue-studio-chip .dot.idea {
+  flex: none;
+}
+
+.issue-studio-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+}
+
+.issue-studio-title {
+  font-weight: 600;
+}
+
+.issue-studio-arrow {
+  color: var(--muted);
+}
+
 .topic-thread {
   display: flex;
   flex-direction: column;
@@ -3770,6 +3837,34 @@ button.project-card-new.open {
     width: 100%;
   }
   .global-search-results .released-item {
+    flex-wrap: wrap;
+  }
+}
+
+/* Unified funnel Phase 3 mobile pass: the studio work panel and the issue
+   recap's idea-studio chip inherit the shared systems above; these rules only
+   tighten the layouts that were designed desktop-first. */
+@media (max-width: 768px) {
+  .issue-studio-chip {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .issue-studio-chip .issue-studio-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .topic-work-panel .released-item {
+    flex-wrap: wrap;
+  }
+  .topic-work-panel .released-title {
+    flex-basis: 100%;
+  }
+  .modal {
+    max-width: 92vw;
+    width: auto;
+  }
+  .modal-idea-context {
     flex-wrap: wrap;
   }
 }
