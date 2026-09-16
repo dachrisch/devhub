@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.25.0](https://github.com/dachrisch/devhub/compare/v1.24.0...v1.25.0) (2026-09-16)
+
+
+### Features
+
+* **studio:** visible work panel + prominent idea-studio chip (Phase 3) ([64dcae1](https://github.com/dachrisch/devhub/commit/64dcae13ddffb0f2c12ece46f781867219ca7b8a))
+
 ## [1.24.0](https://github.com/dachrisch/devhub/compare/v1.23.12...v1.24.0) (2026-09-16)
 
 
