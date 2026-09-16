@@ -66,4 +66,14 @@ describe('funnel columns', () => {
     expect(funnelColumnForTopicWithIssues('shipped', ['pr'])).toBe('delivered');
     expect(funnelColumnForTopicWithIssues('dropped', ['backlog'])).toBe('delivered');
   });
+
+  it('keeps an unshaped manually-added idea in the idea column even when fresh work exists (unified funnel Phase 4)', () => {
+    // Manual ideas (Add idea / Suggest) stay `new` until shaped; if they were
+    // hand-linked to fresh backlog work, the idea card still shows first.
+    // GitHub-refresh backfill enters `ready` instead (spec already exists).
+    expect(funnelColumnForTopicWithIssues('new', ['backlog'])).toBe('idea');
+    expect(funnelColumnForTopicWithIssues('shaping', ['backlog', 'backlog'])).toBe('idea');
+    // once work starts, the usual realizing rules take over
+    expect(funnelColumnForTopicWithIssues('new', ['refinement'])).toBe('realizing');
+  });
 });

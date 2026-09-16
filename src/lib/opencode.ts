@@ -275,7 +275,26 @@ export async function ensureWorktree(repoOwner: string, repoName: string, name: 
   if (listStatus !== 200) {
     throw new Error(`opencode worktree list failed: ${listStatus}: ${listBody.slice(0, 200)}`);
   }
-  const existing = JSON.parse(listBody) as string[];
+  const parsed = JSON.parse(listBody) as unknown;
+  // Server drift guard: the worktree API is documented to return a string
+  // array, but live servers have also answered `{}` (empty map) and
+  // `{ worktrees: [...] }`. Normalize both; anything else isn't a compatible
+  // server — fail with a message the blocked_reason can act on, instead of
+  // an opaque internal error.
+  const isRecord = (v: unknown): v is Record<string, unknown> =>
+    !!v && typeof v === 'object' && !Array.isArray(v);
+  const existing = Array.isArray(parsed)
+    ? (parsed as string[])
+    : isRecord(parsed) && Array.isArray((parsed as { worktrees?: unknown }).worktrees)
+      ? (parsed as { worktrees: string[] }).worktrees
+      : isRecord(parsed) && Object.keys(parsed).length === 0
+        ? []
+        : null;
+  if (!existing) {
+    throw new Error(
+      `opencode worktree list returned an unrecognized shape (server version mismatch): ${listBody.slice(0, 120)}`
+    );
+  }
   const reused = existing.find((dir) => dir.endsWith(`/${name}`));
   if (reused) {
     return { directory: reused, branch: `opencode/${name}` };

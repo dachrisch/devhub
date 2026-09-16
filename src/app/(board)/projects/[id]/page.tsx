@@ -9,7 +9,6 @@ import {
   matchesTopic,
   notifyStateChange,
   runSupersededByBroadcast,
-  topicCardVisible,
 } from '@/lib/board-ui';
 import { funnelColumnForIssue, funnelColumnForTopicWithIssues } from '@/lib/funnel';
 import { useAuth } from '@/components/use-auth';
@@ -19,8 +18,6 @@ import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query'
 import { KanbanBoard } from '@/components/board/kanban-board';
 import { RepoChips } from '@/components/board/board-toolbar';
 import { DeliveredSection } from '@/components/board/delivered-section';
-import { MobileTopicCard, TopicCard } from '@/components/board/topic-card';
-
 function statusBadge(status: string | null): string {
   return status ?? 'stale';
 }
@@ -249,8 +246,22 @@ export default function ProjectBoardPage() {
   // representation of that work — a topic card next to it would just
   // duplicate the same idea on the board (and in delivered history).
   const visibleTopics = useMemo(
-    () => topics.filter((t) => topicCardVisible((issueStatesByTopic.get(t.id) ?? []).length)),
-    [topics, issueStatesByTopic]
+    () =>
+      topics.filter((t) => {
+        // Unified funnel Phase 4 rules:
+        //   unlinked ideas ................................ visible (idea column)
+        //   unshaped ideas w/ fresh backlog work ... visible (idea column)
+        //   started (ready/realizing) ................. hidden — issue cards
+        //                                               carry the work; the
+        //                                               ⋯ menu has the studio row
+        //   shipped/dropped .......................... visible — grouped into
+        //                                               delivered ribbons below
+        const column = columnOfTopic(t);
+        const linked = (issueStatesByTopic.get(t.id) ?? []).length;
+        if (linked === 0 || column === 'delivered') return true;
+        return column === 'idea';
+      }),
+    [topics, issueStatesByTopic, columnOfTopic]
   );
   const liveTopics = useMemo(
     () => visibleTopics.filter((t) => columnOfTopic(t) !== 'delivered'),
@@ -374,32 +385,9 @@ export default function ProjectBoardPage() {
     [fetchTopics, refetchIssues]
   );
 
-  // Topic cards for the funnel columns. Unlinked ideas (no issue yet) keep a
-  // manual "→ issue" promote affordance until auto-promotion lands (Phase 2).
-  const renderTopicCard = useCallback(
-    (topic: Topic, mobile: boolean) => {
-      const promotable =
-        (topic.status === 'new' || topic.status === 'shaping' || topic.status === 'ready') &&
-        !(issueStatesByTopic.get(topic.id)?.length);
-      const extra = promotable ? (
-        <button
-          type="button"
-          className="ghost topic-promote"
-          disabled={promotingId === topic.id}
-          onClick={() => void promoteTopic(topic.id)}
-          title="Promote to a GitHub issue"
-        >
-          {promotingId === topic.id ? '…' : '→ issue'}
-        </button>
-      ) : undefined;
-      return mobile ? (
-        <MobileTopicCard topic={topic} footerExtra={extra} />
-      ) : (
-        <TopicCard topic={topic} footerExtra={extra} />
-      );
-    },
-    [issueStatesByTopic, promotingId, promoteTopic]
-  );
+  // Idea cards render inside KanbanBoard via the unified card shells; the
+  // page only supplies the promote affordance (unified funnel Phase 1: the
+  // stage vocabulary lives in board-ui.ts, not per-page renderers).
 
   // Per-project auto-merge opt-out (devhub#171 Phase 4): off means Realize
   // stops at an open PR and a human merges + releases by hand.
@@ -669,7 +657,8 @@ export default function ProjectBoardPage() {
           selectedIds={selectedIds}
           toggleSelection={toggleSelection}
           columnOfTopic={columnOfTopic}
-          renderTopicCard={renderTopicCard}
+          onTopicPromote={(topicId) => void promoteTopic(topicId)}
+          promotingTopicId={promotingId}
           columnExtras={{
             idea: (
               <div className="idea-col-actions">

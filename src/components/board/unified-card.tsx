@@ -3,20 +3,25 @@
 import Link from 'next/link';
 import type { Topic } from '@/lib/types';
 import { TOPIC_STATUS_LABELS } from '@/lib/types';
-import { excerpt, relTime } from '@/lib/board-ui';
+import { excerpt, primaryTopicAction, relTime, topicPromotable } from '@/lib/board-ui';
 
-export interface TopicCardProps {
+// One card type for the unified funnel: ideas and issues render through the
+// same card shells (desktop `card` / mobile `mobile-card`) and speak the
+// stage-driven vocabulary — Shape (idea) · Work (issue) · Realize (idea gate)
+// — with the studio (/topics/[id]) always one hop from an idea's card. Issue
+// rendering stays in issue-card.tsx for now (run chips, recap, develop-modal
+// wiring live there); the shells here are the seam those internals fold into.
+
+export interface UnifiedTopicCardProps {
   topic: Topic;
-  // Rendered in the footer next to "Discuss →" (e.g. a "→ issue" promote
-  // button for unlinked ideas). Absent on the topic's own detail page.
-  footerExtra?: React.ReactNode;
+  promoting: boolean;
+  onPromote?: (topicId: number) => void;
 }
 
-// Idea-column card for the unified funnel: status chip, shaped summary, and
-// a "Discuss →" footer — never Work, never batch selection. Topics have no
-// repo, so there is no repo strip or age-urgency tier, just a muted stamp.
-export function TopicCard({ topic, footerExtra }: TopicCardProps) {
+export function UnifiedTopicCard({ topic, promoting, onPromote }: UnifiedTopicCardProps) {
   const summary = topic.shapedSummary ?? topic.notes;
+  const primary = primaryTopicAction(topic.status);
+  const promotable = topicPromotable(topic.status, 0);
   return (
     <div className="card">
       <div className="card-strip">
@@ -34,16 +39,28 @@ export function TopicCard({ topic, footerExtra }: TopicCardProps) {
 
       <div className="card-footer">
         <Link href={`/topics/${topic.id}`} className="card-primary card-primary-link">
-          Discuss →
+          {primary.label}
         </Link>
-        {footerExtra}
+        {promotable && onPromote && (
+          <button
+            type="button"
+            className="ghost topic-promote"
+            disabled={promoting}
+            onClick={() => onPromote(topic.id)}
+            title="Promote to a GitHub issue"
+          >
+            {promoting ? '…' : '→ issue'}
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-export function MobileTopicCard({ topic, footerExtra }: TopicCardProps) {
+export function MobileUnifiedTopicCard({ topic, promoting, onPromote }: UnifiedTopicCardProps) {
   const summary = topic.shapedSummary ?? topic.notes;
+  const primary = primaryTopicAction(topic.status);
+  const promotable = topicPromotable(topic.status, 0);
   return (
     <div className="mobile-card">
       <div className="mobile-card-strip">
@@ -59,9 +76,19 @@ export function MobileTopicCard({ topic, footerExtra }: TopicCardProps) {
       </div>
       <div className="mobile-card-footer">
         <Link href={`/topics/${topic.id}`} className="mobile-card-primary mobile-card-primary-link">
-          Discuss →
+          {primary.label}
         </Link>
-        {footerExtra}
+        {promotable && onPromote && (
+          <button
+            type="button"
+            className="ghost topic-promote"
+            disabled={promoting}
+            onClick={() => onPromote(topic.id)}
+            title="Promote to a GitHub issue"
+          >
+            {promoting ? '…' : '→ issue'}
+          </button>
+        )}
       </div>
     </div>
   );

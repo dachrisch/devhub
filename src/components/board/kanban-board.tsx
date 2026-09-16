@@ -8,7 +8,7 @@ import { countRepos, matchesIssue, matchesTopic } from '@/lib/board-ui';
 import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
 import { RefreshButton } from '@/components/board/board-toolbar';
 import { IssueCard, IssueCardSheet, MobileIssueCard } from '@/components/board/issue-card';
-import { MobileTopicCard, TopicCard } from '@/components/board/topic-card';
+import { MobileUnifiedTopicCard, UnifiedTopicCard } from '@/components/board/unified-card';
 
 export interface KanbanBoardProps {
   // Live pools (delivered history renders separately below the board).
@@ -33,9 +33,10 @@ export interface KanbanBoardProps {
   // passes a topic resolver that also consults linked issues.
   columnOfIssue?: (issue: Issue) => FunnelColumn;
   columnOfTopic?: (topic: Topic) => FunnelColumn;
-  // Topic card renderer (the page injects promote affordances for unlinked
-  // ideas). Defaults to the plain Discuss card.
-  renderTopicCard?: (topic: Topic, mobile: boolean) => React.ReactNode;
+  // Idea cards render through the unified card shells directly (kanban owns
+  // them now); the page passes its promote affordance instead of a renderer.
+  onTopicPromote?: (topicId: number) => void;
+  promotingTopicId?: number | null;
   // Extra chrome pinned to the top of a column (e.g. Suggest-next + Add-idea
   // in the idea column).
   columnExtras?: Partial<Record<FunnelColumn, React.ReactNode>>;
@@ -70,7 +71,8 @@ export function KanbanBoard({
   toggleSelection,
   columnOfIssue = (issue) => funnelColumnForIssue(issue.state),
   columnOfTopic = (topic) => funnelColumnForTopic(topic.status),
-  renderTopicCard,
+  onTopicPromote,
+  promotingTopicId = null,
   columnExtras,
   doneCount,
   onShowDone,
@@ -136,9 +138,15 @@ export function KanbanBoard({
         key: `topic-${topic.id}`,
         updatedAt: topic.updatedAt,
         blocked: false,
-        node:
-          renderTopicCard?.(topic, isMobile) ??
-          (isMobile ? <MobileTopicCard topic={topic} /> : <TopicCard topic={topic} />),
+        node: isMobile ? (
+          <MobileUnifiedTopicCard
+            topic={topic}
+            promoting={promotingTopicId === topic.id}
+            onPromote={onTopicPromote}
+          />
+        ) : (
+          <UnifiedTopicCard topic={topic} promoting={promotingTopicId === topic.id} onPromote={onTopicPromote} />
+        ),
       })),
       ...colIssues.map((issue) => {
         const justStarted = justStartedIds.has(issue.id);

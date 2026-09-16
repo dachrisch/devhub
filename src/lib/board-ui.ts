@@ -98,13 +98,9 @@ export function countRepos(issues: Pick<Issue, 'owner' | 'repo'>[]): number {
   return new Set(issues.map((i) => `${i.owner}/${i.repo}`)).size;
 }
 
-// Once a topic has spawned any issue, that issue is the live representation
-// of the work — showing the topic card alongside it duplicates the same
-// idea on the board (and in delivered history). Keep the topic reachable via
-// the issue's breadcrumb link instead.
-export function topicCardVisible(linkedIssueCount: number): boolean {
-  return linkedIssueCount === 0;
-}
+// Removed with unified funnel Phase 4 (2026-09-16): idea cards stay visible
+// in the idea column once backfilled (see the project board's visibleTopics
+// rule). Linked, started work still bows out to its issue cards.
 
 // Human-friendly label for GitHub's `state_reason` on a reconciled card.
 export function closedReasonLabel(reason: string | null): string {
@@ -127,7 +123,10 @@ export type CardActionId =
   | 'merge'
   | 'recap'
   | 'select-batch'
-  | 'open-github';
+  | 'open-github'
+  // Unified funnel (idea/issue seam): an issue carrying a shaped idea gets
+  // a direct row back to the studio thread — same Link treatment as Recap.
+  | 'open-studio';
 
 export interface CardAction {
   id: CardActionId;
@@ -150,7 +149,7 @@ export function isWorkable(issue: Pick<Issue, 'state' | 'blockedReason'>): boole
 // that no server broadcast has confirmed yet: the Work button and manual
 // stage moves must go away the moment work starts.
 export function cardActions(
-  issue: Pick<Issue, 'state' | 'blockedReason'>,
+  issue: Pick<Issue, 'state' | 'blockedReason' | 'topicId'>,
   live = false
 ): CardAction[] {
   const actions: CardAction[] = [];
@@ -166,6 +165,9 @@ export function cardActions(
   if (!live && issue.state === 'pr') {
     actions.push({ id: 'merge', label: 'Merge PR' });
   }
+  if (issue.topicId != null) {
+    actions.push({ id: 'open-studio', label: 'Open idea studio' });
+  }
   actions.push({
     id: 'recap',
     label: live || (issue.state === 'developing' && !issue.blockedReason) ? 'Recap (live)' : 'Recap',
@@ -174,7 +176,6 @@ export function cardActions(
   actions.push({ id: 'open-github', label: 'Open on GitHub' });
   return actions;
 }
-
 // The four active kanban columns (rollout/closed render as strips).
 export const KANBAN_COLUMNS: IssueState[] = ['backlog', 'refinement', 'developing', 'pr'];
 
@@ -241,4 +242,59 @@ export function primaryCardAction(
     return { label: 'Recap (live)', kind: 'recap' };
   }
   return { label: 'Recap', kind: 'recap' };
+}
+
+// ---------------------------------------------------------------------------
+// Topic-side vocabulary (unified funnel). Ideas and issues speak the same
+// words on the board: the card's stage decides the label, never the entity
+// type. Topic primaries always land in the studio (/topics/[id]) where the
+// shaping thread, Work confirm, and timeline live.
+// ---------------------------------------------------------------------------
+
+export interface PrimaryTopicAction {
+  label: string;
+  // 'shape'/'realize'/'studio' are all studio links today — enforce confirms
+  // and multi-step flows live there — but they render differently:
+  //   new/shaping  → "Shape"  (thread + options are the point)
+  //   ready        → "Realize" (confirm flow behind it)
+  //   realizing    → "Open studio" (watch the run, reply if needs input)
+  kind: 'shape' | 'realize' | 'studio';
+}
+
+export function primaryTopicAction(status: TopicStatus): PrimaryTopicAction {
+  switch (status) {
+    case 'new':
+    case 'shaping':
+      return { label: 'Shape', kind: 'shape' };
+    case 'ready':
+      return { label: 'Realize', kind: 'realize' };
+    default:
+      return { label: 'Open studio', kind: 'studio' };
+  }
+}
+
+// Manual "→ issue" affordance (devhub#167): an idea that hasn't spawned work
+// yet can be promoted to a bare GitHub issue from the card itself. Terminal
+// and realizing topics are excluded; linked work means the issue exists.
+export function topicPromotable(status: TopicStatus, linkedIssueCount: number): boolean {
+  return (
+    (status === 'new' || status === 'shaping' || status === 'ready') && linkedIssueCount === 0
+  );
+}
+
+export type TopicCardActionId = 'promote' | 'open-studio';
+
+export interface TopicCardAction {
+  id: TopicCardActionId;
+  label: string;
+}
+
+// Card menu rows for an idea (mobile sheet; desktop keeps the promote ghost
+// pinned to the footer where it is today). Studio row closes the list — the
+// primary action already opens it — so only promote + an explicit deep row.
+export function topicCardActions(status: TopicStatus, promotable: boolean): TopicCardAction[] {
+  const actions: TopicCardAction[] = [];
+  if (promotable) actions.push({ id: 'promote', label: 'Promote to issue' });
+  actions.push({ id: 'open-studio', label: 'Open idea studio' });
+  return actions;
 }
