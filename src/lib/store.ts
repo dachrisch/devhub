@@ -421,7 +421,11 @@ export function getIssueByGithub(owner: string, repo: string, number: number): I
 }
 
 export function deleteIssueByGithub(owner: string, repo: string, number: number): void {
+  const linked = getDb()
+    .prepare('SELECT topic_id FROM issues WHERE owner = ? AND repo = ? AND number = ?')
+    .get(owner, repo, number) as { topic_id: number | null } | undefined;
   getDb().prepare('DELETE FROM issues WHERE owner = ? AND repo = ? AND number = ?').run(owner, repo, number);
+  if (linked?.topic_id != null) refreshTopicStatus(linked.topic_id);
 }
 
 export function setIssueState(id: number, state: IssueState): Issue | null {
@@ -1091,13 +1095,38 @@ export function getIssuesByTopic(topicId: number): Issue[] {
   return rows.map(serializeIssue);
 }
 
+// Live active-idea predicate (devhub#208): the cached `topics.status` can go
+// stale when a linked issue closes outside the explicit mutation helpers
+// (reconcile/sweep, deletes). The board recomputes the effective column from
+// linked issue state (`funnelColumnForTopicWithIssues`), so the dashboard
+// must do the same: a topic whose linked work all settled (closed|rollout)
+// reads as delivered/shipped and drops out of the active set even while the
+// cached status still says new|shaping|ready|realizing.
+const ACTIVE_TOPIC_STATUSES_SQL = `('new','shaping','ready','realizing')`;
+const TOPIC_NOT_SETTLED_SQL = `NOT (
+    EXISTS (SELECT 1 FROM issues WHERE topic_id = topics.id)
+    AND NOT EXISTS (SELECT 1 FROM issues WHERE topic_id = topics.id AND state NOT IN ('closed','rollout'))
+  )`;
+
 export function getActiveTopicsForProject(projectId: number, limit = 3): Topic[] {
   const rows = getDb()
     .prepare(
-      `SELECT * FROM topics WHERE project_id = ? AND status IN ('new','shaping','ready','realizing') ORDER BY updated_at DESC, id DESC LIMIT ?`
+      `SELECT * FROM topics WHERE project_id = ? AND status IN ${ACTIVE_TOPIC_STATUSES_SQL} AND ${TOPIC_NOT_SETTLED_SQL} ORDER BY updated_at DESC, id DESC LIMIT ?`
     )
     .all(projectId, limit) as TopicRow[];
   return rows.map(serializeTopic);
+}
+
+// Live count backing `summarizeProject().ideas`: same derivation as
+// `getActiveTopicsForProject` so the dashboard card and the board agree
+// without requiring a manual write to heal a stale `topics.status`.
+export function countActiveTopicsForProject(projectId: number): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS n FROM topics WHERE project_id = ? AND status IN ${ACTIVE_TOPIC_STATUSES_SQL} AND ${TOPIC_NOT_SETTLED_SQL}`
+    )
+    .get(projectId) as { n: number };
+  return row.n;
 }
 
 // ---------------------------------------------------------------------------

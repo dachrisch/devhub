@@ -513,4 +513,84 @@ describe('projects & topics (devhub#167)', () => {
     store.deleteTopic(topic.id);
     expect(store.getIdeaMessages(topic.id)).toHaveLength(0);
   });
+
+  it('excludes a stale realizing topic whose only linked issue is settled (devhub#208)', async () => {
+    const { summarizeProject } = await import('./project-status.js');
+    const { funnelColumnForTopicWithIssues } = await import('./funnel.js');
+    const project = store.createProject({ name: 'proj-stale-idea' });
+    const topic = store.createTopic({ title: 'Dispatch workflow templates', status: 'realizing' });
+    store.updateTopic(topic.id, { projectId: project.id });
+
+    store.upsertIssue({
+      githubIssueId: 20801,
+      owner: 'acme',
+      repo: 'stale-repo',
+      number: 170,
+      title: 'Dispatch work',
+      body: null,
+      htmlUrl: 'https://github.com/acme/stale-repo/issues/170',
+    });
+    const issue = store.getIssueByGithub('acme', 'stale-repo', 170)!;
+    store.assignIssue(issue.id, { projectId: project.id, topicId: topic.id });
+    store.setClosed(issue.id, 'completed');
+
+    // Simulate the production stale row: the reconcile/sweep closed the
+    // issue without touching the topic (topic row stuck on `realizing`).
+    store.getDb().prepare(`UPDATE topics SET status = 'realizing' WHERE id = ?`).run(topic.id);
+    expect(store.getTopic(topic.id)?.status).toBe('realizing');
+
+    // Board derivation already treats it as delivered…
+    expect(funnelColumnForTopicWithIssues('realizing', ['closed'])).toBe('delivered');
+    // …and the dashboard must agree without a manual topic write.
+    expect(store.getActiveTopicsForProject(project.id).map((t) => t.id)).not.toContain(topic.id);
+    expect(store.countActiveTopicsForProject(project.id)).toBe(0);
+    const summary = summarizeProject(store.getProject(project.id)!);
+    expect(summary.ideas).toBe(0);
+    expect(summary.recentIdeas.map((t) => t.id)).not.toContain(topic.id);
+
+    // Mixed liveness stays active: reopening the work re-admits the idea.
+    store.reopenIssue(issue.id);
+    expect(store.getActiveTopicsForProject(project.id).map((t) => t.id)).toContain(topic.id);
+    expect(store.countActiveTopicsForProject(project.id)).toBe(1);
+    expect(summarizeProject(store.getProject(project.id)!).ideas).toBe(1);
+  });
+
+  it('recomputes the former parent topic on deleteIssueByGithub (devhub#208)', () => {
+    const project = store.createProject({ name: 'proj-delete-recompute' });
+    const topic = store.createTopic({ title: 'Deletable idea', status: 'new' });
+    store.updateTopic(topic.id, { projectId: project.id });
+
+    store.upsertIssue({
+      githubIssueId: 20802,
+      owner: 'acme',
+      repo: 'delete-repo',
+      number: 11,
+      title: 'Live work',
+      body: null,
+      htmlUrl: 'https://github.com/acme/delete-repo/issues/11',
+    });
+    store.upsertIssue({
+      githubIssueId: 20803,
+      owner: 'acme',
+      repo: 'delete-repo',
+      number: 12,
+      title: 'Settled work',
+      body: null,
+      htmlUrl: 'https://github.com/acme/delete-repo/issues/12',
+    });
+    const live = store.getIssueByGithub('acme', 'delete-repo', 11)!;
+    const settled = store.getIssueByGithub('acme', 'delete-repo', 12)!;
+    store.assignIssue(live.id, { projectId: project.id, topicId: topic.id });
+    store.assignIssue(settled.id, { projectId: project.id, topicId: topic.id });
+    store.setIssueState(live.id, 'developing');
+    store.setClosed(settled.id, 'completed');
+    expect(store.getTopic(topic.id)?.status).toBe('realizing');
+
+    // Deleting the last live issue settles the topic even though the delete
+    // path previously skipped recomputation entirely.
+    store.deleteIssueByGithub('acme', 'delete-repo', 11);
+    expect(store.getTopic(topic.id)?.status).toBe('shipped');
+    expect(store.getActiveTopicsForProject(project.id).map((t) => t.id)).not.toContain(topic.id);
+    expect(store.countActiveTopicsForProject(project.id)).toBe(0);
+  });
 });

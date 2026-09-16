@@ -1,9 +1,9 @@
 import {
+  countActiveTopicsForProject,
   getActiveTopicsForProject,
   getIssuesByProject,
   getProject,
   getRunsForIssue,
-  getTopics,
   setProjectStatus,
   type Issue,
   type Project,
@@ -88,11 +88,10 @@ export function summarizeProject(project: Project): ProjectSummary {
     prCount += s.pr;
   }
   const recentIdeas = getActiveTopicsForProject(project.id, 3);
-  const ideas =
-    getTopics({ projectId: project.id, status: 'new' }).length +
-    getTopics({ projectId: project.id, status: 'shaping' }).length +
-    getTopics({ projectId: project.id, status: 'ready' }).length +
-    getTopics({ projectId: project.id, status: 'realizing' }).length;
+  // Live derivation (devhub#208): same settled-issue exclusion as
+  // `getActiveTopicsForProject`, so a stale cached `realizing` status on a
+  // topic whose only linked work is closed/rollout never inflates the card.
+  const ideas = countActiveTopicsForProject(project.id);
   const status = deriveProjectStatus(project);
   if (status !== project.status) setProjectStatus(project.id, status);
   return { project: getProject(project.id) ?? project, status, needsInput, inFlight, prCount, ideas, recentIdeas };
