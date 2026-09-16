@@ -65,6 +65,17 @@ describe('opencode client', () => {
     expect(prompt).toContain('opencode-contribution');
   });
 
+  it('requires the Fixes trailer as the last PR body line with a self-check', () => {
+    const prompt = buildDevelopPrompt(sampleIssue as never, '', sampleWorktree);
+    // The trailer must survive a full-length PR description (dontforget#189:
+    // PR #190 shipped a rich body but dropped the keyword, so the issue never
+    // auto-closed).
+    expect(prompt).toContain('Fixes #5');
+    expect(prompt).toContain('LAST line');
+    expect(prompt).toContain('gh pr view');
+    expect(prompt).toContain('gh pr edit');
+  });
+
   it('does not ask the agent to create or adopt a worktree itself', () => {
     const prompt = buildDevelopPrompt(sampleIssue as never, '', sampleWorktree);
     expect(prompt).not.toContain('git worktree add');
