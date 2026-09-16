@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import type { Issue, IssueState, Topic } from '@/lib/types';
 import {
   matchesIssue,
@@ -27,8 +27,16 @@ function statusBadge(status: string | null): string {
 
 export default function ProjectBoardPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const projectId = Number(params.id);
   const validId = Number.isInteger(projectId) && projectId > 0;
+
+  // History-back (same affordance as the topic page): return to wherever the
+  // operator came from; a direct load with no history falls back to `/`.
+  const goBack = useCallback(() => {
+    if (typeof window !== 'undefined' && window.history.length > 1) router.back();
+    else router.push('/');
+  }, [router]);
 
   const [project, setProject] = useState<null | {
     id: number;
@@ -255,7 +263,10 @@ export default function ProjectBoardPage() {
 
   const deliveredRef = useRef<HTMLElement | null>(null);
   const scrollToDone = useCallback(() => {
-    deliveredRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Ref-first with a DOM fallback: the section renders null when there is
+    // no delivered history, so a stale/missing ref must not swallow the tap.
+    const el = deliveredRef.current ?? document.querySelector('[aria-label="Delivered history"]');
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
   const repos = useMemo(() => {
@@ -545,9 +556,9 @@ export default function ProjectBoardPage() {
     <div className="page-wrap">
       <header className="app-head">
         <div className="brand">
-          <Link href="/" className="recap-link" aria-label="Back to projects">
+          <button type="button" className="recap-link" onClick={goBack} aria-label="Back to projects">
             ←
-          </Link>
+          </button>
           <Logo size={28} />
           <span className="brand-name">{project?.name ?? `Project #${projectId}`}</span>
           {project && <span className={`proj-badge ${statusBadge(project.status)}`}>{statusBadge(project.status)}</span>}
