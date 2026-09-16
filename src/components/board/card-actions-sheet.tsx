@@ -37,6 +37,16 @@ export function CardActionsSheet({ issue, live = false, onClose, onSelect }: Car
             >
               {action.label}
             </Link>
+          ) : action.id === 'open-studio' && issue.topicId != null ? (
+            <Link
+              key={action.id}
+              href={`/topics/${issue.topicId}`}
+              className={`card-sheet-row${i === 0 ? ' card-sheet-row-first' : ''}`}
+              role="menuitem"
+              onClick={onClose}
+            >
+              {action.label}
+            </Link>
           ) : (
             <button
               key={action.id}

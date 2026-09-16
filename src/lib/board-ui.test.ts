@@ -8,9 +8,12 @@ import {
   matchesIssue,
   matchesTopic,
   primaryCardAction,
+  primaryTopicAction,
   relTime,
   repoColor,
+  topicCardActions,
   topicCardVisible,
+  topicPromotable,
 } from './board-ui.js';
 import type { Issue, Topic, TopicStatus } from './types.js';
 
@@ -267,5 +270,51 @@ describe('excerpt', () => {
     const result = excerpt(long);
     expect(result.endsWith('…')).toBe(true);
     expect(result.length).toBe(181);
+  });
+});
+
+describe('unified funnel vocabulary (primaryTopicAction / topicCardActions)', () => {
+  it('labels unshaped ideas "Shape"', () => {
+    expect(primaryTopicAction('new')).toEqual({ label: 'Shape', kind: 'shape' });
+    expect(primaryTopicAction('shaping')).toEqual({ label: 'Shape', kind: 'shape' });
+  });
+
+  it('labels the realized gate "Realize"', () => {
+    expect(primaryTopicAction('ready')).toEqual({ label: 'Realize', kind: 'realize' });
+  });
+
+  it('labels in-flight ideas "Open studio"', () => {
+    for (const status of ['realizing', 'shipped', 'dropped'] as TopicStatus[]) {
+      expect(primaryTopicAction(status)).toEqual({ label: 'Open studio', kind: 'studio' });
+    }
+  });
+
+  it('promotable only before work links', () => {
+    for (const status of ['new', 'shaping', 'ready'] as TopicStatus[]) {
+      expect(topicPromotable(status, 0)).toBe(true);
+      expect(topicPromotable(status, 1)).toBe(false);
+    }
+    expect(topicPromotable('realizing', 0)).toBe(false);
+    expect(topicPromotable('dropped', 0)).toBe(false);
+  });
+
+  it('includes a promote row only when promotable, and always a studio row', () => {
+    expect(topicCardActions('shaping', true)).toEqual([
+      { id: 'promote', label: 'Promote to issue' },
+      { id: 'open-studio', label: 'Open idea studio' },
+    ]);
+    expect(topicCardActions('shaping', false)).toEqual([
+      { id: 'open-studio', label: 'Open idea studio' },
+    ]);
+    expect(topicCardActions('realizing', false)).toEqual([
+      { id: 'open-studio', label: 'Open idea studio' },
+    ]);
+  });
+
+  it('issues carrying a shaped idea get an open-studio row back to the thread', () => {
+    const base = { state: 'backlog' as const, blockedReason: null };
+    expect(cardActions({ ...base, topicId: 7 }, false).some((a) => a.id === 'open-studio')).toBe(true);
+    expect(cardActions({ ...base, topicId: null }, false).some((a) => a.id === 'open-studio')).toBe(false);
+    expect(cardActions({ ...base, topicId: 7 }, true).some((a) => a.id === 'work')).toBe(false);
   });
 });

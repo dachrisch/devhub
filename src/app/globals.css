@@ -1556,6 +1556,33 @@ button:disabled {
   line-height: 1.4;
 }
 
+/* Start-work modal — attached idea-thread context line (unified funnel). */
+.modal-idea-context {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.modal-idea-context .dot.idea {
+  flex: none;
+}
+
+.modal-idea-label {
+  color: var(--muted);
+}
+
+.modal-idea-link {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .modal-label {
   display: block;
   font-size: 12px;
