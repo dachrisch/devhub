@@ -25,6 +25,7 @@ export interface UseCardActionsResult {
   setSelectedModel: (model: ModelOption | null) => void;
   start: () => Promise<void>;
   transition: (target: IssueState) => Promise<void>;
+  merge: () => Promise<{ ok: boolean }>;
 }
 
 export function useCardActions(issueId: number, options: UseCardActionsOptions = {}): UseCardActionsResult {
@@ -128,6 +129,31 @@ export function useCardActions(issueId: number, options: UseCardActionsOptions =
     [issueId]
   );
 
+  const merge = useCallback(async (): Promise<{ ok: boolean }> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/issues/${issueId}/merge`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        let detail = '';
+        try {
+          const data = (await res.json()) as { error?: string };
+          detail = data.error ?? '';
+        } catch { /* non-JSON */ }
+        setError(detail || `merge failed (HTTP ${res.status})`);
+        return { ok: false };
+      }
+      return { ok: true };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return { ok: false };
+    } finally {
+      setBusy(false);
+    }
+  }, [issueId]);
+
   return {
     busy,
     error,
@@ -141,5 +167,6 @@ export function useCardActions(issueId: number, options: UseCardActionsOptions =
     setSelectedModel,
     start,
     transition,
+    merge,
   };
 }

@@ -124,6 +124,7 @@ export type CardActionId =
   | 'work'
   | 'to-refinement'
   | 'to-backlog'
+  | 'merge'
   | 'recap'
   | 'select-batch'
   | 'open-github';
@@ -161,6 +162,9 @@ export function cardActions(
   }
   if (!live && issue.state === 'refinement') {
     actions.push({ id: 'to-backlog', label: 'Move to backlog' });
+  }
+  if (!live && issue.state === 'pr') {
+    actions.push({ id: 'merge', label: 'Merge PR' });
   }
   actions.push({
     id: 'recap',

@@ -75,6 +75,7 @@ describe('cardActions', () => {
 
   it('drops work for pr, rollout and closed issues', () => {
     expect(cardActions(issue({ state: 'pr' })).map((a) => a.id)).toEqual([
+      'merge',
       'recap',
       'select-batch',
       'open-github',
