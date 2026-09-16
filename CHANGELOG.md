@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.12](https://github.com/dachrisch/devhub/compare/v1.23.11...v1.23.12) (2026-09-16)
+
+
+### Bug Fixes
+
+* **dashboard:** derive active ideas live from linked issue state ([064685b](https://github.com/dachrisch/devhub/commit/064685bc30d1dadc476d6c863ee8e2e260af5a2f))
+
 ## [1.23.11](https://github.com/dachrisch/devhub/compare/v1.23.10...v1.23.11) (2026-09-16)
 
 
