@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.24.0](https://github.com/dachrisch/devhub/compare/v1.23.12...v1.24.0) (2026-09-16)
+
+
+### Features
+
+* add Merge PR action for cards in pr state ([#215](https://github.com/dachrisch/devhub/issues/215)) ([6e1640d](https://github.com/dachrisch/devhub/commit/6e1640dee1240bea62937bdf7f6515effeed09d7))
+
 ## [1.23.12](https://github.com/dachrisch/devhub/compare/v1.23.11...v1.23.12) (2026-09-16)
 
 
