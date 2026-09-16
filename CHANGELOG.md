@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.23.10](https://github.com/dachrisch/devhub/compare/v1.23.9...v1.23.10) (2026-09-16)
+
+
+### Bug Fixes
+
+* **mobile:** history-back header, responsive Done pill, full-height empty state ([d75e203](https://github.com/dachrisch/devhub/commit/d75e203f9e72beb460e5678862639f879950cfa2))
+* **mobile:** history-back header, responsive Done pill, full-height empty state ([a674bfb](https://github.com/dachrisch/devhub/commit/a674bfb83c3dade5596fa54217600c6e52571889))
+
 ## [1.23.9](https://github.com/dachrisch/devhub/compare/v1.23.8...v1.23.9) (2026-09-15)
 
 
