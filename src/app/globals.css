@@ -793,6 +793,53 @@ header h1 {
   font-weight: 400;
 }
 
+/* Delivered ribbons (unified funnel Phase 5): one muted row per idea, with
+   the work that delivered it nested under it instead of scattered flat. */
+.delivered-ribbon {
+  display: flex;
+  min-width: 0;
+}
+
+.delivered-ribbon .delivered-item {
+  flex: none;
+}
+
+.delivered-ribbon-work {
+  display: inline-flex;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.delivered-ribbon-work .delivered-item {
+  flex: none;
+}
+
+.delivered-work-count {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+
+@media (max-width: 768px) {
+  .delivered-ribbon {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .delivered-ribbon .delivered-title {
+    max-width: 60vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .delivered-ribbon-work {
+    flex-wrap: wrap;
+  }
+}
+
 /* Idea-column actions (Suggest next + Add idea) pinned under the column head. */
 .idea-col-actions {
   display: flex;

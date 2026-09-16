@@ -1,5 +1,5 @@
 import { ENV } from './env';
-import { appendEvent, assignIssue, deleteIssueByGithub, ensureProjectForRepo, getIssue, getIssueByGithub, getIssues, getProject, getRunsForIssue, refreshTopicStatus, reopenIssue, setClosed, setLinkedPrUrl, setProjectShipped, setRollout, updateRun, upsertIssue } from './store';
+import { appendEvent, assignIssue, createTopic, deleteIssueByGithub, ensureProjectForRepo, getIssue, getIssueByGithub, getIssues, getProject, getRunsForIssue, refreshTopicStatus, reopenIssue, setClosed, setLinkedPrUrl, setProjectShipped, setRollout, updateRun, upsertIssue } from './store';
 import type { UpsertIssueInput } from './store';
 import { publishIssue, publishRun } from './sse';
 import type { Issue, IssueState } from './types';
@@ -569,9 +569,28 @@ export async function refreshIssues(token: string, fetchFn: FetchFn = fetch): Pr
       if (stored) {
         // Repo → project resolution: auto-create a skeleton project on first
         // sight so the board can stay project-scoped (devhub#167).
-        if (stored.projectId === null) {
-          const project = ensureProjectForRepo(repo.owner.login, repo.name);
+        let project = stored.projectId != null ? getProject(stored.projectId) : null;
+        if (project == null) {
+          project = ensureProjectForRepo(repo.owner.login, repo.name);
           if (project) assignIssue(stored.id, { projectId: project.id });
+        }
+        // Unified funnel backfill (Phase 4): everything is born an idea. A
+        // fresh ingest without a shaped topic gets a native one so the
+        // idea thread and studio link attach to the card — but it enters
+        // `ready`, not `new`: a GitHub issue already carries a written spec,
+        // so unlike a manual idea it needs no shaping before Work.
+        // Idempotent by the topicId check. Deliberately no
+        // refreshTopicStatus at creation time — `ready` is what a fresh
+        // backlog issue reads as here; started work flips the status via
+        // the stage transitions.
+        if (project && stored.topicId === null) {
+          const topic = createTopic({
+            title: stored.title,
+            notes: stored.body,
+            projectId: project.id,
+            status: 'ready',
+          });
+          assignIssue(stored.id, { topicId: topic.id });
         }
         const linkedPrUrl = await findLinkedPr(repo.owner.login, repo.name, issue.number, token, fetchFn);
         setLinkedPrUrl(stored.id, linkedPrUrl);

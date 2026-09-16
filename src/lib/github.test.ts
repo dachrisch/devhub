@@ -139,6 +139,39 @@ describe('refreshIssues', () => {
     const result = await refreshIssues('token-abc', fetchFn);
     expect(result).toEqual({ repos: 0, issues: 0, rolledOut: 0, closed: 0 });
   });
+
+  it('backfills unlinked ingested issues with a native `ready` topic (unified funnel Phase 4)', async () => {
+    const fetchFn = (async (url: string) => {
+      if (url.includes('/user/repos')) {
+        return ghResponse([
+          { name: 'w', full_name: 'dachrisch/w', owner: { login: 'dachrisch' }, topics: ['dachrisch'] },
+        ])();
+      }
+      if (url.includes('/repos/dachrisch/w/issues') && !url.includes('/search')) {
+        return ghResponse([
+          { id: 401, number: 1, title: 'fresh issue', body: 'needs shaping', html_url: 'u' },
+        ])();
+      }
+      return ghResponse({ total_count: 0, items: [] })();
+    }) as unknown as typeof fetch;
+
+    await refreshIssues('token-abc', fetchFn);
+    const issue = store.getIssueByGithub('dachrisch', 'w', 1)!;
+    expect(issue.topicId).not.toBeNull();
+    const topic = store.getTopic(issue.topicId!)!;
+    // GitHub issues are born with a written spec — the attached idea enters
+    // the funnel `ready` (Work straight away), unlike manual ideas (`new`)
+    // that shape first.
+    expect(topic.status).toBe('ready');
+    expect(topic.title).toBe('fresh issue');
+    expect(topic.projectId).toBe(issue.projectId);
+
+    // Idempotent: a second refresh does not create a second topic.
+    await refreshIssues('token-abc', fetchFn);
+    const again = store.getIssueByGithub('dachrisch', 'w', 1)!;
+    expect(again.topicId).toBe(issue.topicId);
+    expect(store.getIssuesByTopic(issue.topicId!)).toHaveLength(1);
+  });
 });
 
 describe('sweepRollouts', () => {

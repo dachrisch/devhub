@@ -98,13 +98,9 @@ export function countRepos(issues: Pick<Issue, 'owner' | 'repo'>[]): number {
   return new Set(issues.map((i) => `${i.owner}/${i.repo}`)).size;
 }
 
-// Once a topic has spawned any issue, that issue is the live representation
-// of the work — showing the topic card alongside it duplicates the same
-// idea on the board (and in delivered history). Keep the topic reachable via
-// the issue's breadcrumb link instead.
-export function topicCardVisible(linkedIssueCount: number): boolean {
-  return linkedIssueCount === 0;
-}
+// Removed with unified funnel Phase 4 (2026-09-16): idea cards stay visible
+// in the idea column once backfilled (see the project board's visibleTopics
+// rule). Linked, started work still bows out to its issue cards.
 
 // Human-friendly label for GitHub's `state_reason` on a reconciled card.
 export function closedReasonLabel(reason: string | null): string {

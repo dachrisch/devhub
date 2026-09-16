@@ -9,7 +9,6 @@ import {
   matchesTopic,
   notifyStateChange,
   runSupersededByBroadcast,
-  topicCardVisible,
 } from '@/lib/board-ui';
 import { funnelColumnForIssue, funnelColumnForTopicWithIssues } from '@/lib/funnel';
 import { useAuth } from '@/components/use-auth';
@@ -247,8 +246,22 @@ export default function ProjectBoardPage() {
   // representation of that work — a topic card next to it would just
   // duplicate the same idea on the board (and in delivered history).
   const visibleTopics = useMemo(
-    () => topics.filter((t) => topicCardVisible((issueStatesByTopic.get(t.id) ?? []).length)),
-    [topics, issueStatesByTopic]
+    () =>
+      topics.filter((t) => {
+        // Unified funnel Phase 4 rules:
+        //   unlinked ideas ................................ visible (idea column)
+        //   unshaped ideas w/ fresh backlog work ... visible (idea column)
+        //   started (ready/realizing) ................. hidden — issue cards
+        //                                               carry the work; the
+        //                                               ⋯ menu has the studio row
+        //   shipped/dropped .......................... visible — grouped into
+        //                                               delivered ribbons below
+        const column = columnOfTopic(t);
+        const linked = (issueStatesByTopic.get(t.id) ?? []).length;
+        if (linked === 0 || column === 'delivered') return true;
+        return column === 'idea';
+      }),
+    [topics, issueStatesByTopic, columnOfTopic]
   );
   const liveTopics = useMemo(
     () => visibleTopics.filter((t) => columnOfTopic(t) !== 'delivered'),

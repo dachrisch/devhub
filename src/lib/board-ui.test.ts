@@ -12,7 +12,6 @@ import {
   relTime,
   repoColor,
   topicCardActions,
-  topicCardVisible,
   topicPromotable,
 } from './board-ui.js';
 import type { Issue, Topic, TopicStatus } from './types.js';
@@ -247,16 +246,6 @@ describe('isTopicThreadLocked', () => {
   });
 });
 
-describe('topicCardVisible', () => {
-  it('shows a topic that has not spawned any issue yet', () => {
-    expect(topicCardVisible(0)).toBe(true);
-  });
-
-  it('hides a topic once it has spawned at least one issue — the issue card is now the live representation of that work', () => {
-    expect(topicCardVisible(1)).toBe(false);
-    expect(topicCardVisible(3)).toBe(false);
-  });
-});
 
 describe('excerpt', () => {
   it('strips markdown and collapses whitespace', () => {
