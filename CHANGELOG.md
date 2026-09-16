@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.26.0](https://github.com/dachrisch/devhub/compare/v1.25.0...v1.26.0) (2026-09-16)
+
+
+### Features
+
+* **board:** unified funnel cards — stage vocabulary + idea-studio seam ([63e44be](https://github.com/dachrisch/devhub/commit/63e44be39ddd2e3ecbaa5fd0be542c8abe317c98))
+* **funnel:** everything is born an idea — GitHub backfill + delivered ribbons (Phases 4+5) ([a8fb58a](https://github.com/dachrisch/devhub/commit/a8fb58af0cb6303cf88acbb050bb70c4359b9492))
+
 ## [1.25.0](https://github.com/dachrisch/devhub/compare/v1.24.0...v1.25.0) (2026-09-16)
 
 
