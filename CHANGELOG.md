@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.11](https://github.com/dachrisch/devhub/compare/v1.23.10...v1.23.11) (2026-09-16)
+
+
+### Bug Fixes
+
+* **opencode:** keep Fixes trailer in develop PR bodies with self-check ([6ec07c8](https://github.com/dachrisch/devhub/commit/6ec07c8a6d8e8ee3dc52885e99667920f12a0e7a))
+
 ## [1.23.10](https://github.com/dachrisch/devhub/compare/v1.23.9...v1.23.10) (2026-09-16)
 
 
