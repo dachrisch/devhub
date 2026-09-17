@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import type { DevelopRun, Issue, IssueEvent } from '@/lib/types';
 import { relTime } from '@/lib/board-ui';
 import { activityLine, condense, eventText, isNoise, truncateText } from '@/lib/recap';
@@ -65,6 +65,7 @@ function FeedPayload({ event }: { event: IssueEvent }) {
 export default function RecapPage() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
+  const router = useRouter();
   const [issue, setIssue] = useState<Issue | null>(null);
   const [events, setEvents] = useState<IssueEvent[]>([]);
   const [runs, setRuns] = useState<DevelopRun[]>([]);
@@ -73,6 +74,19 @@ export default function RecapPage() {
   const [breadcrumb, setBreadcrumb] = useState<{ projectName: string; topicTitle: string | null } | null>(null);
   const { user } = useAuth();
   const signedIn = Boolean(user);
+
+  // History-back with fallback: navigate to the issue's project board when
+  // no browser history is available (direct load, bookmark, shared URL),
+  // otherwise just pop the stack.
+  const goBack = useCallback(() => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+    } else if (issue?.projectId != null) {
+      router.push(`/projects/${issue.projectId}`);
+    } else {
+      router.push('/');
+    }
+  }, [router, issue]);
 
   const applyIssue = useCallback((i: Issue) => setIssue(i), []);
   const applyEvent = useCallback((e: IssueEvent) => {
@@ -173,7 +187,7 @@ export default function RecapPage() {
     return (
       <main className="recap-wrap">
         <p className="muted">Loading…</p>
-        <Link href="/" className="recap-link">← Back to board</Link>
+        <Link href="/" className="recap-link" onClick={(e) => { e.preventDefault(); goBack(); }}>← Back to board</Link>
       </main>
     );
   }
@@ -200,7 +214,7 @@ export default function RecapPage() {
   return (
     <main className="recap-wrap">
       <header className="recap-head">
-        <Link href="/" className="recap-link">← Board</Link>
+        <Link href="/" className="recap-link" onClick={(e) => { e.preventDefault(); goBack(); }}>← Board</Link>
         <span className={`dot ${issue.state}`} />
         <span className="recap-state">{issue.state}</span>
         <span

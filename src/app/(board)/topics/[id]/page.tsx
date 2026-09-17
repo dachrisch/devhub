@@ -72,6 +72,20 @@ export default function TopicDetailPage() {
   const [realizeBusy, setRealizeBusy] = useState(false);
   const { user, loading, denied, logout } = useAuth();
   const signedIn = Boolean(user);
+
+  // History-back with fallback: if the user arrived directly (bookmark, refresh,
+  // shared URL) there is no previous history entry, so we navigate to the
+  // topic's project board instead of leaving the app.
+  const goBack = useCallback(() => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+    } else if (topic?.projectId != null) {
+      router.push(`/projects/${topic.projectId}`);
+    } else {
+      router.push('/');
+    }
+  }, [router, topic]);
+
   // Blocked realizations unlock the thread: the reply/choice is the answer
   // and resumes the loop. Unknown state defaults to locked.
   const needsInput = issues.some((i) => i.blockedReason);
@@ -342,7 +356,7 @@ export default function TopicDetailPage() {
     <div className="page-wrap">
       <header className="app-head">
         <div className="brand">
-          <button type="button" className="recap-link" onClick={() => router.back()} aria-label="Back">
+          <button type="button" className="recap-link" onClick={goBack} aria-label="Back">
             ←
           </button>
           <Logo size={28} />
