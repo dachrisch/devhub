@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { Issue } from '@/lib/types';
 import { cardActions, type CardActionId } from '@/lib/board-ui';
+import { IssueRef } from '@/components/board/issue-ref';
 
 interface CardActionsSheetProps {
   issue: Issue;
@@ -22,7 +23,7 @@ export function CardActionsSheet({ issue, live = false, onClose, onSelect }: Car
         <div className="card-sheet-handle" />
         <div className="card-sheet-header">
           <div className="card-sheet-ref">
-            {issue.owner}/{issue.repo} #{issue.number}
+            <IssueRef issue={issue} variant="chip" />
           </div>
           <div className="card-sheet-title">{issue.title}</div>
         </div>

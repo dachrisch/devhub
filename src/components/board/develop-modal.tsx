@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { Issue, ModelOption } from '@/lib/types';
 import { ModelPicker } from '@/components/board/model-picker';
+import { IssueRef } from '@/components/board/issue-ref';
 
 interface DevelopModalProps {
   issue: Issue;
@@ -52,7 +53,7 @@ export function DevelopModal({
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <h3>
-          Develop {issue.owner}/{issue.repo} #{issue.number}
+          Develop <IssueRef issue={issue} variant="chip" />
         </h3>
         <p className="modal-sub">{issue.title}</p>
         {ideaMsgCount != null && issue.topicId != null && ideaMsgCount > 0 && (
