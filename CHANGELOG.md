@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.26.1](https://github.com/dachrisch/devhub/compare/v1.26.0...v1.26.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **nav:** history-aware back buttons on topic and issue pages ([#221](https://github.com/dachrisch/devhub/issues/221)) ([70ec94b](https://github.com/dachrisch/devhub/commit/70ec94b85dfda57fd352e0ae922511672ee8ba46)), closes [#220](https://github.com/dachrisch/devhub/issues/220)
+
 ## [1.26.0](https://github.com/dachrisch/devhub/compare/v1.25.0...v1.26.0) (2026-09-16)
 
 
