@@ -241,6 +241,15 @@ function migrate(database: Database.Database): void {
     database.exec(`ALTER TABLE actions ADD COLUMN transcript TEXT`);
   }
 
+  // One-time migration: base-branch handshake for develop runs (wrong-base
+  // branches, e.g. devhub#223 → PR #225). The agent reports the origin/master
+  // SHA its branch started from; DevHub records it here for diagnosis. The
+  // authoritative gate is checkPrBase (compare API), not this column.
+  const runCols = database.prepare('PRAGMA table_info(develop_runs)').all() as { name: string }[];
+  if (!runCols.some((c) => c.name === 'base_sha')) {
+    database.exec(`ALTER TABLE develop_runs ADD COLUMN base_sha TEXT`);
+  }
+
   // Projects & Topics reorganization (devhub#167): issues carry project/topic
   // assignment plus the refinement-decided repo scope. Columns stay nullable
   // in the schema (SQLite cannot ADD COLUMN NOT NULL without a default for
@@ -1261,6 +1270,7 @@ export interface RunPatch {
   prUrl?: string | null;
   resultText?: string | null;
   blockedReason?: string | null;
+  baseSha?: string | null;
 }
 
 export function updateRun(id: number, patch: RunPatch): DevelopRun | null {
@@ -1271,6 +1281,7 @@ export function updateRun(id: number, patch: RunPatch): DevelopRun | null {
   if (patch.prUrl !== undefined) { sets.push('pr_url = ?'); args.push(patch.prUrl); }
   if (patch.resultText !== undefined) { sets.push('result_text = ?'); args.push(patch.resultText); }
   if (patch.blockedReason !== undefined) { sets.push('blocked_reason = ?'); args.push(patch.blockedReason); }
+  if (patch.baseSha !== undefined) { sets.push('base_sha = ?'); args.push(patch.baseSha); }
   args.push(id);
   getDb().prepare(`UPDATE develop_runs SET ${sets.join(', ')} WHERE id = ?`).run(...args);
   return getRun(id);

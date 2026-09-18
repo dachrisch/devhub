@@ -10,7 +10,7 @@ vi.mock('undici', () => {
   };
 });
 
-const { runDevelop, extractPrUrl, buildDevelopPrompt, repoPathFor, ensureWorktree, defaultModels, discoverModels, getAvailableModels, resolveModels, sanitizeModels, cancelSession, createSession, OpencodeUnavailableError } =
+const { runDevelop, extractPrUrl, extractBaseSha, buildDevelopPrompt, buildVerifyPrompt, parseVerifyResult, repoPathFor, ensureWorktree, defaultModels, discoverModels, getAvailableModels, resolveModels, sanitizeModels, cancelSession, createSession, OpencodeUnavailableError } =
   await import('./opencode.js');
 
 function jsonRes(body: unknown, ok = true) {
@@ -74,6 +74,61 @@ describe('opencode client', () => {
     expect(prompt).toContain('LAST line');
     expect(prompt).toContain('gh pr view');
     expect(prompt).toContain('gh pr edit');
+  });
+
+  it('requires the agent to normalize the base branch before implementing', () => {
+    const prompt = buildDevelopPrompt(sampleIssue as never, '', sampleWorktree);
+    // Wrong-base branches (devhub#223 → PR #225 shipped 3 foreign commits)
+    // must never happen again: step 0a pins the branch to origin/master and
+    // the final message carries the base SHA for DevHub to record.
+    expect(prompt).toContain('origin/master');
+    expect(prompt).toContain('git fetch origin');
+    expect(prompt).toContain('git checkout -B');
+    expect(prompt).toContain('BASE_SHA');
+    expect(prompt).toContain('--force-with-lease');
+  });
+
+  it('extractBaseSha parses the handshake line and rejects garbage', () => {
+    const sha = 'a'.repeat(40);
+    expect(extractBaseSha(`BASE_SHA: ${sha}\ndone https://github.com/dachrisch/widget/pull/12`)).toBe(sha);
+    expect(extractBaseSha('done, no handshake here')).toBeNull();
+    expect(extractBaseSha('BASE_SHA: xyz')).toBeNull();
+    expect(extractBaseSha('BASE_SHA: ' + 'g'.repeat(40))).toBeNull();
+  });
+
+  it('builds a read-only verifier prompt with numbered criteria and PRs', () => {
+    const prompt = buildVerifyPrompt(sampleIssue as never, ['pill renders everywhere', 'build stays green'], [
+      'https://github.com/dachrisch/widget/pull/12',
+    ]);
+    expect(prompt).toContain('READ-ONLY');
+    expect(prompt).toContain('1. pill renders everywhere');
+    expect(prompt).toContain('2. build stays green');
+    expect(prompt).toContain('https://github.com/dachrisch/widget/pull/12');
+    expect(prompt).toContain('gh pr diff');
+    expect(prompt).toContain('"verdicts"');
+    expect(prompt).not.toContain('git push');
+  });
+
+  it('parseVerifyResult passes only when every criterion has a passing verdict', () => {
+    const ok = parseVerifyResult(
+      '{"verdicts": [{"ac": 1, "pass": true, "evidence": "a.ts:1"}, {"ac": 2, "pass": true, "evidence": "b.ts:2"}]}',
+      2
+    );
+    expect(ok).toMatchObject({ allPass: true, inconclusive: false });
+    expect(ok.verdicts).toHaveLength(2);
+  });
+
+  it('parseVerifyResult fails missing verdicts and reports garbage as inconclusive', () => {
+    const missing = parseVerifyResult('{"verdicts": [{"ac": 2, "pass": true, "evidence": "b"}]}', 2);
+    expect(missing.allPass).toBe(false);
+    expect(missing.inconclusive).toBe(false);
+    expect(missing.verdicts.find((v) => v.ac === 1)).toMatchObject({ pass: false });
+
+    for (const bad of ['no json here', '{oops', '{"verdicts": "nah"}']) {
+      const r = parseVerifyResult(bad, 1);
+      expect(r.allPass).toBe(false);
+      expect(r.inconclusive).toBe(true);
+    }
   });
 
   it('does not ask the agent to create or adopt a worktree itself', () => {

@@ -8,6 +8,10 @@ export interface RefineResult {
   blockingQuestions: string[];
   scope: RepoScope;
   infraFirst: boolean;
+  // Testable acceptance criteria, extracted from (or synthesized for) the
+  // issue body. The verifier session checks each one against the PR diff, so
+  // ready=true requires at least one — an untestable issue is not ready.
+  acceptanceCriteria: string[];
 }
 
 // Refinement-stage prompt: assess the issue AND, when possible, produce an
@@ -53,7 +57,8 @@ export function buildRefinePrompt(issue: Issue, project?: { name: string; config
     `  "improvedBody": "full improved issue body" or null if already ready,`,
     `  "blockingQuestions": ["question that needs human answer"] or empty array,`,
     `  "scope": "service" | "infra" | "both",`,
-    `  "infra_first": true/false (run order when scope is "both")`,
+    `  "infra_first": true/false (run order when scope is "both"),`,
+    `  "acceptanceCriteria": ["testable condition, one per item"]`,
     `}`,
     ``,
     `Rules:`,
@@ -66,7 +71,39 @@ export function buildRefinePrompt(issue: Issue, project?: { name: string; config
     `  Default to "service" when unsure or when no infra repo is configured.`,
     `- infra_first: true only when scope is "both" and the infra change must`,
     `  land first (e.g. infra provides config the service consumes).`,
+    `- acceptanceCriteria: the testable conditions from the issue's checklist,`,
+    `  or synthesized from the scope when the body has none (e.g. "lint,`,
+    `  typecheck and tests pass", "the new pill renders on all four pages").`,
+    `  One concrete, verifiable condition per item. ready=true requires at`,
+    `  least one — if the work is genuinely untestable, ready=false with the`,
+    `  reason in blockingQuestions instead.`,
   ].join('\n');
+}
+
+// Hard limits for refiner-supplied acceptance criteria: a runaway list must
+// not bloat the verifier prompt or the refinement event payload.
+const MAX_ACCEPTANCE_CRITERIA = 20;
+const MAX_CRITERION_LENGTH = 300;
+
+export function sanitizeAcceptanceCriteria(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((c) => String(c ?? '').trim())
+    .filter((c) => c.length > 0)
+    .map((c) => c.slice(0, MAX_CRITERION_LENGTH))
+    .slice(0, MAX_ACCEPTANCE_CRITERIA);
+}
+
+// Fallback when the refiner omits the acceptanceCriteria array: pull checkbox
+// items straight out of a markdown body (`- [ ]` / `- [x]` / `* [ ]`).
+export function extractCheckboxes(body: string | null | undefined): string[] {
+  if (!body) return [];
+  return sanitizeAcceptanceCriteria(
+    body
+      .split('\n')
+      .map((line) => line.match(/^\s*[-*]\s+\[[ xX]\]\s+(.*)$/)?.[1])
+      .filter((item): item is string => Boolean(item))
+  );
 }
 
 export function parseRefineResult(text: string): RefineResult {
@@ -75,15 +112,22 @@ export function parseRefineResult(text: string): RefineResult {
     try {
       const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
       const scope = isRepoScope(parsed.scope) ? parsed.scope : 'service';
+      const improvedBody =
+        typeof parsed.improvedBody === 'string' && parsed.improvedBody.trim() ? parsed.improvedBody : null;
+      const acceptanceCriteria =
+        sanitizeAcceptanceCriteria(parsed.acceptanceCriteria).length > 0
+          ? sanitizeAcceptanceCriteria(parsed.acceptanceCriteria)
+          : extractCheckboxes(improvedBody);
       return {
         ready: Boolean(parsed.ready),
         summary: String(parsed.summary ?? text),
-        improvedBody: typeof parsed.improvedBody === 'string' && parsed.improvedBody.trim() ? parsed.improvedBody : null,
+        improvedBody,
         blockingQuestions: Array.isArray(parsed.blockingQuestions)
           ? parsed.blockingQuestions.map(String)
           : [],
         scope,
         infraFirst: scope === 'both' ? parsed.infra_first === true : false,
+        acceptanceCriteria,
       };
     } catch {
       /* fall through to the plain-text fallback */
@@ -91,7 +135,7 @@ export function parseRefineResult(text: string): RefineResult {
   }
   const trimmed = text.trim();
   if (trimmed.startsWith('READY:')) {
-    return { ready: true, summary: trimmed.slice(6).trim(), improvedBody: null, blockingQuestions: [], scope: 'service', infraFirst: false };
+    return { ready: true, summary: trimmed.slice(6).trim(), improvedBody: null, blockingQuestions: [], scope: 'service', infraFirst: false, acceptanceCriteria: [] };
   }
-  return { ready: false, summary: trimmed, improvedBody: null, blockingQuestions: [], scope: 'service', infraFirst: false };
+  return { ready: false, summary: trimmed, improvedBody: null, blockingQuestions: [], scope: 'service', infraFirst: false, acceptanceCriteria: [] };
 }

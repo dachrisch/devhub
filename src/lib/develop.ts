@@ -2,6 +2,7 @@ import {
   appendEvent,
   clearBlockedReason,
   ensureRuns,
+  getEvents,
   getIssue,
   getProject,
   getRunsForIssue,
@@ -18,9 +19,12 @@ import {
 } from './store';
 import {
   buildDevelopPrompt,
+  buildVerifyPrompt,
   ensureWorktree,
+  extractBaseSha,
   extractPrUrl,
   getAvailableModels,
+  parseVerifyResult,
   resolveModels,
   runDevelop,
   sanitizeModels,
@@ -28,8 +32,9 @@ import {
   type IdeaContext,
   type OpencodeEvent,
   type OpencodeModel,
+  type VerifyVerdict,
 } from './opencode';
-import { isIssueClosedOnGitHub, setIssueStateLabels, updateIssueBody } from './github';
+import { checkPrBase, isIssueClosedOnGitHub, setIssueStateLabels, updateIssueBody } from './github';
 import { publishIssue, publishOpencodeEvent, publishRun } from './sse';
 import { mirrorComment } from './utils';
 import { buildRefinePrompt, parseRefineResult } from './validate';
@@ -72,6 +77,122 @@ export function planRunsForIssue(issue: Issue): { role: RunRole; repoOwner: stri
   return [{ role: 'service', repoOwner: issue.owner, repoName: issue.repo }];
 }
 
+// Issues with a verification run currently in flight. Verification owns no
+// develop_runs row (like refinement), so without this two "Work" clicks could
+// stack duplicate reviewer sessions on the same PRs. Process-local: single
+// prod server, fire-and-forget.
+const liveVerifyRuns = new Set<number>();
+
+// Reads the testable acceptance criteria from the latest completed
+// refinement event. Empty when the issue was refined before criteria were
+// recorded — the verifier skips with a trace in that case.
+export function readAcceptanceCriteria(issueId: number): string[] {
+  const events = getEvents(issueId);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.kind !== 'refinement') continue;
+    const p = e.payload as { status?: unknown; acceptanceCriteria?: unknown } | null;
+    if (!p || typeof p !== 'object' || p.status !== 'completed') continue;
+    if (!Array.isArray(p.acceptanceCriteria)) return [];
+    return p.acceptanceCriteria.map((c) => String(c ?? '').trim()).filter((c) => c.length > 0);
+  }
+  return [];
+}
+
+export interface VerificationResult {
+  allPass: boolean;
+  skipped: boolean;
+  duplicate: boolean;
+  summary: string;
+  verdicts: VerifyVerdict[];
+}
+
+// Independent read-only review of the opened PRs against the refinement's
+// acceptance criteria. Never auto-passes: an inconclusive reply or a session
+// error blocks like a failed criterion, and the next Work click retries.
+async function runVerification(
+  issue: Issue,
+  prUrls: string[],
+  selectedModel?: OpencodeModel | null
+): Promise<VerificationResult> {
+  if (liveVerifyRuns.has(issue.id)) {
+    return { allPass: false, skipped: false, duplicate: true, summary: '', verdicts: [] };
+  }
+  liveVerifyRuns.add(issue.id);
+  try {
+    return await runVerificationInner(issue, prUrls, selectedModel);
+  } finally {
+    liveVerifyRuns.delete(issue.id);
+  }
+}
+
+async function runVerificationInner(
+  issue: Issue,
+  prUrls: string[],
+  selectedModel?: OpencodeModel | null
+): Promise<VerificationResult> {
+  const criteria = readAcceptanceCriteria(issue.id);
+  if (criteria.length === 0) {
+    appendEvent(issue.id, 'verification', {
+      status: 'skipped',
+      reason: 'no acceptance criteria recorded (refined before verification existed)',
+    });
+    return { allPass: true, skipped: true, duplicate: false, summary: 'no acceptance criteria recorded', verdicts: [] };
+  }
+  appendEvent(issue.id, 'verification', { status: 'started', criteria: criteria.length, prUrls });
+
+  try {
+    const models = sanitizeModels(resolveModels(selectedModel), await getAvailableModels());
+    const prompt = buildVerifyPrompt(issue, criteria, prUrls);
+    const onEvent = (event: OpencodeEvent) => {
+      appendEvent(issue.id, 'verification-event', event);
+      publishOpencodeEvent(issue.id, event);
+    };
+    const text = await runDevelop(prompt, onEvent, models, undefined, ENV.opencodeRefinementPollTimeoutMs);
+    const outcome = parseVerifyResult(text, criteria.length);
+    appendEvent(issue.id, 'verification', {
+      status: outcome.inconclusive ? 'inconclusive' : 'completed',
+      allPass: outcome.allPass,
+      summary: outcome.summary,
+      verdicts: outcome.verdicts,
+    });
+    return {
+      allPass: outcome.allPass,
+      skipped: false,
+      duplicate: false,
+      summary: outcome.summary,
+      verdicts: outcome.verdicts,
+    };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    const summary = `Verification errored: ${reason}`;
+    appendEvent(issue.id, 'verification', { status: 'error', allPass: false, summary, verdicts: [] });
+    return { allPass: false, skipped: false, duplicate: false, summary, verdicts: [] };
+  }
+}
+
+// Surfaces the latest verification failure to the next develop attempt so the
+// implementer sees what to fix instead of re-shipping the same diffs. A newer
+// passing verification supersedes older failures; issues without any
+// verification history get no extra context.
+function verificationContextForRetry(issueId: number): string | null {
+  const events = getEvents(issueId);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.kind !== 'verification' || !e.payload || typeof e.payload !== 'object') continue;
+    const p = e.payload as { status?: unknown; allPass?: unknown; summary?: unknown };
+    if (p.status === 'completed' && p.allPass === true) return null;
+    if (
+      (p.status === 'completed' || p.status === 'inconclusive' || p.status === 'error') &&
+      typeof p.summary === 'string' &&
+      p.summary.trim().length > 0
+    ) {
+      return `## Previous verification failure — address every item below before opening a PR\n${p.summary.slice(0, 2000)}`;
+    }
+  }
+  return null;
+}
+
 // Kicks off (and runs to completion) the develop sessions for an issue.
 // Phase 3 (devhub#167): scope translates into sequential per-repo child runs
 // (one session → one repo → one PR); each run keeps the legacy
@@ -108,6 +229,11 @@ export async function startDevelop(
   runs = runs.slice().sort((a, b) => a.seq - b.seq);
 
   const projectId = (getIssue(issue.id) ?? issue).projectId ?? null;
+  // Retry context: a previous verification failure is prepended to the
+  // operator command so the implementer sees what to fix instead of
+  // re-shipping the same diffs.
+  const retryContext = verificationContextForRetry(issue.id);
+  const effectiveCommand = retryContext ? `${command}\n\n${retryContext}`.trim() : command;
   let carryOver: DevelopCarryOver | null = null;
   // Rebuild carry-over from runs that already produced PRs (retry path).
   for (const r of runs) {
@@ -127,7 +253,7 @@ export async function startDevelop(
       await runSingleChildRun(
         issue,
         fresh,
-        command,
+        effectiveCommand,
         token,
         models,
         projectId,
@@ -147,6 +273,36 @@ export async function startDevelop(
     const finalRuns = getRunsForIssue(issue.id);
     const prUrls = finalRuns.map((r) => r.prUrl).filter((u): u is string => Boolean(u));
     if (prUrls.length > 0 && prUrls.length === finalRuns.length) {
+      // Acceptance gate: an independent read-only session checks every
+      // criterion against the PR diffs before the card may advance to `pr`.
+      // Unmet criteria reset the runs to `failed` (PR URLs kept) so the next
+      // Work click re-develops with the verdicts as context instead of
+      // re-verifying the same diffs in a loop.
+      const verification = await runVerification(issue, prUrls, selectedModel);
+      if (verification.duplicate) return;
+      if (!verification.allPass) {
+        for (const r of finalRuns) {
+          updateRun(r.id, {
+            state: 'failed',
+            blockedReason: `Verification failed: ${verification.summary}`.slice(0, 500),
+          });
+          publishRun(r.id, issue.id);
+        }
+        const reason = `AC verification failed:\n${verification.summary}`;
+        appendEvent(issue.id, 'error', { message: reason });
+        const updated = setBlockedReason(issue.id, reason.slice(0, 500));
+        if (updated) publishIssue(updated);
+        const failedLines = verification.verdicts
+          .filter((v) => !v.pass)
+          .map((v) => `- AC ${v.ac}: ${v.evidence || 'no evidence'}`)
+          .join('\n');
+        void mirrorComment(
+          issue,
+          `DevHub verified ${prUrls.length} pull request(s) against the acceptance criteria — ${verification.verdicts.filter((v) => v.pass).length}/${verification.verdicts.length} passed${failedLines ? `:\n\n${failedLines}` : '.'}\n\nThe next Work click re-develops with these findings as context.`,
+          token
+        );
+        return;
+      }
       const summary = finalRuns.map((r) => `${r.role}: ${r.prUrl}`).join('\n');
       const updated = setResult(issue.id, 'pr', prUrls[0] ?? null, summary);
       if (updated) publishIssue(updated);
@@ -224,8 +380,36 @@ async function runSingleChildRun(
 
     const prUrl = extractPrUrl(text);
     if (prUrl) {
-      updateRun(run.id, { state: 'pr', prUrl, resultText: text.slice(0, 8000), blockedReason: null });
+      const baseSha = extractBaseSha(text);
+      updateRun(run.id, { state: 'pr', prUrl, resultText: text.slice(0, 8000), blockedReason: null, baseSha });
       publishRun(run.id, issue.id);
+      // Base-branch gate (wrong-base branches, e.g. devhub#223 → PR #225
+      // shipped 3 foreign commits and merge-conflicted): the PR must contain
+      // only this run's work. A polluted branch fails the run — retryable,
+      // since the next attempt renormalizes the base per step 0a and
+      // force-pushes to this same PR — instead of shipping foreign commits.
+      // Transport/API blips fail open with a trace so a GitHub hiccup never
+      // kills a good run.
+      try {
+        const base = await checkPrBase(run.repoOwner, run.repoName, prUrl, token);
+        if (!base.ok) {
+          const reason = `Wrong base branch: ${base.reason}. Reset to origin/master (step 0a) and push --force-with-lease to update this PR, then end with its URL.`;
+          appendEvent(issue.id, 'error', { message: reason, runId: run.id, role: run.role });
+          updateRun(run.id, { state: 'failed', blockedReason: reason.slice(0, 500) });
+          publishRun(run.id, issue.id);
+          const updated = setBlockedReason(issue.id, `${run.role}: ${reason}`.slice(0, 500));
+          if (updated) publishIssue(updated);
+          void mirrorComment(
+            issue,
+            `DevHub opened ${prUrl} but its base is wrong:\n\n${base.reason}\n\nThe next Work click retries from a clean origin/master and updates this PR.`,
+            token
+          );
+          return;
+        }
+      } catch (err) {
+        const skipped = err instanceof Error ? err.message : String(err);
+        appendEvent(issue.id, 'base-check-skipped', { message: skipped, runId: run.id, role: run.role });
+      }
       onCarryOver({ prUrl, summary: text.slice(0, 2000) });
       return;
     }
@@ -308,11 +492,22 @@ async function runRefinementInner(
       blockingQuestions: result.blockingQuestions,
       scope: result.scope,
       infraFirst: result.infraFirst,
+      // Testable acceptance criteria for the post-develop verifier session.
+      // Stored on the event (not a column): the verifier reads the latest
+      // completed refinement the same way the board reads the transcript.
+      acceptanceCriteria: result.acceptanceCriteria,
     });
 
-    if (!result.ready) {
-      const feedback =
-        result.blockingQuestions.length > 0
+    // The verifier session checks each criterion against the PR diff, so an
+    // issue is only developable when at least one testable criterion exists.
+    // A ready=true without criteria means the refiner skipped its
+    // instructions — hold the card for another refinement pass.
+    const ready = result.ready && result.acceptanceCriteria.length > 0;
+
+    if (!ready) {
+      const feedback = result.ready
+        ? 'No testable acceptance criteria were produced — re-run Work to refine again with concrete, checkable conditions.'
+        : result.blockingQuestions.length > 0
           ? result.blockingQuestions.map((q) => `- ${q}`).join('\n')
           : result.summary;
       const updated = setBlockedReason(issue.id, feedback);
