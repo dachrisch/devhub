@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.26.2](https://github.com/dachrisch/devhub/compare/v1.26.1...v1.26.2) (2026-09-18)
+
+
+### Bug Fixes
+
+* guarantee master base and verify acceptance criteria ([d0e7dcc](https://github.com/dachrisch/devhub/commit/d0e7dcc10a13b13f2ad738ead7c31ef2c6127965))
+* guarantee master base and verify acceptance criteria ([7380647](https://github.com/dachrisch/devhub/commit/738064707d03fa84b2a89d1806d68da37457a1cf))
+
 ## [1.26.1](https://github.com/dachrisch/devhub/compare/v1.26.0...v1.26.1) (2026-09-17)
 
 
