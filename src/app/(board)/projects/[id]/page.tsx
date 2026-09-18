@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import type { Issue, IssueState, Topic } from '@/lib/types';
 import {
   matchesIssue,
@@ -12,8 +12,9 @@ import {
 } from '@/lib/board-ui';
 import { funnelColumnForIssue, funnelColumnForTopicWithIssues } from '@/lib/funnel';
 import { useAuth } from '@/components/use-auth';
-import { Avatar, WelcomeScreen } from '@/components/auth-ui';
-import { Logo } from '@/components/logo';
+import { WelcomeScreen } from '@/components/auth-ui';
+import { AppHeader } from '@/components/app-header';
+import { StatusPill } from '@/components/status-pill';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
 import { KanbanBoard } from '@/components/board/kanban-board';
 import { RepoChips } from '@/components/board/board-toolbar';
@@ -24,16 +25,8 @@ function statusBadge(status: string | null): string {
 
 export default function ProjectBoardPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const projectId = Number(params.id);
   const validId = Number.isInteger(projectId) && projectId > 0;
-
-  // History-back (same affordance as the topic page): return to wherever the
-  // operator came from; a direct load with no history falls back to `/`.
-  const goBack = useCallback(() => {
-    if (typeof window !== 'undefined' && window.history.length > 1) router.back();
-    else router.push('/');
-  }, [router]);
 
   const [project, setProject] = useState<null | {
     id: number;
@@ -508,12 +501,7 @@ export default function ProjectBoardPage() {
   if (!signedIn) {
     return (
       <div className="page-wrap">
-        <header className="app-head">
-          <div className="brand">
-            <Logo size={28} />
-            <span className="brand-name">DevHub</span>
-          </div>
-        </header>
+        <AppHeader title="DevHub" />
         <main className="board-main">
           {!loading && <WelcomeScreen denied={denied} />}
         </main>
@@ -524,12 +512,7 @@ export default function ProjectBoardPage() {
   if (!validId || (projectError && !project)) {
     return (
       <div className="page-wrap">
-        <header className="app-head">
-          <div className="brand">
-            <Logo size={28} />
-            <span className="brand-name">DevHub</span>
-          </div>
-        </header>
+        <AppHeader title="DevHub" />
         <main className="board-main">
           <div className="banner" role="alert">
             <span>{projectError ?? 'Unknown project.'}</span>
@@ -542,60 +525,39 @@ export default function ProjectBoardPage() {
 
   return (
     <div className="page-wrap">
-      <header className="app-head">
-        <div className="brand">
-          <button type="button" className="recap-link" onClick={goBack} aria-label="Back to projects">
-            ←
-          </button>
-          <Logo size={28} />
-          <span className="brand-name">{project?.name ?? `Project #${projectId}`}</span>
-          {project && <span className={`proj-badge ${statusBadge(project.status)}`}>{statusBadge(project.status)}</span>}
-        </div>
-        <div className="head-controls">
-          {!isMobile && (
-            <input
-              className="search"
-              placeholder="Search… e.g. repo:devhub title:auth"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          )}
-          <span
-            className={`conn-status ${connected ? 'ok' : 'off'}`}
-            title={connected ? 'live' : 'connecting…'}
-            aria-label={connected ? 'live' : 'connecting…'}
-            role="status"
-          >
-            <span className="conn-dot" />
-            {connected ? 'live' : 'connecting…'}
-          </span>
-          {user && (
-            <>
-              <Avatar login={user.login} avatarUrl={user.avatarUrl} />
-              <span className="auth-login">{user.login}</span>
-              <button className="header-icon-btn" onClick={logout} aria-label="Sign out">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M2 2.75C2 1.784 2.784 1 3.75 1h2.5a.75.75 0 010 1.5h-2.5a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h2.5a.75.75 0 010 1.5h-2.5A1.75 1.75 0 012 13.25V2.75zm10.44 4.5H6.75a.75.75 0 000 1.5h5.69l-1.97 1.97a.75.75 0 101.06 1.06l3.25-3.25a.75.75 0 000-1.06l-3.25-3.25a.75.75 0 10-1.06 1.06l1.97 1.97z"/>
-                </svg>
-              </button>
-            </>
-          )}
-          {selectedIds.size > 0 && (
-            <div className="batch-actions">
-              <button className="develop-batch-btn" onClick={workSelected} disabled={refreshing}>
-                Work on selected ({selectedIds.size})
-              </button>
-              <button className="advance-btn" onClick={advanceSelected} disabled={refreshing}>
-                {advanceLabel}
-              </button>
-              <div className="keyboard-hints">
-                <span>Ctrl+Enter to move</span>
-                <span>Esc to clear</span>
+      <AppHeader
+        back={{ href: '/', label: 'Back to projects' }}
+        title={project?.name ?? `Project #${projectId}`}
+        status={project ? <StatusPill status={{ key: project.status === 'healthy' ? 'idea' : project.status === 'in-flight' ? 'realizing' : 'ready', label: statusBadge(project.status) }} /> : undefined}
+        connection={{ connected }}
+        user={user ? { login: user.login, avatarUrl: user.avatarUrl, onLogout: logout } : undefined}
+        controls={
+          <>
+            {!isMobile && (
+              <input
+                className="search"
+                placeholder="Search… e.g. repo:devhub title:auth"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            )}
+            {selectedIds.size > 0 && (
+              <div className="batch-actions">
+                <button className="develop-batch-btn" onClick={workSelected} disabled={refreshing}>
+                  Work on selected ({selectedIds.size})
+                </button>
+                <button className="advance-btn" onClick={advanceSelected} disabled={refreshing}>
+                  {advanceLabel}
+                </button>
+                <div className="keyboard-hints">
+                  <span>Ctrl+Enter to move</span>
+                  <span>Esc to clear</span>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      </header>
+            )}
+          </>
+        }
+      />
 
       <main className="board-main">
         {refreshError && (

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import type { Issue, Topic } from '@/lib/types';
 import { relTime } from '@/lib/board-ui';
+import { IssueRef } from '@/components/board/issue-ref';
 
 // Delivered history for the unified funnel: closed issues + shipped/dropped
 // topics, muted and collapsed below the four live columns. Never a kanban
@@ -47,8 +48,7 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
         tag: t.status,
         kind: 'topic' as const,
         work: work.map((i) => ({
-          href: `/issues/${i.id}`,
-          label: `${i.owner}/${i.repo} #${i.number}: ${i.title}`,
+          issue: { owner: i.owner, repo: i.repo, number: i.number, title: i.title },
           tag: i.releaseTag ?? i.state,
           at: i.updatedAt,
         })),
@@ -61,7 +61,7 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
         key: `issue-${i.id}`,
         at: i.updatedAt,
         href: `/issues/${i.id}`,
-        label: `${i.owner}/${i.repo} #${i.number}: ${i.title}`,
+        issue: { owner: i.owner, repo: i.repo, number: i.number, title: i.title },
         tag: i.releaseTag ?? i.state,
         kind: 'issue' as const,
         work: [],
@@ -77,16 +77,20 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
           <div key={row.key} className="delivered-ribbon">
             <Link href={row.href} className="released-item delivered-item">
               <span className="released-tag delivered-tag">{row.tag}</span>
-              <span className="released-title">{row.label}</span>
+              {'issue' in row ? (
+                <span className="released-title"><IssueRef issue={row.issue} /></span>
+              ) : (
+                <span className="released-title">{row.label}</span>
+              )}
               {row.work.length > 0 && <span className="delivered-work-count">{row.work.length}</span>}
               <span className="released-time">{relTime(row.at)}</span>
             </Link>
             {row.work.length > 0 && (
               <div className="delivered-ribbon-work">
                 {row.work.map((w) => (
-                  <Link key={w.href} href={w.href} className="released-item delivered-item delivered-work-line">
+                  <Link key={`/issues/${w.issue.number}`} href={`/issues/${w.issue.number}`} className="released-item delivered-item delivered-work-line">
                     <span className="released-tag delivered-tag">{w.tag}</span>
-                    <span className="released-title">{w.label}</span>
+                    <span className="released-title"><IssueRef issue={w.issue} /></span>
                     <span className="released-time">{relTime(w.at)}</span>
                   </Link>
                 ))}

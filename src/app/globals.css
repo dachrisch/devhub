@@ -771,6 +771,26 @@ header h1 {
   background: var(--closed);
 }
 
+/* Shared strip pattern: flex row for action/delivered ribbons. */
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 24px;
+  min-height: 36px;
+}
+
+.strip--live {
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.strip--muted {
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  opacity: 0.75;
+}
+
 /* Delivered history below the board: muted, collapsed, never competing with
    the live columns above it. */
 .delivered-section {
@@ -862,19 +882,8 @@ header h1 {
   min-width: 0;
 }
 
-.released-strip,
-.closed-strip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 24px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
-  min-height: 36px;
-}
-
 .released-label {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -928,10 +937,6 @@ header h1 {
   font-weight: 600;
   font-size: 11px;
   white-space: nowrap;
-}
-
-.closed-strip .released-tag {
-  color: var(--closed);
 }
 
 .released-title {
@@ -1823,35 +1828,16 @@ button:disabled {
 }
 
 .recap-wrap {
-  max-width: 820px;
+  max-width: 760px;
   margin: 0 auto;
   padding: 24px;
-}
-
-.recap-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.recap-state {
-  text-transform: capitalize;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.recap-conn {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--muted);
 }
 
 .recap-title {
   font-size: 17px;
   font-weight: 600;
   line-height: 1.4;
-  margin-bottom: 16px;
+  margin: 0 0 16px;
 }
 
 .recap-live {
@@ -1999,7 +1985,7 @@ button:disabled {
 
 .recap-feed-head {
   margin: 18px 0 8px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -3253,7 +3239,7 @@ button.project-card-new.open {
 }
 
 .topic-detail {
-  max-width: 720px;
+  max-width: 760px;
   margin: 0 auto;
   width: 100%;
   display: flex;
@@ -3274,34 +3260,6 @@ button.project-card-new.open {
   margin: 0;
 }
 
-.topic-status {
-  font-size: 12px;
-  padding: 2px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.topic-status-ready {
-  color: var(--pr);
-  border-color: var(--pr);
-}
-
-.topic-status-realizing {
-  color: var(--developing);
-  border-color: var(--developing);
-}
-
-.topic-status-shipped {
-  color: var(--rollout);
-  border-color: var(--rollout);
-}
-
-.topic-status-dropped {
-  color: var(--muted);
-}
-
 .topic-detail-meta {
   display: flex;
   align-items: center;
@@ -3311,7 +3269,7 @@ button.project-card-new.open {
 }
 
 .topic-detail-summary {
-  padding: 12px;
+  padding: 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--panel-2);
@@ -3434,7 +3392,7 @@ button.project-card-new.open {
 }
 
 .topic-msg-role {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -3886,6 +3844,12 @@ button.project-card-new.open {
   .global-search-results .released-item {
     flex-wrap: wrap;
   }
+  .delivered-section .released-list {
+    flex-wrap: wrap;
+  }
+  .topic-how .released-list {
+    flex-wrap: wrap;
+  }
 }
 
 /* Unified funnel Phase 3 mobile pass: the studio work panel and the issue
@@ -3914,4 +3878,67 @@ button.project-card-new.open {
   .modal-idea-context {
     flex-wrap: wrap;
   }
+}
+
+/* ======================================================================
+   Shared UI consistency layer (devhub#223)
+   ====================================================================== */
+
+/* AppHeader back button variant (history-aware onBack, #221): reset the
+   native button chrome so it matches the .recap-link pill. */
+button.recap-link {
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* StatusPill: unified status badge reusing the board's funnel-dot tones. */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.status-pill--idea {
+  color: var(--refinement);
+  border-color: var(--refinement);
+}
+
+.status-pill--ready {
+  color: var(--backlog);
+  border-color: var(--backlog);
+}
+
+.status-pill--realizing {
+  color: var(--developing);
+  border-color: var(--developing);
+}
+
+.status-pill--rollout {
+  color: var(--rollout);
+  border-color: var(--rollout);
+}
+
+.status-pill--delivered {
+  color: var(--closed);
+  border-color: var(--closed);
+}
+
+/* IssueRef chip variant for compact inline references. */
+.issue-ref--chip {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.issue-ref--full {
+  font-size: inherit;
+  color: inherit;
 }

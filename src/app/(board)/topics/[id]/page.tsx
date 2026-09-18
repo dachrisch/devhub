@@ -4,11 +4,13 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import type { IdeaMessage, Issue, Project, Topic } from '@/lib/types';
-import { TOPIC_STATUS_LABELS } from '@/lib/types';
 import { isTopicThreadLocked } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
-import { Avatar, WelcomeScreen } from '@/components/auth-ui';
-import { Logo } from '@/components/logo';
+import { WelcomeScreen } from '@/components/auth-ui';
+import { AppHeader } from '@/components/app-header';
+import { StatusPill } from '@/components/status-pill';
+import { IssueRef } from '@/components/board/issue-ref';
+import { deriveTopicDisplayStatus } from '@/lib/status-display';
 
 // Client-safe copy of realizeStage (src/lib/realize.ts) — the page cannot
 // import that server module (it pulls in undici via develop/opencode).
@@ -49,9 +51,9 @@ const TOPIC_WORK_STATE: Record<Issue['state'], string> = {
 // as an expandable "How it was built" section.
 export default function TopicDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const topicId = Number(params.id);
   const validId = Number.isInteger(topicId) && topicId > 0;
-  const router = useRouter();
 
   const [topic, setTopic] = useState<Topic | null>(null);
   const [project, setProject] = useState<Project | null>(null);
@@ -335,12 +337,7 @@ export default function TopicDetailPage() {
   if (!signedIn) {
     return (
       <div className="page-wrap">
-        <header className="app-head">
-          <div className="brand">
-            <Logo size={28} />
-            <span className="brand-name">DevHub</span>
-          </div>
-        </header>
+        <AppHeader title="DevHub" />
         <main className="board-main">{!loading && <WelcomeScreen denied={denied} />}</main>
       </div>
     );
@@ -354,28 +351,12 @@ export default function TopicDetailPage() {
 
   return (
     <div className="page-wrap">
-      <header className="app-head">
-        <div className="brand">
-          <button type="button" className="recap-link" onClick={goBack} aria-label="Back">
-            ←
-          </button>
-          <Logo size={28} />
-          <span className="brand-name">Idea</span>
-        </div>
-        <div className="head-controls">
-          {user && (
-            <>
-              <Avatar login={user.login} avatarUrl={user.avatarUrl} />
-              <span className="auth-login">{user.login}</span>
-              <button className="header-icon-btn" onClick={logout} aria-label="Sign out">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M2 2.75C2 1.784 2.784 1 3.75 1h2.5a.75.75 0 010 1.5h-2.5a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h2.5a.75.75 0 010 1.5h-2.5A1.75 1.75 0 012 13.25V2.75z" />
-                </svg>
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+      <AppHeader
+        back={{ href: project ? `/projects/${project.id}` : '/', label: project ? `Back to ${project.name}` : 'Back', onBack: goBack }}
+        title={project?.name ?? 'Inbox'}
+        status={topic ? <StatusPill status={deriveTopicDisplayStatus(topic.status, issues.map((i) => i.state))} /> : undefined}
+        user={user ? { login: user.login, avatarUrl: user.avatarUrl, onLogout: logout } : undefined}
+      />
       <main className="board-main topic-detail">
         {error && (
           <div className="banner" role="alert">
@@ -391,9 +372,6 @@ export default function TopicDetailPage() {
           <>
             <div className="topic-detail-head">
               <h1 className="topic-detail-title">{topic.title}</h1>
-              <span className={`topic-status topic-status-${topic.status}`}>
-                {TOPIC_STATUS_LABELS[topic.status] ?? topic.status}
-              </span>
             </div>
             <div className="topic-detail-meta">
               {project ? (
@@ -606,13 +584,22 @@ export default function TopicDetailPage() {
               <div className="topic-work-panel" aria-label="Work attached to this idea">
                 <span className="released-label">Work ({issues.length})</span>
                 <ul className="released-list">
-                  {issues.map((i) => (
-                    <li key={i.id} className="released-item">
-                      <span className={`dot ${i.state}`} />
-                      <Link href={`/issues/${i.id}`} className="released-title topic-work-link">
-                        {i.owner}/{i.repo} #{i.number}: {i.title}
-                      </Link>
-                      <span className="topic-work-state">{TOPIC_WORK_STATE[i.state] ?? i.state}</span>
+                  {issues.map((i) => {
+                    // De-dup: when one issue has the same title as its parent
+                    // idea, show just the chip (the title is already in <h1>).
+                    const titleMatches = issues.length === 1 && i.title === topic?.title;
+                    return (
+                      <li key={i.id} className="released-item">
+                        <span className={`dot ${i.state}`} />
+                        <Link href={`/issues/${i.id}`} className="released-title topic-work-link">
+                          {titleMatches ? (
+                            <IssueRef issue={i} variant="chip" />
+                          ) : (
+                            <IssueRef issue={i} />
+                          )}
+                        </Link>
+                        {titleMatches && <StatusPill issueState={i.state} />}
+                        <span className="topic-work-state">{TOPIC_WORK_STATE[i.state] ?? i.state}</span>
                       {(i.resultPrUrl || i.linkedPrUrl) && (
                         <a
                           className="ghost"
@@ -632,7 +619,8 @@ export default function TopicDetailPage() {
                         </div>
                       )}
                     </li>
-                  ))}
+                  );
+                  })}
                 </ul>
               </div>
             ) : (

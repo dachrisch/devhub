@@ -6,8 +6,9 @@ import { useRouter } from 'next/navigation';
 import type { Issue } from '@/lib/types';
 import { matchesIssue } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
-import { Avatar, WelcomeScreen } from '@/components/auth-ui';
-import { Logo } from '@/components/logo';
+import { WelcomeScreen } from '@/components/auth-ui';
+import { AppHeader } from '@/components/app-header';
+import { IssueRef } from '@/components/board/issue-ref';
 import { CockpitComposer } from '@/components/board/cockpit-composer';
 import { ActionDetail } from '@/components/board/action-detail';
 import { useKeyboardInset } from '@/components/board/use-keyboard-inset';
@@ -355,12 +356,7 @@ export default function BoardPage() {
   if (!signedIn) {
     return (
       <div className="page-wrap">
-        <header className="app-head">
-          <div className="brand">
-            <Logo size={28} />
-            <span className="brand-name">DevHub</span>
-          </div>
-        </header>
+        <AppHeader title="DevHub" />
         <main className="board-main">
           {!loading && <WelcomeScreen denied={denied} />}
         </main>
@@ -370,82 +366,63 @@ export default function BoardPage() {
 
   return (
     <div className="page-wrap">
-      <header className="app-head">
-        <div className="brand">
-          <Logo size={28} />
-          <span className="brand-name">DevHub</span>
-        </div>
-        <div className="head-controls">
-          <div className="search-wrapper">
-            {isMobile ? (
-              <button
-                className="search-mobile-trigger"
-                onClick={() => setSearchSheetOpen(true)}
-                aria-label="Search issues"
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M10.68 11.74a6 6 0 01-7.922-8.982 6 6 0 018.982 7.922l3.04 3.04a.749.749 0 01-1.06 1.06zM11.5 7a4.5 4.5 0 10-9 0 4.5 4.5 0 009 0z" />
-                </svg>
-                <span>{query || 'Search issues'}</span>
-              </button>
-            ) : (
-              <>
-                <input
-                  className="search"
-                  placeholder="Search… e.g. repo:devhub title:auth"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-                <div className="search-help" ref={helpRef}>
-                  <button
-                    className="search-help-btn"
-                    onClick={() => setSearchHelp((h) => !h)}
-                    aria-label="Search syntax help"
-                    aria-expanded={searchHelp}
-                  >
-                    ?
-                  </button>
-                  {searchHelp && (
-                    <div className="search-help-menu">
-                      <div className="search-help-title">Search filters</div>
-                      <div className="search-help-item"><code>repo:</code> match repo name</div>
-                      <div className="search-help-item"><code>title:</code> match title</div>
-                      <div className="search-help-item"><code>owner:</code> match owner</div>
-                      <div className="search-help-item"><code>state:</code> match state</div>
-                      <div className="search-help-item"><code>body:</code> match body</div>
-                      <div className="search-help-item"><code>number:</code> match issue #</div>
-                      <div className="search-help-note">Combine filters with plain text. e.g. repo:web auth</div>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-          <button className="ghost" onClick={refresh} disabled={refreshing} title={lastRefreshed ? `Last refreshed ${lastRefreshed.toLocaleTimeString()}` : 'Refresh from GitHub'}>
-            {refreshing ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <span
-            className={`conn-status ${connected ? 'ok' : 'off'}`}
-            title={connected ? 'live' : 'connecting…'}
-            aria-label={connected ? 'live' : 'connecting…'}
-            role="status"
-          >
-            <span className="conn-dot" />
-            {connected ? 'live' : 'connecting…'}
-          </span>
-          {user && (
-            <>
-              <Avatar login={user.login} avatarUrl={user.avatarUrl} />
-              <span className="auth-login">{user.login}</span>
-              <button className="header-icon-btn" onClick={logout} aria-label="Sign out">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M2 2.75C2 1.784 2.784 1 3.75 1h2.5a.75.75 0 010 1.5h-2.5a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h2.5a.75.75 0 010 1.5h-2.5A1.75 1.75 0 012 13.25V2.75zm10.44 4.5H6.75a.75.75 0 000 1.5h5.69l-1.97 1.97a.75.75 0 101.06 1.06l3.25-3.25a.75.75 0 000-1.06l-3.25-3.25a.75.75 0 10-1.06 1.06l1.97 1.97z"/>
-                </svg>
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+      <AppHeader
+        title="DevHub"
+        connection={{ connected }}
+        user={user ? { login: user.login, avatarUrl: user.avatarUrl, onLogout: logout } : undefined}
+        controls={
+          <>
+            <div className="search-wrapper">
+              {isMobile ? (
+                <button
+                  className="search-mobile-trigger"
+                  onClick={() => setSearchSheetOpen(true)}
+                  aria-label="Search issues"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M10.68 11.74a6 6 0 01-7.922-8.982 6 6 0 018.982 7.922l3.04 3.04a.749.749 0 01-1.06 1.06zM11.5 7a4.5 4.5 0 10-9 0 4.5 4.5 0 009 0z" />
+                  </svg>
+                  <span>{query || 'Search issues'}</span>
+                </button>
+              ) : (
+                <>
+                  <input
+                    className="search"
+                    placeholder="Search… e.g. repo:devhub title:auth"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                  <div className="search-help" ref={helpRef}>
+                    <button
+                      className="search-help-btn"
+                      onClick={() => setSearchHelp((h) => !h)}
+                      aria-label="Search syntax help"
+                      aria-expanded={searchHelp}
+                    >
+                      ?
+                    </button>
+                    {searchHelp && (
+                      <div className="search-help-menu">
+                        <div className="search-help-title">Search filters</div>
+                        <div className="search-help-item"><code>repo:</code> match repo name</div>
+                        <div className="search-help-item"><code>title:</code> match title</div>
+                        <div className="search-help-item"><code>owner:</code> match owner</div>
+                        <div className="search-help-item"><code>state:</code> match state</div>
+                        <div className="search-help-item"><code>body:</code> match body</div>
+                        <div className="search-help-item"><code>number:</code> match issue #</div>
+                        <div className="search-help-note">Combine filters with plain text. e.g. repo:web auth</div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            <button className="ghost" onClick={refresh} disabled={refreshing} title={lastRefreshed ? `Last refreshed ${lastRefreshed.toLocaleTimeString()}` : 'Refresh from GitHub'}>
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </>
+        }
+      />
 
       <main className="board-main">
       {refreshError && (
@@ -522,7 +499,7 @@ export default function BoardPage() {
                 <span key={i.id} className="released-item">
                   <span className={`dot ${i.state}`} />
                   <Link href={i.projectId != null ? `/projects/${i.projectId}` : '/'} className="released-title">
-                    {i.owner}/{i.repo} #{i.number}: {i.title}
+                    <IssueRef issue={i} />
                   </Link>
                   <Link href={`/issues/${i.id}`} className="ghost">
                     Recap →

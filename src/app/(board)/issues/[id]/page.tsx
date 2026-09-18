@@ -9,6 +9,10 @@ import { activityLine, condense, eventText, isNoise, truncateText } from '@/lib/
 import { Markdown } from '@/components/markdown';
 import { useAuth } from '@/components/use-auth';
 import { WelcomeScreen } from '@/components/auth-ui';
+import { AppHeader } from '@/components/app-header';
+import { IssueRef } from '@/components/board/issue-ref';
+import { StatusPill } from '@/components/status-pill';
+import { deriveIssueDisplayStatus } from '@/lib/status-display';
 
 interface OpencodeEventMsg {
   issueId: number;
@@ -72,7 +76,7 @@ export default function RecapPage() {
   const [connected, setConnected] = useState(false);
   const [shipping, setShipping] = useState(false);
   const [breadcrumb, setBreadcrumb] = useState<{ projectName: string; topicTitle: string | null } | null>(null);
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const signedIn = Boolean(user);
 
   // History-back with fallback: navigate to the issue's project board when
@@ -177,18 +181,25 @@ export default function RecapPage() {
 
   if (!signedIn) {
     return (
-      <main className="recap-wrap">
-        <WelcomeScreen />
-      </main>
+      <div className="page-wrap">
+        <AppHeader title="DevHub" />
+        <main className="board-main">
+          <WelcomeScreen />
+        </main>
+      </div>
     );
   }
 
   if (!issue) {
     return (
-      <main className="recap-wrap">
-        <p className="muted">Loading…</p>
-        <Link href="/" className="recap-link" onClick={(e) => { e.preventDefault(); goBack(); }}>← Back to board</Link>
-      </main>
+      <div className="page-wrap">
+        <AppHeader title="DevHub" />
+        <main className="board-main">
+          <div className="recap-wrap">
+            <p className="muted">Loading…</p>
+          </div>
+        </main>
+      </div>
     );
   }
 
@@ -212,23 +223,22 @@ export default function RecapPage() {
   const latestText = latest ? truncateText(eventText(latest.payload)) : '';
 
   return (
-    <main className="recap-wrap">
-      <header className="recap-head">
-        <Link href="/" className="recap-link" onClick={(e) => { e.preventDefault(); goBack(); }}>← Board</Link>
-        <span className={`dot ${issue.state}`} />
-        <span className="recap-state">{issue.state}</span>
-        <span
-          className={`recap-conn conn-dot ${connected ? 'ok' : 'off'}`}
-          title={connected ? 'live' : 'connecting…'}
-          aria-label={connected ? 'live' : 'connecting…'}
-        />
-      </header>
+    <div className="page-wrap">
+      <AppHeader
+        back={{ href: '/', label: 'Back to board', onBack: goBack }}
+        title={<IssueRef issue={issue} variant="chip" />}
+        status={<StatusPill status={deriveIssueDisplayStatus(issue.state)} />}
+        connection={{ connected }}
+        user={user ? { login: user.login, avatarUrl: user.avatarUrl, onLogout: logout } : undefined}
+      />
+      <main className="board-main">
+      <div className="recap-wrap">
 
-      <div className="recap-title">
+      <h1 className="recap-title">
         <a href={issue.htmlUrl} target="_blank" rel="noreferrer">
-          {issue.owner}/{issue.repo} #{issue.number}: {issue.title}
+          <IssueRef issue={issue} />
         </a>
-      </div>
+      </h1>
 
       {/* Idea studio return path (unified funnel Phase 3): a prominent chip,
           not a crumb — this is how the operator gets back to the shaping
@@ -250,7 +260,11 @@ export default function RecapPage() {
             </Link>
           )}
           {breadcrumb.projectName && breadcrumb.topicTitle && <span className="recap-crumb-sep">/</span>}
-          {breadcrumb.topicTitle && <span className="recap-crumb-topic">{breadcrumb.topicTitle}</span>}
+          {breadcrumb.topicTitle && (
+            <span className="recap-crumb-topic">
+              {breadcrumb.topicTitle === issue.title ? 'Idea' : breadcrumb.topicTitle}
+            </span>
+          )}
         </div>
       )}
 
@@ -360,6 +374,8 @@ export default function RecapPage() {
           </div>
         ))}
       </div>
-    </main>
+      </div>
+      </main>
+    </div>
   );
 }
