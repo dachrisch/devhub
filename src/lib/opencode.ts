@@ -618,8 +618,22 @@ export function buildDevelopPrompt(
   parts.push(
     `## Steps`,
     ``,
-    `### 0. Check if work is needed`,
-    `Before doing anything, verify whether this issue is already resolved:`,
+    `### 0. Start from a clean base, then check if work is needed`,
+    ``,
+    `#### 0a. Normalize the base branch (mandatory, run these first)`,
+    `The worktree may have been provisioned from a stale checkout. Never build on whatever HEAD happens to be there:`,
+    `\`\`\`bash`,
+    `git fetch origin`,
+    `git log origin/master..HEAD --oneline | head -20`,
+    `\`\`\``,
+    `- If that log is **empty**: the worktree is exactly at \`origin/master\`. Point your branch at it: \`git checkout -B ${branch} origin/master\`.`,
+    `- If it lists **only your own commits from this run** (a retry adopting your prior worktree): rebase them onto the fresh base with \`git rebase origin/master\`, resolving conflicts toward a clean tree. Push with \`git push --force-with-lease origin ${branch}\` at the end.`,
+    `- If it lists **commits you did not author** (another feature's work): do NOT build on them. Reset to the clean base with \`git checkout -B ${branch} origin/master\` and note the reset in your final message.`,
+    `- Record the base for DevHub: \`git rev-parse origin/master\`. Your final message MUST start with \`BASE_SHA: <that sha>\` on its own first line (before the PR URL / ALREADY RESOLVED / CANNOT FULFILL line).`,
+    `- If any of these git commands fail (no network, fetch refused): end with \`CANNOT FULFILL: <reason>\` — a branch of unknown ancestry must never ship.`,
+    ``,
+    `#### 0b. Check if work is needed`,
+    `Before doing anything else, verify whether this issue is already resolved:`,
     `\`\`\`bash`,
     `# Check if the issue is closed on GitHub`,
     `gh issue view ${issue.number} --repo ${issue.owner}/${issue.repo} --json state,stateReason`,
@@ -664,6 +678,7 @@ export function buildDevelopPrompt(
     `Fixes #${issue.number}"`,
     `\`\`\``,
     `Use your authenticated \`gh\` (GitHub CLI) — the checkout is already provisioned for the correct owner.`,
+    `If a PR already exists for this branch (retry after a base-check failure): do NOT create a second PR — push the corrected branch (with \`--force-with-lease\` only if you rebased in step 0a) and end with the existing PR URL.`,
     ``,
     `### 5. Clean up the worktree`,
     `\`\`\`bash`,
@@ -672,7 +687,7 @@ export function buildDevelopPrompt(
     `\`\`\``,
     ``,
     `## CRITICAL: Final message format`,
-    `End your final message with EXACTLY ONE of:`,
+    `Start your final message with \`BASE_SHA: <origin/master sha from step 0a>\` on its own first line, then end with EXACTLY ONE of:`,
     `- the full PR URL (e.g. https://github.com/${repoOwner}/${repoName}/pull/123), or`,
     `- "ALREADY RESOLVED: <reason>" if the issue is already closed or has a merged PR — do NOT attempt implementation,`,
     `- "CANNOT FULFILL: <reason>" if you cannot complete the work.`,
@@ -686,6 +701,113 @@ export function buildDevelopPrompt(
 export function extractPrUrl(text: string): string | null {
   const m = text.match(/https?:\/\/github\.com\/[^\s)]+\/pull\/\d+/);
   return m ? m[0] : null;
+}
+
+// Extracts the BASE_SHA handshake line from the assistant message, or null.
+// The develop prompt requires it as the final message's first line; DevHub
+// records it on the run for base-ancestry diagnosis (see checkPrBase in
+// github.ts). Missing/unparseable is not fatal — the compare-API check is
+// the authoritative gate.
+export function extractBaseSha(text: string): string | null {
+  const m = text.match(/^BASE_SHA:\s*([0-9a-f]{40})\s*$/m);
+  return m ? m[1] : null;
+}
+
+export interface VerifyVerdict {
+  /** 1-based index into the acceptance-criteria list. */
+  ac: number;
+  pass: boolean;
+  evidence: string;
+}
+
+export interface VerifyOutcome {
+  /** True only when every criterion got a passing verdict. */
+  allPass: boolean;
+  /** True when the reply was unusable — never auto-pass on this. */
+  inconclusive: boolean;
+  verdicts: VerifyVerdict[];
+  summary: string;
+}
+
+// Builds the read-only verifier prompt: an independent session that checks
+// each acceptance criterion against the opened PRs and reports a strict JSON
+// verdict. It must not change code, commit, or push — review only.
+export function buildVerifyPrompt(issue: Issue, acceptanceCriteria: string[], prUrls: string[]): string {
+  const criteria = acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n');
+  const prs = prUrls.map((u) => `- ${u}`).join('\n');
+  return [
+    `You are reviewing a GitHub pull request against its issue's acceptance criteria on a personal dev command board (DevHub).`,
+    `You are a READ-ONLY reviewer: inspect, do not modify. Never commit, never push, never open or edit a PR.`,
+    ``,
+    `## Issue`,
+    `Title: ${issue.title}`,
+    `Issue URL: ${issue.htmlUrl}`,
+    ``,
+    `## Acceptance criteria`,
+    criteria,
+    ``,
+    `## Pull requests under review`,
+    prs,
+    ``,
+    `## Steps`,
+    `1. For each pull request, read the full diff (\`gh pr diff <url>\`) and the PR description (\`gh pr view <url>\`).`,
+    `2. For EACH numbered criterion, decide pass/fail against the diff — not against claims in the description. A criterion passes only with concrete evidence (file path + line or behavior). Cosmetic or partial fulfillment is a fail.`,
+    `3. When a criterion spans repos, check every PR before judging it.`,
+    ``,
+    `## Response format`,
+    `Respond with EXACTLY ONE JSON object (no markdown fences):`,
+    `{`,
+    `  "verdicts": [`,
+    `    { "ac": 1, "pass": true/false, "evidence": "path/to/file.ts:123 shows ..." },`,
+    `    ... one entry per criterion, in order ...`,
+    `  ]`,
+    `}`,
+    `Every criterion needs exactly one verdict. If a criterion cannot be judged from the diff, mark it failed with the reason as evidence.`,
+  ].join('\n');
+}
+
+// Parses a verifier reply into an outcome. Missing verdicts count as failed
+// (the criterion was not shown to be met); an unusable reply is inconclusive
+// and must never auto-pass — the caller blocks on both.
+export function parseVerifyResult(text: string, criterionCount: number): VerifyOutcome {
+  const fail = (summary: string, verdicts: VerifyVerdict[] = []): VerifyOutcome => ({
+    allPass: false,
+    inconclusive: true,
+    verdicts,
+    summary,
+  });
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return fail('verifier reply contained no JSON object');
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+  } catch {
+    return fail('verifier reply was not valid JSON');
+  }
+  if (!Array.isArray(parsed.verdicts)) return fail('verifier reply had no verdicts array');
+  const verdicts: VerifyVerdict[] = [];
+  for (const v of parsed.verdicts) {
+    if (!v || typeof v !== 'object') continue;
+    const row = v as Record<string, unknown>;
+    const ac = typeof row.ac === 'number' ? row.ac : -1;
+    if (!Number.isInteger(ac) || ac < 1 || ac > criterionCount) continue;
+    verdicts.push({ ac, pass: row.pass === true, evidence: String(row.evidence ?? '').slice(0, 500) });
+  }
+  const seen = new Set(verdicts.map((v) => v.ac));
+  for (let ac = 1; ac <= criterionCount; ac++) {
+    if (!seen.has(ac)) verdicts.push({ ac, pass: false, evidence: 'no verdict given' });
+  }
+  verdicts.sort((a, b) => a.ac - b.ac);
+  const failed = verdicts.filter((v) => !v.pass);
+  return {
+    allPass: failed.length === 0,
+    inconclusive: false,
+    verdicts,
+    summary:
+      failed.length === 0
+        ? `${verdicts.length}/${verdicts.length} acceptance criteria verified`
+        : failed.map((v) => `AC ${v.ac} unmet: ${v.evidence || 'no evidence'}`).join('\n'),
+  };
 }
 
 function sleep(ms: number): Promise<void> {

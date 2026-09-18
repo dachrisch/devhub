@@ -18,6 +18,7 @@ const {
   reconcileClosedIssues,
   setIssueStateLabels,
   commentOnIssue,
+  checkPrBase,
 } = await import('./github.js');
 const store = await import('./store.js');
 
@@ -480,5 +481,67 @@ describe('github mirroring', () => {
     await commentOnIssue('dachrisch', 'matched', 1, 'hello'.padEnd(70000, 'x'), 'token-abc', fetchFn);
     const parsed = JSON.parse(body);
     expect(parsed.body.length).toBe(60000);
+  });
+});
+
+describe('checkPrBase', () => {
+  const prUrl = 'https://github.com/dachrisch/widget/pull/99';
+
+  function compareFetch(headSha: string, commits: unknown[], total?: number) {
+    return (async (url: string) => {
+      if (url.includes('/pulls/')) {
+        return ghResponse({ head: { sha: headSha } })();
+      }
+      if (url.includes('/compare/')) {
+        expect(url).toContain(`compare/master...${headSha}`);
+        return ghResponse({ total_commits: total ?? commits.length, commits })();
+      }
+      throw new Error(`unexpected url ${url}`);
+    }) as unknown as typeof fetch;
+  }
+
+  function commit(sha: string, email: string | null, login: string | null = null) {
+    return { sha, commit: { author: { name: 'opencode', email } }, author: login ? { login } : null };
+  }
+
+  it('passes a single-author PR (own commits on a stale-or-fresh master base)', async () => {
+    const fetchFn = compareFetch('head123', [commit('a', 'opencode@x'), commit('b', 'opencode@x')]);
+    await expect(checkPrBase('dachrisch', 'widget', prUrl, 'token-abc', fetchFn)).resolves.toEqual({
+      ok: true,
+      reason: null,
+    });
+  });
+
+  it('fails a PR mixing foreign commits (wrong base, e.g. devhub#223 PR #225)', async () => {
+    const fetchFn = compareFetch('head123', [
+      commit('a', 'human@elsewhere'),
+      commit('b', 'human@elsewhere'),
+      commit('c', 'opencode@x'),
+    ]);
+    const result = await checkPrBase('dachrisch', 'widget', prUrl, 'token-abc', fetchFn);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('2 distinct authors');
+    expect(result.reason).toContain('wrong base');
+  });
+
+  it('fails closed when the compare is paginated past the returned commits', async () => {
+    const fetchFn = compareFetch('head123', [commit('a', 'opencode@x')], 300);
+    const result = await checkPrBase('dachrisch', 'widget', prUrl, 'token-abc', fetchFn);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('too many to verify');
+  });
+
+  it('fails when the PR number cannot be parsed', async () => {
+    const fetchFn = (async () => {
+      throw new Error('must not fetch');
+    }) as unknown as typeof fetch;
+    const result = await checkPrBase('dachrisch', 'widget', 'not-a-pr-url', 'token-abc', fetchFn);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('could not parse');
+  });
+
+  it('throws on transport errors so the caller can fail open with a trace', async () => {
+    const fetchFn = (async () => ({ ok: false, status: 502, headers: { get: () => null }, json: async () => ({}) })) as unknown as typeof fetch;
+    await expect(checkPrBase('dachrisch', 'widget', prUrl, 'token-abc', fetchFn)).rejects.toThrow();
   });
 });

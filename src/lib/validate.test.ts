@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRefinePrompt, parseRefineResult } from './validate.js';
+import { buildRefinePrompt, extractCheckboxes, parseRefineResult, sanitizeAcceptanceCriteria } from './validate.js';
 
 function issue() {
   return {
@@ -46,7 +46,7 @@ describe('parseRefineResult', () => {
     const result = parseRefineResult(
       '{"ready": true, "summary": "Clear scope", "improvedBody": null, "blockingQuestions": []}'
     );
-    expect(result).toEqual({ ready: true, summary: 'Clear scope', improvedBody: null, blockingQuestions: [], scope: 'service', infraFirst: false });
+    expect(result).toEqual({ ready: true, summary: 'Clear scope', improvedBody: null, blockingQuestions: [], scope: 'service', infraFirst: false, acceptanceCriteria: [] });
   });
 
   it('parses scope and run order for multi-repo work', () => {
@@ -104,5 +104,37 @@ describe('parseRefineResult', () => {
   it('survives malformed JSON', () => {
     const result = parseRefineResult('{ready: true, oops');
     expect(result.ready).toBe(false);
+  });
+
+  it('parses refiner-supplied acceptance criteria', () => {
+    const result = parseRefineResult(
+      '{"ready": true, "summary": "ok", "improvedBody": null, "blockingQuestions": [], "acceptanceCriteria": ["pill renders", "  ", "build green"]}'
+    );
+    expect(result.acceptanceCriteria).toEqual(['pill renders', 'build green']);
+  });
+
+  it('falls back to checkboxes in the improved body when the array is missing', () => {
+    const result = parseRefineResult(
+      '{"ready": true, "summary": "ok", "improvedBody": "# T\\n\\n- [ ] first thing\\n- [x] done thing\\n- plain bullet", "blockingQuestions": []}'
+    );
+    expect(result.acceptanceCriteria).toEqual(['first thing', 'done thing']);
+  });
+
+  it('caps and truncates runaway criteria lists', () => {
+    const many = Array.from({ length: 30 }, (_, i) => `criterion ${i} ${'x'.repeat(400)}`);
+    const result = sanitizeAcceptanceCriteria(many);
+    expect(result).toHaveLength(20);
+    expect(result[0].length).toBe(300);
+    expect(sanitizeAcceptanceCriteria('not-an-array')).toEqual([]);
+    expect(sanitizeAcceptanceCriteria([null, 42, ''])).toEqual(['42']);
+  });
+
+  it('extracts checkbox items from markdown bodies', () => {
+    expect(extractCheckboxes('- [ ] a\n* [X] b\n- [x] c\n- no box')).toEqual(['a', 'b', 'c']);
+    expect(extractCheckboxes(null)).toEqual([]);
+  });
+
+  it('asks the refiner for testable acceptance criteria', () => {
+    expect(buildRefinePrompt(issue())).toContain('acceptanceCriteria');
   });
 });

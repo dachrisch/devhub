@@ -390,6 +390,66 @@ export async function mergePullRequest(
 
 export type { UpsertIssueInput };
 
+export interface PrBaseCheck {
+  ok: boolean;
+  reason: string | null;
+}
+
+interface GhCompareCommit {
+  sha?: string;
+  commit?: { author?: { name?: string; email?: string } };
+  author?: { login?: string } | null;
+}
+
+// Verifies a freshly opened PR contains only this run's work: every commit in
+// master...head must share one author identity. A branch cut from a feature
+// branch (devhub#223 → PR #225 shipped 3 foreign funnel commits and
+// merge-conflicted) shows up as multiple author emails and fails closed with
+// a retryable reason. A merely stale base (cut from older master) passes —
+// mergeability itself is GitHub's job. Throws on transport/API errors so the
+// caller can fail open with a trace instead of failing the run on a blip.
+export async function checkPrBase(
+  owner: string,
+  repo: string,
+  prUrl: string,
+  token: string,
+  fetchFn: FetchFn = fetch
+): Promise<PrBaseCheck> {
+  const prNumber = prNumberFromUrl(prUrl);
+  if (!prNumber) return { ok: false, reason: `could not parse a PR number from ${prUrl}` };
+  const pr = await ghGetJson<{ head?: { sha?: string } }>(
+    `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`,
+    token,
+    fetchFn
+  );
+  const headSha = pr.head?.sha;
+  if (!headSha) throw new Error('GitHub PR lookup returned no head SHA');
+  const cmp = await ghGetJson<{ total_commits?: number; commits?: GhCompareCommit[] }>(
+    `https://api.github.com/repos/${owner}/${repo}/compare/master...${headSha}`,
+    token,
+    fetchFn
+  );
+  const commits = cmp.commits ?? [];
+  if ((cmp.total_commits ?? commits.length) > commits.length) {
+    // Compare pages past 250 commits — fail closed rather than bless history
+    // DevHub never looked at.
+    return {
+      ok: false,
+      reason: `PR adds ${cmp.total_commits} commits; too many to verify the base (max ${commits.length})`,
+    };
+  }
+  const authors = new Set(
+    commits.map((c) => (c.commit?.author?.email ?? c.author?.login ?? c.sha ?? 'unknown').toLowerCase())
+  );
+  if (authors.size > 1) {
+    return {
+      ok: false,
+      reason: `PR contains commits from ${authors.size} distinct authors (${[...authors].join(', ')}) — the branch was cut from the wrong base, not latest master`,
+    };
+  }
+  return { ok: true, reason: null };
+}
+
 // States re-checked against GitHub on every refresh. `developing` is left to
 // the live run and `rollout` is DevHub's own terminal pipeline state; every
 // other card gets reconciled so GitHub-closed issues stop accumulating.

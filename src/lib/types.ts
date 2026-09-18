@@ -217,6 +217,7 @@ export interface DevelopRunRow {
   pr_url: string | null;
   result_text: string | null;
   blocked_reason: string | null;
+  base_sha: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -233,6 +234,7 @@ export interface DevelopRun {
   prUrl: string | null;
   resultText: string | null;
   blockedReason: string | null;
+  baseSha: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -392,6 +394,7 @@ export function serializeRun(row: DevelopRunRow): DevelopRun {
     prUrl: row.pr_url,
     resultText: row.result_text,
     blockedReason: row.blocked_reason,
+    baseSha: row.base_sha ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

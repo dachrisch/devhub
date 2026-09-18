@@ -15,6 +15,7 @@ function run(prUrl: string | null = 'https://github.com/dachrisch/devhub/pull/99
     prUrl,
     resultText: null,
     blockedReason: null,
+    baseSha: null,
     createdAt: 'now',
     updatedAt: 'now',
   };
