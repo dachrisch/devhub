@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.28.0](https://github.com/dachrisch/devhub/compare/v1.27.1...v1.28.0) (2026-09-20)
+
+
+### Features
+
+* **ui:** board redesign polish — display type, tinted surfaces, motion ([d84155e](https://github.com/dachrisch/devhub/commit/d84155e97c1a6d0ea39a82c5fc0e87828c372ef2))
+* **ui:** board redesign polish — display type, tinted surfaces, motion ([50a8a4a](https://github.com/dachrisch/devhub/commit/50a8a4aebb6e9dcb388ce073fd736cab3ddb772a))
+
 ## [1.27.1](https://github.com/dachrisch/devhub/compare/v1.27.0...v1.27.1) (2026-09-19)
 
 
