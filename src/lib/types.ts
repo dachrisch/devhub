@@ -117,12 +117,13 @@ export function serializeIdeaMessage(row: IdeaMessageRow): IdeaMessage {
 }
 
 // Plain-language labels for the idea page header (devhub#171 UI copy rules).
-// Kanban keeps the technical names (expert view).
+// Kanban keeps the technical names (expert view). `new` and `shaping` stay
+// distinct: a fresh idea that was never opened is not mid-shaping.
 export const TOPIC_STATUS_LABELS: Record<TopicStatus, string> = {
-  new: 'Shaping…',
+  new: 'New idea',
   shaping: 'Shaping…',
   ready: 'Ready',
-  realizing: 'Realizing…',
+  realizing: 'Building…',
   shipped: 'Delivered',
   dropped: 'Archived',
 };

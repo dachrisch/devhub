@@ -3,12 +3,12 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { Issue, Topic } from '@/lib/types';
 import type { FunnelColumn } from '@/lib/funnel';
-import { FUNNEL_COLUMNS, funnelColumnForIssue, funnelColumnForTopic } from '@/lib/funnel';
+import { FUNNEL_COLUMNS, FUNNEL_STAGE_LABELS, funnelColumnForIssue, funnelColumnForTopic } from '@/lib/funnel';
 import { countRepos, matchesIssue, matchesTopic } from '@/lib/board-ui';
 import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
 import { RefreshButton } from '@/components/board/board-toolbar';
 import { IssueCard, IssueCardSheet, MobileIssueCard } from '@/components/board/issue-card';
-import { MobileUnifiedTopicCard, UnifiedTopicCard } from '@/components/board/unified-card';
+import { MobileUnifiedTopicCard, UnifiedTopicCard, type LinkedWork } from '@/components/board/unified-card';
 
 export interface KanbanBoardProps {
   // Live pools (delivered history renders separately below the board).
@@ -34,9 +34,9 @@ export interface KanbanBoardProps {
   columnOfIssue?: (issue: Issue) => FunnelColumn;
   columnOfTopic?: (topic: Topic) => FunnelColumn;
   // Idea cards render through the unified card shells directly (kanban owns
-  // them now); the page passes its promote affordance instead of a renderer.
-  onTopicPromote?: (topicId: number) => void;
-  promotingTopicId?: number | null;
+  // them now). Filing happens inside the studio — the card only links.
+  // Linked work per topic id, rendered as the card's lineage line.
+  linkedIssues?: Map<number, LinkedWork[]>;
   // Extra chrome pinned to the top of a column (e.g. Suggest-next + Add-idea
   // in the idea column).
   columnExtras?: Partial<Record<FunnelColumn, React.ReactNode>>;
@@ -71,8 +71,7 @@ export function KanbanBoard({
   toggleSelection,
   columnOfIssue = (issue) => funnelColumnForIssue(issue.state),
   columnOfTopic = (topic) => funnelColumnForTopic(topic.status),
-  onTopicPromote,
-  promotingTopicId = null,
+  linkedIssues,
   columnExtras,
   doneCount,
   onShowDone,
@@ -127,6 +126,13 @@ export function KanbanBoard({
     ])
   ) as Record<FunnelColumn, number>;
 
+  // Shaping-idea titles by topic id: issue cards carry the studio anchor
+  // inline (topic cards stay suppressed once work links — no twins).
+  const topicTitleOf = (topicId: number | null | undefined): string | null => {
+    if (topicId == null) return null;
+    return topics.find((t) => t.id === topicId)?.title ?? null;
+  };
+
   const cellsFor = (col: FunnelColumn): Cell[] => {
     const dir = sorts[col] === 'oldest' ? 1 : -1;
     const colIssues = issues.filter(
@@ -141,11 +147,15 @@ export function KanbanBoard({
         node: isMobile ? (
           <MobileUnifiedTopicCard
             topic={topic}
-            promoting={promotingTopicId === topic.id}
-            onPromote={onTopicPromote}
+            column={columnOfTopic(topic)}
+            linked={linkedIssues?.get(topic.id)}
           />
         ) : (
-          <UnifiedTopicCard topic={topic} promoting={promotingTopicId === topic.id} onPromote={onTopicPromote} />
+          <UnifiedTopicCard
+            topic={topic}
+            column={columnOfTopic(topic)}
+            linked={linkedIssues?.get(topic.id)}
+          />
         ),
       })),
       ...colIssues.map((issue) => {
@@ -165,6 +175,7 @@ export function KanbanBoard({
               onStarted={onStarted}
               onStartFailed={onStartFailed}
               onOpenActions={() => setOpenActionsFor(issue)}
+              topicTitle={topicTitleOf(issue.topicId)}
             />
           ) : (
             <IssueCard
@@ -175,6 +186,7 @@ export function KanbanBoard({
               onStartFailed={onStartFailed}
               selected={selectedIds.has(issue.id)}
               onToggleSelection={toggleSelection}
+              topicTitle={topicTitleOf(issue.topicId)}
             />
           ),
         };
@@ -247,8 +259,8 @@ export function KanbanBoard({
                 </div>
               ) : (
                 <div className="column-head">
-                  <span className={`dot ${col}`} />
-                  {col}
+                  <span className={`dot ${col}`} aria-hidden="true" />
+                  {FUNNEL_STAGE_LABELS[col]}
                   <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({cells.length})</span>
                   <button
                     className="sort-toggle"

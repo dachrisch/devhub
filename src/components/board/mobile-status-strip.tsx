@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type KeyboardEvent } from 'react';
-import type { FunnelColumn } from '@/lib/funnel';
+import { FUNNEL_STAGE_LABELS, type FunnelColumn } from '@/lib/funnel';
 
 // Shared id scheme between the tabs (rendered here) and the tabpanel they
 // control (the single visible column, rendered by the board page). Kept in
@@ -84,14 +84,14 @@ export function MobileStatusStrip({ columns, counts, active, onSelect, doneCount
             role="tab"
             aria-selected={isActive}
             aria-controls={statusPanelId(col)}
-            // Keep the accessible name aligned with the visible "Ready 21"
-            // label (WCAG 2.5.3 Label in Name).
-            aria-label={`${col}, ${countOf(col)} items`}
+            // Keep the accessible name aligned with the visible label
+            // (WCAG 2.5.3 Label in Name).
+            aria-label={`${FUNNEL_STAGE_LABELS[col]}, ${countOf(col)} items`}
             tabIndex={isActive ? 0 : -1}
             data-column={col}
           >
             <span className={`dot ${col}`} aria-hidden="true" />
-            <span>{col}</span>
+            <span>{FUNNEL_STAGE_LABELS[col]}</span>
             <span className="status-strip-badge">{countOf(col)}</span>
           </button>
         );
@@ -124,10 +124,10 @@ export function MobileStatusStrip({ columns, counts, active, onSelect, doneCount
                   className={`status-strip-more-item${active === col ? ' active' : ''}`}
                   onClick={() => select(col)}
                   role="menuitem"
-                  aria-label={`${col}, ${countOf(col)} items`}
+                  aria-label={`${FUNNEL_STAGE_LABELS[col]}, ${countOf(col)} items`}
                 >
                   <span className={`dot ${col}`} aria-hidden="true" />
-                  <span>{col}</span>
+                  <span>{FUNNEL_STAGE_LABELS[col]}</span>
                   <span className="status-strip-badge">{countOf(col)}</span>
                 </button>
               ))}

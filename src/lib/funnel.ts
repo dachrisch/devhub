@@ -22,6 +22,17 @@ export const FUNNEL_LABELS: Record<FunnelColumn, string> = {
   delivered: 'delivered',
 };
 
+// Plain-words stage labels for pills and card strips. The label always
+// follows the *derived* column (work-aware), never the raw status — a pill
+// that disagrees with its column destroys trust in the whole board.
+export const FUNNEL_STAGE_LABELS: Record<FunnelColumn, string> = {
+  idea: 'Idea',
+  ready: 'Ready',
+  realizing: 'Building…',
+  rollout: 'Checking…',
+  delivered: 'Delivered',
+};
+
 // A topic with no linked work yet maps by status alone. A `realizing` topic
 // whose issues are all still backlog reads as `ready` — the issue list is
 // the source of truth once linked (see funnelColumnForTopicWithIssues).

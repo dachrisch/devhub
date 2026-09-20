@@ -49,7 +49,6 @@ export default function ProjectBoardPage() {
   const [ideaTitle, setIdeaTitle] = useState('');
   const [ideaBusy, setIdeaBusy] = useState(false);
   const [suggestBusy, setSuggestBusy] = useState(false);
-  const [promotingId, setPromotingId] = useState<number | null>(null);
   const [autoMergeBusy, setAutoMergeBusy] = useState(false);
 
   const { user, loading, denied, logout } = useAuth();
@@ -311,11 +310,8 @@ export default function ProjectBoardPage() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!refreshError) return;
-    const t = setTimeout(() => setRefreshError(null), 8000);
-    return () => clearTimeout(t);
-  }, [refreshError]);
+  // Error banners persist until dismissed or superseded — an 8s timer
+  // risks hiding the failure from an operator who looked away.
 
   const addIdea = useCallback(async () => {
     const title = ideaTitle.trim();
@@ -358,28 +354,20 @@ export default function ProjectBoardPage() {
     }
   }, [validId, projectId, suggestBusy, fetchTopics]);
 
-  const promoteTopic = useCallback(
-    async (topicId: number) => {
-      setPromotingId(topicId);
-      try {
-        const res = await fetch(`/api/topics/${topicId}/promote`, { method: 'POST' });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(data?.error ?? `promote failed (HTTP ${res.status})`);
-        }
-        await fetchTopics();
-        await refetchIssues();
-      } catch (err) {
-        setRefreshError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setPromotingId(null);
-      }
-    },
-    [fetchTopics, refetchIssues]
-  );
+  // Linked issues per topic for the card lineage line (idea → issue without
+  // a drill-in). Filing happens inside the studio — the board only links.
+  const linkedIssuesByTopic = useMemo(() => {
+    const map = new Map<number, Issue[]>();
+    for (const i of issues) {
+      if (i.projectId !== projectId || i.topicId == null) continue;
+      const arr = map.get(i.topicId) ?? [];
+      arr.push(i);
+      map.set(i.topicId, arr);
+    }
+    return map;
+  }, [issues, projectId]);
 
-  // Idea cards render inside KanbanBoard via the unified card shells; the
-  // page only supplies the promote affordance (unified funnel Phase 1: the
+  // Idea cards render inside KanbanBoard via the unified card shells (the
   // stage vocabulary lives in board-ui.ts, not per-page renderers).
 
   // Per-project auto-merge opt-out (devhub#171 Phase 4): off means Realize
@@ -536,9 +524,10 @@ export default function ProjectBoardPage() {
             {!isMobile && (
               <input
                 className="search"
-                placeholder="Search… e.g. repo:devhub title:auth"
+                placeholder="Search issues + ideas… e.g. repo:devhub status:shaping"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                aria-label="Search issues and ideas"
               />
             )}
             {selectedIds.size > 0 && (
@@ -619,8 +608,7 @@ export default function ProjectBoardPage() {
           selectedIds={selectedIds}
           toggleSelection={toggleSelection}
           columnOfTopic={columnOfTopic}
-          onTopicPromote={(topicId) => void promoteTopic(topicId)}
-          promotingTopicId={promotingId}
+          linkedIssues={linkedIssuesByTopic}
           columnExtras={{
             idea: (
               <div className="idea-col-actions">

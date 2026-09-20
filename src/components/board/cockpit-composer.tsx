@@ -104,6 +104,9 @@ export function CockpitComposer({
           </button>
         )}
       </div>
+      <div className="cockpit-plan" role="note">
+        Go starts a hands-off run — it can touch your repos and open pull requests, but nothing merges itself.
+      </div>
       <div className="cockpit-hint">Enter to run · Shift+Enter for a new line</div>
     </form>
   );

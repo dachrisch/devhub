@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { relTime, repoColor } from '@/lib/board-ui';
 import { ACTIVE_IDEA_STATUSES, TOPIC_STATUS_LABELS, type Project, type Topic } from '@/lib/types';
 import type { ProjectSummary } from '@/lib/project-status';
@@ -27,6 +27,19 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
   const [newOwner, setNewOwner] = useState('');
   const [newRepo, setNewRepo] = useState('');
   const [newBusy, setNewBusy] = useState(false);
+  const [assigningId, setAssigningId] = useState<number | null>(null);
+
+  // Triage order: what needs the operator comes first — blocked work, then
+  // in-flight runs, then open PRs. Everything else keeps fetch order.
+  const ordered = useMemo(
+    () =>
+      summaries.slice().sort((a, b) => {
+        if (b.needsInput !== a.needsInput) return b.needsInput - a.needsInput;
+        if (b.inFlight !== a.inFlight) return b.inFlight - a.inFlight;
+        return b.prCount - a.prCount;
+      }),
+    [summaries]
+  );
 
   const fetchAll = useCallback(async () => {
     try {
@@ -111,6 +124,7 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
 
   const assignInbox = useCallback(
     async (topicId: number, projectId: number) => {
+      setAssigningId(topicId);
       try {
         const res = await fetch(`/api/topics/${topicId}`, {
           method: 'PATCH',
@@ -124,6 +138,8 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
         await fetchAll();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setAssigningId(null);
       }
     },
     [fetchAll]
@@ -147,7 +163,7 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
             <div className="projects-hint">Pick one to open its board →</div>
           )}
           <div className="projects-grid">
-            {summaries.map(({ project, status, needsInput, inFlight, prCount, ideas, recentIdeas }) => (
+            {ordered.map(({ project, status, needsInput, inFlight, prCount, ideas, recentIdeas }) => (
               <ProjectCard
                 key={project.id}
                 project={project}
@@ -174,13 +190,21 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
                 ideaBusy={ideaBusy}
               />
             ))}
-            <button
-              type="button"
+            <div
               className={`project-card project-card-new${newOpen ? ' open' : ''}`}
               onClick={() => {
                 if (!newOpen) setNewOpen(true);
               }}
+              onKeyDown={(e) => {
+                if (!newOpen && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  setNewOpen(true);
+                }
+              }}
+              role="button"
+              tabIndex={newOpen ? -1 : 0}
               aria-expanded={newOpen}
+              aria-label="+ new project"
             >
               {newOpen ? (
                 <span className="project-new-form" onClick={(e) => e.stopPropagation()}>
@@ -232,7 +256,7 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
               ) : (
                 <span className="project-card-name">+ new project</span>
               )}
-            </button>
+            </div>
           </div>
           {inbox.length > 0 && (
             <div className="inbox-strip">
@@ -245,7 +269,8 @@ export function ProjectsHome({ selectedId, onSelect, refreshKey }: ProjectsHomeP
                     </Link>
                     <select
                       className="inbox-assign"
-                      defaultValue=""
+                      value=""
+                      disabled={assigningId === topic.id}
                       aria-label={`Assign "${topic.title}" to a project`}
                       onChange={(e) => {
                         const pid = Number(e.target.value);
@@ -322,6 +347,11 @@ function ProjectCard({
       >
         <span className="project-card-name">{project.name}</span>
         <span className={`proj-badge ${status ?? 'stale'}`}>{status ?? 'stale'}</span>
+        {needsInput > 0 && (
+          <span className="proj-needs" role="status">
+            ⚠ {needsInput} needs input
+          </span>
+        )}
       </div>
       {project.domain && <div className="project-card-domain">{project.domain}</div>}
       <div className="project-card-meta">
@@ -338,7 +368,6 @@ function ProjectCard({
         <span>
           {inFlight} dev · {prCount} pr · {ideas} ideas
         </span>
-        {needsInput > 0 && <span className="proj-needs">⚠ {needsInput} needs input</span>}
       </div>
       {repo && (
         <div className="project-card-repos">

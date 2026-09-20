@@ -56,13 +56,34 @@ export function isTopicThreadLocked(status: TopicStatus, needsInput: boolean): b
   return false;
 }
 
-// Topic search for the unified funnel: plain tokens match across
-// title/notes/status. No field filters — topics have no repo/number.
+// Topic search for the unified funnel: same token grammar as issues.
+// title:/status: filter the idea; state: is accepted as an alias of
+// status:. Issue-only fields (repo:/owner:/body:/number:) don't apply to
+// ideas and are ignored so a cross-entity query never hides every idea.
+// Unknown field: tokens fall back to plain text, mirroring matchesIssue.
+const TOPIC_FIELD_FILTERS: Record<string, (t: Pick<Topic, 'title' | 'notes' | 'status'>, v: string) => boolean> = {
+  title: (t, v) => t.title.toLowerCase().includes(v),
+  status: (t, v) => t.status.toLowerCase().includes(v),
+  state: (t, v) => t.status.toLowerCase().includes(v),
+};
+const ISSUE_ONLY_FIELDS = new Set(['repo', 'owner', 'body', 'number']);
+
 export function matchesTopic(topic: Pick<Topic, 'title' | 'notes' | 'status'>, query: string): boolean {
   const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return true;
+  const global: string[] = [];
+  for (const token of tokens) {
+    const m = token.match(/^([a-z]+):(.*)$/);
+    if (m && TOPIC_FIELD_FILTERS[m[1]]) {
+      if (!TOPIC_FIELD_FILTERS[m[1]](topic, m[2])) return false;
+    } else if (m && ISSUE_ONLY_FIELDS.has(m[1])) {
+      continue;
+    } else {
+      global.push(token);
+    }
+  }
+  if (global.length === 0) return true;
   const haystack = [topic.title, topic.notes ?? '', topic.status].join(' ').toLowerCase();
-  return tokens.every((term) => haystack.includes(term));
+  return global.every((term) => haystack.includes(term));
 }
 
 export function relTime(iso: string): string {
@@ -82,6 +103,7 @@ export function relTime(iso: string): string {
   for (const [secsInUnit, label] of units) {
     if (secs >= secsInUnit) return `${Math.floor(secs / secsInUnit)}${label} ago`;
   }
+  if (secs < 5) return 'just now';
   return `${secs}s ago`;
 }
 
@@ -166,7 +188,7 @@ export function cardActions(
     actions.push({ id: 'merge', label: 'Merge PR' });
   }
   if (issue.topicId != null) {
-    actions.push({ id: 'open-studio', label: 'Open idea studio' });
+    actions.push({ id: 'open-studio', label: 'Open studio' });
   }
   actions.push({
     id: 'recap',
@@ -220,7 +242,7 @@ export function notifyStateChange(issue: Issue): void {
 // Staleness tier for a card, based on time since last update. Used as a
 // lightweight urgency cue for triaging a crowded backlog.
 export function urgencyTier(iso: string): 'fresh' | 'aging' | 'stale' {
-  const then = new Date(iso.replace(' ', 'T') + 'Z').getTime();
+  const then = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').getTime();
   if (Number.isNaN(then)) return 'fresh';
   const days = (Date.now() - then) / 86400000;
   if (days >= 14) return 'stale';
@@ -245,19 +267,20 @@ export function primaryCardAction(
 }
 
 // ---------------------------------------------------------------------------
-// Topic-side vocabulary (unified funnel). Ideas and issues speak the same
-// words on the board: the card's stage decides the label, never the entity
-// type. Topic primaries always land in the studio (/topics/[id]) where the
-// shaping thread, Work confirm, and timeline live.
+// Topic-side vocabulary (unified funnel). Two verbs, one destination: ideas
+// are talked through in the studio, then built. Both primaries land in the
+// studio (/topics/[id]) where the shaping thread, filing confirm, and
+// timeline live — filing the GitHub issue happens there too, never from a
+// card ghost button (a public side effect needs a named consequence).
 // ---------------------------------------------------------------------------
 
 export interface PrimaryTopicAction {
   label: string;
-  // 'shape'/'realize'/'studio' are all studio links today — enforce confirms
-  // and multi-step flows live there — but they render differently:
-  //   new/shaping  → "Shape"  (thread + options are the point)
-  //   ready        → "Realize" (confirm flow behind it)
-  //   realizing    → "Open studio" (watch the run, reply if needs input)
+  // 'shape'/'realize'/'studio' are all studio links today — confirms and
+  // multi-step flows live there — but they render differently:
+  //   new/shaping  → "Talk it through"  (thread + options are the point)
+  //   ready        → "Build it"          (file the issue, then hands-off build)
+  //   realizing+   → "Open build"        (watch the run, reply if needs input)
   kind: 'shape' | 'realize' | 'studio';
 }
 
@@ -265,36 +288,10 @@ export function primaryTopicAction(status: TopicStatus): PrimaryTopicAction {
   switch (status) {
     case 'new':
     case 'shaping':
-      return { label: 'Shape', kind: 'shape' };
+      return { label: 'Talk it through', kind: 'shape' };
     case 'ready':
-      return { label: 'Realize', kind: 'realize' };
+      return { label: 'Build it', kind: 'realize' };
     default:
-      return { label: 'Open studio', kind: 'studio' };
+      return { label: 'Open build', kind: 'studio' };
   }
-}
-
-// Manual "→ issue" affordance (devhub#167): an idea that hasn't spawned work
-// yet can be promoted to a bare GitHub issue from the card itself. Terminal
-// and realizing topics are excluded; linked work means the issue exists.
-export function topicPromotable(status: TopicStatus, linkedIssueCount: number): boolean {
-  return (
-    (status === 'new' || status === 'shaping' || status === 'ready') && linkedIssueCount === 0
-  );
-}
-
-export type TopicCardActionId = 'promote' | 'open-studio';
-
-export interface TopicCardAction {
-  id: TopicCardActionId;
-  label: string;
-}
-
-// Card menu rows for an idea (mobile sheet; desktop keeps the promote ghost
-// pinned to the footer where it is today). Studio row closes the list — the
-// primary action already opens it — so only promote + an explicit deep row.
-export function topicCardActions(status: TopicStatus, promotable: boolean): TopicCardAction[] {
-  const actions: TopicCardAction[] = [];
-  if (promotable) actions.push({ id: 'promote', label: 'Promote to issue' });
-  actions.push({ id: 'open-studio', label: 'Open idea studio' });
-  return actions;
 }

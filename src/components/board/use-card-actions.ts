@@ -41,11 +41,8 @@ export function useCardActions(issueId: number, options: UseCardActionsOptions =
     optionsRef.current = options;
   });
 
-  useEffect(() => {
-    if (!error) return;
-    const t = setTimeout(() => setError(null), 8000);
-    return () => clearTimeout(t);
-  }, [error]);
+  // Card errors persist until the next action or modal close — never on a
+  // timer. A vanished error reads as success.
 
   const loadModels = useCallback(async () => {
     try {

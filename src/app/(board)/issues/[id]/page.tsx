@@ -344,7 +344,9 @@ export default function RecapPage() {
           {modelEvent && <p className="recap-model">Model: {modelLabel(modelEvent.payload)}</p>}
           {issue.resultPrUrl && (
             <p>
-              PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
+              <a href={issue.resultPrUrl} target="_blank" rel="noreferrer" title={issue.resultPrUrl}>
+                Review it on GitHub ↗
+              </a>
             </p>
           )}
           {issue.releaseTag && (

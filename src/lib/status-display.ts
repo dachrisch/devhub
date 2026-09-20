@@ -3,8 +3,7 @@
 // Reuses the existing funnel derivation — no new mapping logic.
 
 import type { IssueState, TopicStatus } from './types';
-import { TOPIC_STATUS_LABELS } from './types';
-import { funnelColumnForIssue, funnelColumnForTopicWithIssues } from './funnel';
+import { FUNNEL_STAGE_LABELS, funnelColumnForIssue, funnelColumnForTopicWithIssues } from './funnel';
 import type { FunnelColumn } from './funnel';
 
 export interface DisplayStatus {
@@ -20,14 +19,20 @@ export function deriveIssueDisplayStatus(state: IssueState): DisplayStatus {
   return { key, label };
 }
 
-// A topic's display status uses TOPIC_STATUS_LABELS for the plain-language
-// copy but funnel-derives the tone, keeping the pill consistent with the
-// board column the topic card occupies.
+// A topic's display status keeps the pill consistent with the board column
+// the topic card occupies. The label always follows the derived column —
+// "Ready" for queued work, "Building…" once started — so a realizing topic
+// with only queued work never claims to be building from the ready column.
 export function deriveTopicDisplayStatus(
   status: TopicStatus,
   issueStates: IssueState[] = [],
 ): DisplayStatus {
   const key = funnelColumnForTopicWithIssues(status, issueStates);
-  const label = TOPIC_STATUS_LABELS[status] ?? status;
-  return { key, label };
+  if (key === 'delivered') {
+    return { key, label: status === 'dropped' ? 'Archived' : 'Delivered' };
+  }
+  if (key === 'idea') {
+    return { key, label: status === 'new' ? 'New idea' : 'Shaping…' };
+  }
+  return { key, label: FUNNEL_STAGE_LABELS[key] };
 }

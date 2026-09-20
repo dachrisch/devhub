@@ -14,9 +14,11 @@ interface MobileCardProps {
   justStarted?: boolean;
   onPrimaryAction: () => void;
   onOpenActions: () => void;
+  // Shaping idea this work came from — same studio anchor as desktop.
+  topicTitle?: string | null;
 }
 
-export function MobileCard({ issue, color, busy, justStarted = false, onPrimaryAction, onOpenActions }: MobileCardProps) {
+export function MobileCard({ issue, color, busy, justStarted = false, onPrimaryAction, onOpenActions, topicTitle = null }: MobileCardProps) {
   const live = justStarted || (issue.state === 'developing' && !issue.blockedReason);
   const primary = primaryCardAction(issue, live);
   const runs = useRuns(issue.id);
@@ -37,6 +39,14 @@ export function MobileCard({ issue, color, busy, justStarted = false, onPrimaryA
           <span className="mobile-card-title">{issue.title}</span>
           {issue.body && <div className="mobile-card-excerpt">{excerpt(issue.body)}</div>}
         </Link>
+        {topicTitle && issue.topicId != null && (
+          <div className="card-idea-link">
+            <span className="card-idea-dot dot idea" aria-hidden="true" />
+            <Link href={`/topics/${issue.topicId}`} className="card-idea-title">
+              {topicTitle}
+            </Link>
+          </div>
+        )}
         {live && (
           <div className="mobile-card-status">
             <span className="mobile-card-status-dot" />
@@ -48,6 +58,14 @@ export function MobileCard({ issue, color, busy, justStarted = false, onPrimaryA
         {issue.blockedReason && !justStarted && (
           <div className="card-blocked" role="alert">
             <strong>Needs input:</strong> {excerpt(issue.blockedReason)}
+          </div>
+        )}
+        {issue.state === 'pr' && issue.resultPrUrl && (
+          <div className="result pr-open" role="status">
+            <strong>Pull request opened ✓</strong>{' '}
+            <a href={issue.resultPrUrl} target="_blank" rel="noreferrer" title={issue.resultPrUrl}>
+              Review it on GitHub ↗
+            </a>
           </div>
         )}
         <RunChips issue={issue} runs={runs} />
