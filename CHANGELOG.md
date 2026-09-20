@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.29.0](https://github.com/dachrisch/devhub/compare/v1.28.0...v1.29.0) (2026-09-20)
+
+
+### Features
+
+* **ui:** two-verb funnel, lineage cards, triage-first home ([8ec3497](https://github.com/dachrisch/devhub/commit/8ec3497e6bcd06eaf19da3bc4085717f2b85aa40))
+* **ui:** two-verb funnel, lineage cards, triage-first home ([d1dfd82](https://github.com/dachrisch/devhub/commit/d1dfd824038b63c5cba8da77e49c869636a29c77))
+
 ## [1.28.0](https://github.com/dachrisch/devhub/compare/v1.27.1...v1.28.0) (2026-09-20)
 
 
