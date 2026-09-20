@@ -542,6 +542,13 @@ button:active:not(:disabled),
   font-size: 13px;
 }
 
+/* Success banners share the banner geometry in the product's shipped tone. */
+.banner-success {
+  background: rgba(63, 185, 80, 0.1);
+  border-color: var(--pr);
+  color: var(--text);
+}
+
 .card-error {
   display: flex;
   align-items: center;
@@ -704,6 +711,15 @@ button:active:not(:disabled),
 .cockpit-hint {
   margin-top: 6px;
   font-size: 12px;
+  color: var(--muted);
+}
+
+/* Consequence preview before Go: the one line stating the blast radius, so
+   firing an autonomous run never feels blind. */
+.cockpit-plan {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
@@ -927,6 +943,13 @@ button:active:not(:disabled),
   padding: 0 6px;
 }
 
+/* Trophy shelf: shipped ribbons carry the win at full text weight instead
+   of dissolving into the muted archive. */
+.delivered-ribbon.shipped .released-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .delivered-ribbon {
     flex-direction: column;
@@ -1042,7 +1065,9 @@ button:active:not(:disabled),
 }
 
 /* Cockpit action status strip: live status for submitted actions plus recent
-   history. Reuses .released-label / .released-toggle for the chrome. */
+   history. Reuses .released-label / .released-toggle for the chrome. A strip
+   with live runs gets its own solid chrome so the eye never files running
+   work under "ignorable history" the way muted Delivered ribbons teach. */
 .action-strip {
   display: flex;
   align-items: center;
@@ -1051,6 +1076,11 @@ button:active:not(:disabled),
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   min-height: 36px;
+}
+
+.action-strip.live {
+  background: var(--panel-2);
+  border-bottom-color: var(--developing);
 }
 
 .action-strip-list {
@@ -1279,6 +1309,8 @@ button.action-item:hover {
 .copy-btn {
   flex: none;
   padding: 2px 8px;
+  min-height: 24px;
+  min-width: 24px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
@@ -1628,6 +1660,25 @@ button.action-item:hover {
   font-style: italic;
 }
 
+/* The PR peak: the one moment the board celebrates. Same system voice —
+   accent weight, not a new color — given its own rhythm. */
+.result.pr-open {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.result.pr-open strong {
+  color: var(--pr);
+  margin-right: 4px;
+}
+
+.result.pr-open a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 600;
+}
+
 button {
   cursor: pointer;
   border: 1px solid var(--border);
@@ -1732,6 +1783,31 @@ button:disabled {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.4;
+}
+
+/* Start-work modal — consequence preview: scope, plan, attached context.
+   The list reads as the commitment; the buttons below stay quiet. */
+.modal-plan {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.modal-plan .released-label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.modal-plan-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--text);
 }
 
 /* Start-work modal — attached idea-thread context line (unified funnel). */
@@ -3004,11 +3080,19 @@ button:disabled {
   }
 
   .search-sheet-tag {
+    font-family: inherit;
     font-size: 12px;
     color: var(--accent);
     background: rgba(88, 166, 255, 0.1);
+    border: 1px solid transparent;
     border-radius: 6px;
     padding: 4px 8px;
+    min-height: 32px;
+    cursor: pointer;
+  }
+
+  .search-sheet-tag:hover {
+    border-color: var(--accent);
   }
 
   .search-sheet-hint {
@@ -3215,7 +3299,7 @@ button:disabled {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-button.project-card-new {
+.project-card-new {
   cursor: pointer;
   align-items: center;
   justify-content: center;
@@ -3224,12 +3308,12 @@ button.project-card-new {
   border-style: dashed;
 }
 
-button.project-card-new:hover {
+.project-card-new:hover {
   color: var(--text);
   border-color: var(--accent);
 }
 
-button.project-card-new.open {
+.project-card-new.open {
   cursor: default;
   align-items: stretch;
   justify-content: flex-start;
@@ -3238,9 +3322,13 @@ button.project-card-new.open {
 .project-card-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   cursor: pointer;
+}
+
+.project-card-top .project-card-name {
+  flex: 1;
 }
 
 .project-card-name {
@@ -3310,10 +3398,17 @@ button.project-card-new.open {
   color: var(--muted);
 }
 
+/* Needs-input badge, promoted to the card top row: a filled badge, not
+   trailing small text — unattended failures are the headline. */
 .proj-needs {
   color: var(--blocked);
+  background: rgba(248, 81, 73, 0.12);
+  border: 1px solid rgba(248, 81, 73, 0.45);
   font-weight: 600;
+  font-size: 11px;
   white-space: nowrap;
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 
 .project-card-repos {
@@ -3967,9 +4062,73 @@ button.project-card-new.open {
   gap: 4px;
 }
 
-.topic-promote {
+/* Visible idea → issue lineage on topic cards: the one line answering
+   "what did this idea become" without a drill-in. */
+.card-lineage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.card-lineage-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+}
+
+.card-lineage-link {
+  color: var(--text);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-lineage-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.card-lineage-more {
+  flex: none;
+  color: var(--muted);
   font-size: 11px;
-  padding: 2px 6px;
+}
+
+/* Studio anchor on issue cards: the shaping idea this work came from.
+   Suppressed topic cards stay hidden — the badge keeps the studio one hop
+   away without twin cards. */
+.card-idea-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.card-idea-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+}
+
+.card-idea-title {
+  color: var(--muted);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-idea-title:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .recap-result.runs {

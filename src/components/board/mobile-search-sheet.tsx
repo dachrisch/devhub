@@ -15,7 +15,10 @@ interface MobileSearchSheetProps {
   onClose: () => void;
 }
 
-const FILTER_TAGS = ['repo:', 'title:', 'owner:', 'state:', 'body:', 'number:'];
+// Tappable insertions: tapping a filter appends it to the query instead of
+// demanding recall. repo:/owner:/number: match issues only; on the project
+// board title:/status: match ideas too.
+const FILTER_TAGS = ['repo:', 'title:', 'status:', 'state:', 'owner:', 'body:', 'number:'];
 
 export function MobileSearchSheet({
   query,
@@ -28,10 +31,16 @@ export function MobileSearchSheet({
 }: MobileSearchSheetProps) {
   const matches = useMemo(() => {
     if (!query.trim() && !repoFilter) return [];
+    // Same cap as desktop results (20) — one result set, both shells.
     return issues
       .filter((i) => matchesIssue(i, query) && (!repoFilter || `${i.owner}/${i.repo}` === repoFilter))
-      .slice(0, 30);
+      .slice(0, 20);
   }, [issues, query, repoFilter]);
+
+  const insertTag = (tag: string) => {
+    if (query.includes(tag)) return;
+    onQueryChange(query.trim() ? `${query.trim()} ${tag}` : tag);
+  };
 
   return (
     <div className="search-sheet">
@@ -42,6 +51,7 @@ export function MobileSearchSheet({
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           autoFocus
+          aria-label="Search issues"
         />
         <button className="search-sheet-cancel" onClick={onClose}>
           Cancel
@@ -75,12 +85,12 @@ export function MobileSearchSheet({
           <div className="search-sheet-label">Filters</div>
           <div className="search-sheet-tags">
             {FILTER_TAGS.map((tag) => (
-              <span key={tag} className="search-sheet-tag">
+              <button key={tag} type="button" className="search-sheet-tag" onClick={() => insertTag(tag)}>
                 {tag}
-              </span>
+              </button>
             ))}
           </div>
-          <div className="search-sheet-hint">Combine filters with plain text, e.g. repo:web auth</div>
+          <div className="search-sheet-hint">Tap a filter to add it. Combine with plain text, e.g. repo:web auth</div>
         </div>
 
         <div className="search-sheet-section">

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import type { IdeaMessage, Issue, Project, Topic } from '@/lib/types';
-import { isTopicThreadLocked } from '@/lib/board-ui';
+import { isTopicThreadLocked, relTime } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { WelcomeScreen } from '@/components/auth-ui';
 import { AppHeader } from '@/components/app-header';
@@ -277,23 +277,45 @@ export default function TopicDetailPage() {
     [chooseBusy, topicId, fetchAll]
   );
 
-  // Mark ready also files the GitHub issue (auto-promotion). Filing can fail
-  // while shaping succeeds (e.g. no service repo yet) — the banner carries
-  // the retry, and the button below stays available until an issue exists.
+  // Filing the GitHub issue happens here, in the studio, with a named
+  // consequence — never from a card. Filing can fail while shaping succeeds
+  // (e.g. no service repo yet) — the banner carries the retry, and the
+  // button below stays available until an issue exists.
+  const [filedNote, setFiledNote] = useState<string | null>(null);
   const markReady = useCallback(async () => {
-    if (readyBusy) return;
+    if (readyBusy || !topic) return;
+    const repo =
+      project?.serviceRepoOwner && project?.serviceRepoName
+        ? `${project.serviceRepoOwner}/${project.serviceRepoName}`
+        : null;
+    if (
+      !window.confirm(
+        `File a GitHub issue for "${topic.title}"${repo ? ` in ${repo}` : ''}? ` +
+          `It will be public. Your shaped summary becomes the issue body — ` +
+          `you can keep shaping before building.`
+      )
+    ) {
+      return;
+    }
     setReadyBusy(true);
     try {
       const res = await fetch(`/api/topics/${topicId}/ready`, { method: 'POST' });
       const data = (await res.json().catch(() => null)) as {
         error?: string;
-        promotion?: { ok: boolean; error?: string };
+        promotion?: { ok: boolean; error?: string; issue?: Issue; created?: boolean };
       } | null;
       if (!res.ok) throw new Error(data?.error ?? `mark ready failed (HTTP ${res.status})`);
       if (data?.promotion && !data.promotion.ok) {
         setPromotionError(data.promotion.error ?? 'filing the GitHub issue failed');
+        setFiledNote(null);
       } else {
         setPromotionError(null);
+        const filed = data?.promotion && 'issue' in data.promotion ? data.promotion.issue : null;
+        setFiledNote(
+          filed
+            ? `Filed as ${filed.owner}/${filed.repo} #${filed.number}${data?.promotion && 'created' in data.promotion && !data.promotion.created ? ' (already existed)' : ''} — keep shaping, or Build it when ready.`
+            : 'Ready — the GitHub issue is filed. Keep shaping, or Build it when ready.'
+        );
       }
       await fetchAll();
     } catch (err) {
@@ -301,16 +323,16 @@ export default function TopicDetailPage() {
     } finally {
       setReadyBusy(false);
     }
-  }, [readyBusy, topicId, fetchAll]);
+  }, [readyBusy, topic, project, topicId, fetchAll]);
 
   const startRealize = useCallback(async () => {
     if (realizeBusy || !topic) return;
-    // Ready ideas go immediately; shaping drafts need an explicit confirm
-    // ("enabled when ready or on explicit confirm").
+    // Every path states the itinerary before going hands-off: refine, build,
+    // merge and release on its own, pinging only on needs-input.
+    const draft = topic.status === 'new' || topic.status === 'shaping';
     if (
-      (topic.status === 'new' || topic.status === 'shaping') &&
       !window.confirm(
-        'Start realizing with the current draft? The hub will refine, build and merge on its own — pinging you only if it needs input.'
+        `${draft ? 'Build with the current draft? ' : ''}The hub will refine, build, merge and release on its own — pinging you only if it needs input.`
       )
     ) {
       return;
@@ -382,7 +404,7 @@ export default function TopicDetailPage() {
                 <span className="project-shipped none">Inbox (no project)</span>
               )}
               {topic.area && <span className="repo-chip">{topic.area}</span>}
-              {topic.readyAt && <span title={topic.readyAt}>Ready since {topic.readyAt.slice(0, 10)}</span>}
+              {topic.readyAt && <span title={topic.readyAt}>Ready {relTime(topic.readyAt)}</span>}
             </div>
             {(topic.shapedSummary || topic.notes) && (
               <div className="topic-detail-summary">
@@ -501,6 +523,14 @@ export default function TopicDetailPage() {
                 </button>
               </div>
             )}
+            {filedNote && (
+              <div className="banner banner-success" role="status">
+                <span>{filedNote}</span>
+                <button className="ghost" onClick={() => setFiledNote(null)}>
+                  Dismiss
+                </button>
+              </div>
+            )}
             {(topic.status === 'realizing' || topic.status === 'shipped') && stage && (
               <div className="topic-timeline" role="status" aria-label="Realization progress">
                 {TIMELINE_STEPS.map((step, idx) => (
@@ -523,8 +553,8 @@ export default function TopicDetailPage() {
               {topic.status === 'shipped' ? (
                 <span className="topic-delivered">Delivered ✓</span>
               ) : topic.status === 'dropped' ? null : topic.status === 'realizing' && stage !== 'needs-input' ? (
-                <button type="button" className="card-primary" disabled title="Realization running — progress streams in below">
-                  {realizeBusy ? 'Starting…' : 'Realizing…'}
+                <button type="button" className="card-primary" disabled title="Build running — progress streams in below">
+                  {realizeBusy ? 'Starting…' : 'Building…'}
                 </button>
               ) : (
                 <button
@@ -532,18 +562,20 @@ export default function TopicDetailPage() {
                   className="card-primary"
                   disabled={realizeBusy}
                   onClick={() => void startRealize()}
-                  title={
-                    topic.status === 'ready'
-                      ? 'Refine, build, merge and release — hands-off'
-                      : 'Realize with the current draft (explicit confirm)'
-                  }
+                  title="Refine, build, merge and release — hands-off, asks first"
                 >
-                  {realizeBusy ? 'Starting…' : stage === 'needs-input' ? 'Resume realizing' : 'Realize it'}
+                  {realizeBusy ? 'Starting…' : stage === 'needs-input' ? 'Resume build' : 'Build it'}
                 </button>
               )}
               {!threadLocked && (topic.status !== 'ready' || issues.length === 0) && (
-                <button type="button" className="ghost" disabled={readyBusy} onClick={() => void markReady()}>
-                  {readyBusy ? 'Marking…' : topic.status === 'ready' ? 'File GitHub issue' : "I'm happy — it's ready"}
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={readyBusy}
+                  onClick={() => void markReady()}
+                  title="Files a public GitHub issue with your shaped summary as the body"
+                >
+                  {readyBusy ? 'Filing…' : 'File GitHub issue'}
                 </button>
               )}
               <button type="button" className="ghost" disabled={busy || topic.status === 'dropped'} onClick={() => void archive()}>
@@ -607,12 +639,9 @@ export default function TopicDetailPage() {
                           target="_blank"
                           rel="noreferrer"
                         >
-                          PR ↗
+                          Review PR ↗
                         </a>
                       )}
-                      <Link href={`/issues/${i.id}`} className="ghost">
-                        Recap →
-                      </Link>
                       {i.blockedReason && (
                         <div className="topic-work-blocked" role="alert">
                           Needs input: {i.blockedReason}
@@ -625,8 +654,8 @@ export default function TopicDetailPage() {
               </div>
             ) : (
               <details className="topic-how">
-                <summary>How it was built (0)</summary>
-                <div className="empty">nothing built yet — this idea has no linked issues.</div>
+                <summary>How it was built</summary>
+                <div className="empty">Nothing built yet — file the issue, then Build it from the actions above.</div>
               </details>
             )}
           </>

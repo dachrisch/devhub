@@ -24,10 +24,10 @@ describe('status-display', () => {
   describe('deriveTopicDisplayStatus', () => {
     it('maps every TopicStatus with no linked issues to the status-derived column', () => {
       const cases: Array<[TopicStatus, string, string]> = [
-        ['new', 'idea', 'Shaping…'],
+        ['new', 'idea', 'New idea'],
         ['shaping', 'idea', 'Shaping…'],
         ['ready', 'ready', 'Ready'],
-        ['realizing', 'ready', 'Realizing…'],
+        ['realizing', 'ready', 'Ready'],
         ['shipped', 'delivered', 'Delivered'],
         ['dropped', 'delivered', 'Archived'],
       ];
@@ -41,6 +41,18 @@ describe('status-display', () => {
     it('promotes a ready topic to realizing when work starts', () => {
       expect(deriveTopicDisplayStatus('ready', ['backlog', 'refinement']).key).toBe('realizing');
       expect(deriveTopicDisplayStatus('ready', ['developing']).key).toBe('realizing');
+    });
+
+    it('labels by the derived column when work moves the topic off its status', () => {
+      // No more "Realizing…" pill sitting in the ready column.
+      expect(deriveTopicDisplayStatus('ready', ['developing'])).toEqual({
+        key: 'realizing',
+        label: 'Building…',
+      });
+      expect(deriveTopicDisplayStatus('realizing', ['backlog'])).toEqual({
+        key: 'ready',
+        label: 'Ready',
+      });
     });
 
     it('moves to delivered when all linked work settles', () => {

@@ -24,9 +24,12 @@ export interface IssueCardProps {
   onStartFailed: () => void;
   selected: boolean;
   onToggleSelection: (issueId: number) => void;
+  // Shaping idea this work came from (suppressed topic cards stay hidden —
+  // the badge keeps the studio one hop away without twin cards).
+  topicTitle?: string | null;
 }
 
-export function IssueCard({ issue, justStarted, onStarted, onStartFailed, selected, onToggleSelection }: IssueCardProps) {
+export function IssueCard({ issue, justStarted, onStarted, onStartFailed, selected, onToggleSelection, topicTitle = null }: IssueCardProps) {
   const color = repoColor(`${issue.owner}/${issue.repo}`);
   const live = justStarted || (issue.state === 'developing' && !issue.blockedReason);
   const {
@@ -58,7 +61,8 @@ export function IssueCard({ issue, justStarted, onStarted, onStartFailed, select
         if (!busy && !live) void transition('backlog');
         break;
       case 'merge':
-        if (!busy && !live) void merge();
+        if (!busy && !live && window.confirm(`Merge the PR for ${issue.owner}/${issue.repo} #${issue.number}? This merges into the base branch.`))
+          void merge();
         break;
       case 'open-github':
         window.open(issue.htmlUrl, '_blank', 'noopener,noreferrer');
@@ -91,14 +95,25 @@ export function IssueCard({ issue, justStarted, onStarted, onStartFailed, select
           {issue.body && <div className="excerpt">{excerpt(issue.body)}</div>}
         </Link>
 
+        {topicTitle && issue.topicId != null && (
+          <div className="card-idea-link">
+            <span className="card-idea-dot dot idea" aria-hidden="true" />
+            <Link href={`/topics/${issue.topicId}`} className="card-idea-title">
+              {topicTitle}
+            </Link>
+          </div>
+        )}
         {issue.linkedPrUrl && issue.state !== 'pr' && (
           <div className="result">
             PR: <a href={issue.linkedPrUrl}>{issue.linkedPrUrl}</a>
           </div>
         )}
         {issue.state === 'pr' && issue.resultPrUrl && (
-          <div className="result">
-            PR: <a href={issue.resultPrUrl}>{issue.resultPrUrl}</a>
+          <div className="result pr-open" role="status">
+            <strong>Pull request opened ✓</strong>{' '}
+            <a href={issue.resultPrUrl} target="_blank" rel="noreferrer" title={issue.resultPrUrl}>
+              Review it on GitHub ↗
+            </a>
           </div>
         )}
         <RunChips issue={issue} runs={runs} />
@@ -164,12 +179,14 @@ export function MobileIssueCard({
   onStarted,
   onStartFailed,
   onOpenActions,
+  topicTitle = null,
 }: {
   issue: Issue;
   justStarted: boolean;
   onStarted: () => void;
   onStartFailed: () => void;
   onOpenActions: () => void;
+  topicTitle?: string | null;
 }) {
   const color = repoColor(`${issue.owner}/${issue.repo}`);
   const {
@@ -195,6 +212,7 @@ export function MobileIssueCard({
         justStarted={justStarted}
         onPrimaryAction={openModal}
         onOpenActions={onOpenActions}
+        topicTitle={topicTitle}
       />
       {modalOpen && (
         <DevelopModal
@@ -257,7 +275,8 @@ export function IssueCardSheet({
         void transition('backlog');
         break;
       case 'merge':
-        void merge();
+        if (window.confirm(`Merge the PR for ${issue.owner}/${issue.repo} #${issue.number}? This merges into the base branch.`))
+          void merge();
         break;
       case 'select-batch':
         onToggleSelection(issue.id);

@@ -5,14 +5,15 @@ import {
   countRepos,
   excerpt,
   isTopicThreadLocked,
+  isWorkable,
   matchesIssue,
   matchesTopic,
   primaryCardAction,
   primaryTopicAction,
   relTime,
   repoColor,
-  topicCardActions,
-  topicPromotable,
+  runSupersededByBroadcast,
+  urgencyTier,
 } from './board-ui.js';
 import type { Issue, Topic, TopicStatus } from './types.js';
 
@@ -184,19 +185,24 @@ describe('matchesIssue', () => {
 });
 
 describe('relTime', () => {
-  it('renders seconds for very recent timestamps', () => {
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    expect(relTime(now)).toMatch(/^\d+s ago$/);
+  it('renders seconds for recent timestamps', () => {
+    const recent = new Date(Date.now() - 30_000).toISOString().replace('T', ' ').slice(0, 19);
+    expect(relTime(recent)).toMatch(/^\d+s ago$/);
   });
 
   it('handles ISO 8601 strings from SSE events', () => {
-    const now = new Date().toISOString();
-    expect(relTime(now)).toMatch(/^\d+s ago$/);
+    const recent = new Date(Date.now() - 30_000).toISOString();
+    expect(relTime(recent)).toMatch(/^\d+s ago$/);
   });
 
   it('handles SQLite datetime format', () => {
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    expect(relTime(now)).toMatch(/^\d+s ago$/);
+    expect(relTime(now)).toBe('just now');
+  });
+
+  it('says "just now" instead of "0s ago" on clock skew', () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    expect(relTime(future)).toBe('just now');
   });
 });
 
@@ -222,6 +228,20 @@ describe('matchesTopic', () => {
   it('rejects non-matching tokens', () => {
     expect(matchesTopic(topic, 'webhook')).toBe(false);
     expect(matchesTopic(topic, 'album webhook')).toBe(false);
+  });
+
+  it('supports title: and status: filters, with state: as an alias', () => {
+    expect(matchesTopic(topic, 'title:album')).toBe(true);
+    expect(matchesTopic(topic, 'title:webhook')).toBe(false);
+    expect(matchesTopic(topic, 'status:shaping')).toBe(true);
+    expect(matchesTopic(topic, 'status:ready')).toBe(false);
+    expect(matchesTopic(topic, 'state:shaping')).toBe(true);
+  });
+
+  it('ignores issue-only field filters so cross-entity queries keep ideas', () => {
+    expect(matchesTopic(topic, 'repo:web album')).toBe(true);
+    expect(matchesTopic(topic, 'owner:acme number:42 shaping')).toBe(true);
+    expect(matchesTopic(topic, 'body:exif')).toBe(true);
   });
 });
 
@@ -262,42 +282,20 @@ describe('excerpt', () => {
   });
 });
 
-describe('unified funnel vocabulary (primaryTopicAction / topicCardActions)', () => {
-  it('labels unshaped ideas "Shape"', () => {
-    expect(primaryTopicAction('new')).toEqual({ label: 'Shape', kind: 'shape' });
-    expect(primaryTopicAction('shaping')).toEqual({ label: 'Shape', kind: 'shape' });
+describe('unified funnel vocabulary (primaryTopicAction)', () => {
+  it('labels unshaped ideas "Talk it through"', () => {
+    expect(primaryTopicAction('new')).toEqual({ label: 'Talk it through', kind: 'shape' });
+    expect(primaryTopicAction('shaping')).toEqual({ label: 'Talk it through', kind: 'shape' });
   });
 
-  it('labels the realized gate "Realize"', () => {
-    expect(primaryTopicAction('ready')).toEqual({ label: 'Realize', kind: 'realize' });
+  it('labels the build gate "Build it"', () => {
+    expect(primaryTopicAction('ready')).toEqual({ label: 'Build it', kind: 'realize' });
   });
 
-  it('labels in-flight ideas "Open studio"', () => {
+  it('labels in-flight ideas "Open build"', () => {
     for (const status of ['realizing', 'shipped', 'dropped'] as TopicStatus[]) {
-      expect(primaryTopicAction(status)).toEqual({ label: 'Open studio', kind: 'studio' });
+      expect(primaryTopicAction(status)).toEqual({ label: 'Open build', kind: 'studio' });
     }
-  });
-
-  it('promotable only before work links', () => {
-    for (const status of ['new', 'shaping', 'ready'] as TopicStatus[]) {
-      expect(topicPromotable(status, 0)).toBe(true);
-      expect(topicPromotable(status, 1)).toBe(false);
-    }
-    expect(topicPromotable('realizing', 0)).toBe(false);
-    expect(topicPromotable('dropped', 0)).toBe(false);
-  });
-
-  it('includes a promote row only when promotable, and always a studio row', () => {
-    expect(topicCardActions('shaping', true)).toEqual([
-      { id: 'promote', label: 'Promote to issue' },
-      { id: 'open-studio', label: 'Open idea studio' },
-    ]);
-    expect(topicCardActions('shaping', false)).toEqual([
-      { id: 'open-studio', label: 'Open idea studio' },
-    ]);
-    expect(topicCardActions('realizing', false)).toEqual([
-      { id: 'open-studio', label: 'Open idea studio' },
-    ]);
   });
 
   it('issues carrying a shaped idea get an open-studio row back to the thread', () => {

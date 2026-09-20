@@ -102,9 +102,17 @@ export function ActionStatusStrip({
   const done = actions.filter((a) => !isLive(a));
   const visibleDone = expanded ? done : done.slice(0, DONE_CAP);
 
+  // Live runs get their own chrome — solid strip + running count in the
+  // label — so the eye never files them under "ignorable history" the way
+  // the muted Delivered ribbons teach.
   return (
-    <div className="action-strip" role="status" aria-live="polite" aria-label="Cockpit actions">
-      <span className="released-label">Cockpit</span>
+    <div
+      className={`action-strip${live.length > 0 ? ' live' : ''}`}
+      role="status"
+      aria-live="polite"
+      aria-label={live.length > 0 ? `Cockpit actions, ${live.length} running` : 'Cockpit actions'}
+    >
+      <span className="released-label">Cockpit{live.length > 0 ? ` · ${live.length} running` : ''}</span>
       <div className="action-strip-list">
         {live.map((a) => (
           <ActionItem key={a.id} action={a} onOpen={onSelect ? () => onSelect(a.id) : undefined} />
@@ -113,7 +121,7 @@ export function ActionStatusStrip({
           <ActionItem key={a.id} action={a} onOpen={onSelect ? () => onSelect(a.id) : undefined} />
         ))}
         {done.length > DONE_CAP && (
-          <button className="released-toggle" onClick={() => setExpanded((e) => !e)}>
+          <button className="released-toggle" onClick={() => setExpanded((e) => !e)} aria-expanded={expanded}>
             {expanded ? 'Collapse' : `+${done.length - DONE_CAP} more`}
           </button>
         )}

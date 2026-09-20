@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import type { Issue, Topic } from '@/lib/types';
-import { relTime } from '@/lib/board-ui';
+import { closedReasonLabel, relTime } from '@/lib/board-ui';
 import { IssueRef } from '@/components/board/issue-ref';
 
 // Delivered history for the unified funnel: closed issues + shipped/dropped
@@ -36,6 +36,9 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
   const linkedIds = new Set<number>();
   for (const list of byTopic.values()) for (const i of list) linkedIds.add(i.id);
 
+  // Plain-words tags: raw states ("rollout", "shipped") are never shown.
+  const issueTag = (i: Issue) =>
+    i.releaseTag ?? (i.state === 'rollout' ? 'Released' : closedReasonLabel(i.stateReason));
   const rows = [
     // One ribbon per delivered idea, with its work nested as muted lines.
     ...topics.map((t) => {
@@ -45,11 +48,12 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
         at: t.updatedAt,
         href: `/topics/${t.id}`,
         label: t.title,
-        tag: t.status,
+        tag: t.status === 'dropped' ? 'Archived' : 'Delivered',
+        shipped: t.status === 'shipped',
         kind: 'topic' as const,
         work: work.map((i) => ({
-          issue: { owner: i.owner, repo: i.repo, number: i.number, title: i.title },
-          tag: i.releaseTag ?? i.state,
+          issue: { id: i.id, owner: i.owner, repo: i.repo, number: i.number, title: i.title },
+          tag: issueTag(i),
           at: i.updatedAt,
         })),
       };
@@ -61,8 +65,9 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
         key: `issue-${i.id}`,
         at: i.updatedAt,
         href: `/issues/${i.id}`,
-        issue: { owner: i.owner, repo: i.repo, number: i.number, title: i.title },
-        tag: i.releaseTag ?? i.state,
+        issue: { id: i.id, owner: i.owner, repo: i.repo, number: i.number, title: i.title },
+        tag: issueTag(i),
+        shipped: i.state === 'rollout',
         kind: 'issue' as const,
         work: [],
       })),
@@ -74,13 +79,15 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
       <span className="released-label">Delivered ({rows.length})</span>
       <div className="released-list">
         {visible.map((row) => (
-          <div key={row.key} className="delivered-ribbon">
+          <div key={row.key} className={`delivered-ribbon${row.shipped ? ' shipped' : ''}`}>
             <Link href={row.href} className="released-item delivered-item">
               <span className="released-tag delivered-tag">{row.tag}</span>
               {'issue' in row ? (
                 <span className="released-title"><IssueRef issue={row.issue} /></span>
               ) : (
-                <span className="released-title">{row.label}</span>
+                <span className="released-title">
+                  {row.shipped ? '✓ ' : ''}{row.label}
+                </span>
               )}
               {row.work.length > 0 && <span className="delivered-work-count">{row.work.length}</span>}
               <span className="released-time">{relTime(row.at)}</span>
@@ -88,7 +95,7 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
             {row.work.length > 0 && (
               <div className="delivered-ribbon-work">
                 {row.work.map((w) => (
-                  <Link key={`/issues/${w.issue.number}`} href={`/issues/${w.issue.number}`} className="released-item delivered-item delivered-work-line">
+                  <Link key={`/issues/${w.issue.id}`} href={`/issues/${w.issue.id}`} className="released-item delivered-item delivered-work-line">
                     <span className="released-tag delivered-tag">{w.tag}</span>
                     <span className="released-title"><IssueRef issue={w.issue} /></span>
                     <span className="released-time">{relTime(w.at)}</span>
@@ -100,7 +107,7 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
         ))}
       </div>
       {rows.length > DELIVERED_CAP && (
-        <button className="released-toggle" onClick={() => setExpanded((e) => !e)}>
+        <button className="released-toggle" onClick={() => setExpanded((e) => !e)} aria-expanded={expanded}>
           {expanded ? 'Collapse' : `+${rows.length - DELIVERED_CAP} more`}
         </button>
       )}

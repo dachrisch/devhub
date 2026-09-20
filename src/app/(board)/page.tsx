@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { Issue } from '@/lib/types';
+import type { Issue, Topic } from '@/lib/types';
 import { matchesIssue } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { WelcomeScreen } from '@/components/auth-ui';
@@ -31,6 +31,9 @@ import {
 // projects/issues) and jumps to the project board or recap page.
 export default function BoardPage() {
   const [issues, setIssues] = useState<Issue[]>([]);
+  // Settled ideas for the Delivered ribbons: without them every home ribbon
+  // falls back to the orphan flat row and the idea↔work grouping never shows.
+  const [deliveredTopics, setDeliveredTopics] = useState<Topic[]>([]);
   const [connected, setConnected] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
@@ -147,6 +150,21 @@ export default function BoardPage() {
     };
   }, [signedIn]);
 
+  const fetchDeliveredTopics = useCallback(async () => {
+    try {
+      const res = await fetch('/api/topics');
+      if (!res.ok) return;
+      const data = (await res.json()) as { topics?: Topic[] };
+      if (data.topics) {
+        setDeliveredTopics(
+          data.topics.filter((t) => t.status === 'shipped' || t.status === 'dropped')
+        );
+      }
+    } catch {
+      // ignore — delivered history degrades to issue-only ribbons
+    }
+  }, []);
+
   useEffect(() => {
     if (!signedIn) return;
     let active = true;
@@ -159,6 +177,8 @@ export default function BoardPage() {
         }
       })
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchDeliveredTopics();
 
     const es = new EventSource('/api/stream');
     es.onopen = () => setConnected(true);
@@ -173,6 +193,7 @@ export default function BoardPage() {
           // Project cockpit id-notification (see sse.ts): the cards + inbox
           // re-fetch via refreshKey.
           setProjectTick((t) => t + 1);
+          if (msg.type === 'topic') void fetchDeliveredTopics();
         } else if (msg.type === 'action') {
           const actionId = Number(msg.actionId);
           const status = String(msg.status);
@@ -212,19 +233,11 @@ export default function BoardPage() {
       active = false;
       es.close();
     };
-  }, [signedIn, upsert, hydrateAction]);
+  }, [signedIn, upsert, hydrateAction, fetchDeliveredTopics]);
 
-  useEffect(() => {
-    if (!refreshError) return;
-    const t = setTimeout(() => setRefreshError(null), 8000);
-    return () => clearTimeout(t);
-  }, [refreshError]);
-
-  useEffect(() => {
-    if (!actionError) return;
-    const t = setTimeout(() => setActionError(null), 8000);
-    return () => clearTimeout(t);
-  }, [actionError]);
+  // Error banners persist until dismissed or superseded — an 8s timer
+  // risks hiding the failure from an operator who looked away, and a missed
+  // autonomous-run failure is the core risk of this board.
 
   // Model list for the cockpit picker. The endpoint returns the full server
   // registry plus the operator's last-used default (set by a develop run or a
@@ -391,6 +404,7 @@ export default function BoardPage() {
                     placeholder="Search… e.g. repo:devhub title:auth"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
+                    aria-label="Search issues"
                   />
                   <div className="search-help" ref={helpRef}>
                     <button
@@ -411,6 +425,7 @@ export default function BoardPage() {
                         <div className="search-help-item"><code>body:</code> match body</div>
                         <div className="search-help-item"><code>number:</code> match issue #</div>
                         <div className="search-help-note">Combine filters with plain text. e.g. repo:web auth</div>
+                        <div className="search-help-note">Ideas live on project boards — there title: and status: work, and repo:/owner:/number: are ignored.</div>
                       </div>
                     )}
                   </div>
@@ -523,7 +538,7 @@ export default function BoardPage() {
           the first card. */}
       <DeliveredSection
         issues={issues.filter((i) => i.state === 'rollout' || i.state === 'closed')}
-        topics={[]}
+        topics={deliveredTopics}
       />
 
       {searchSheetOpen && isMobile && (
