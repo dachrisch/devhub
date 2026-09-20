@@ -357,7 +357,7 @@ export default function BoardPage() {
     return (
       <div className="page-wrap">
         <AppHeader title="DevHub" />
-        <main className="board-main">
+        <main id="board-main" className="board-main">
           {!loading && <WelcomeScreen denied={denied} />}
         </main>
       </div>
@@ -424,7 +424,7 @@ export default function BoardPage() {
         }
       />
 
-      <main className="board-main">
+      <main id="board-main" className="board-main">
       {refreshError && (
         <div className="banner" role="alert">
           <span>
