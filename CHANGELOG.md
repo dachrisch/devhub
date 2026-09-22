@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.29.1](https://github.com/dachrisch/devhub/compare/v1.29.0...v1.29.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* **deps:** update dependency undici to v8.11.0 ([#236](https://github.com/dachrisch/devhub/issues/236)) ([de4a876](https://github.com/dachrisch/devhub/commit/de4a87621100bb0e62f11e2df380632ffae28142))
+
 ## [1.29.0](https://github.com/dachrisch/devhub/compare/v1.28.0...v1.29.0) (2026-09-20)
 
 
