@@ -1201,10 +1201,14 @@ export function chooseIdeaOption(messageId: number, optionId: string): IdeaMessa
 }
 
 export function deleteTopic(id: number): void {
-  // Unlink issues first; the topic itself is history.
-  getDb().prepare('UPDATE issues SET topic_id = NULL WHERE topic_id = ?').run(id);
+  // Every issue keeps a home — an issue that would otherwise be orphaned
+  // gets a fresh topic instead (single-card consolidation: there is no
+  // page for a topic-less issue anymore).
+  for (const issue of getIssuesByTopic(id)) {
+    backfillTopicForIssue(issue);
+  }
   // The options thread goes with the topic (FK cascade is not enforced).
-  getDb().prepare('DELETE FROM idea_messages WHERE topic_id = ?').run(id);
+  getDb().prepare(`DELETE FROM idea_messages WHERE topic_id = ?`).run(id);
   // Duplicates merged into this topic lose their winner pointer (FK is not
   // enforced by default in SQLite, so clear explicitly).
   getDb().prepare('UPDATE topics SET merged_into_topic_id = NULL WHERE merged_into_topic_id = ?').run(id);
