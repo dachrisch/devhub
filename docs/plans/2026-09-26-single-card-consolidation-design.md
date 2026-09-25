@@ -83,13 +83,20 @@ threaded through wherever `LinkedWork[]` is built for card props.
 
 - Delete `src/app/(board)/issues/[id]/page.tsx` and its route directory —
   no redirect.
-- `src/components/board/issue-card.tsx` and `mobile-card.tsx` predate the
-  unified card (per `2026-09-09-hub-unified-funnel-plan.md`, kept for
-  `backlog` issues without a topic — a case that no longer exists per the
-  backfill above). Implementation should verify remaining call sites
-  render `UnifiedTopicCard`/`MobileUnifiedTopicCard` instead and retire
-  these components if confirmed unused, rather than leaving a second card
-  implementation to link-fix in step 4.
+- **Correction after checking `kanban-board.tsx`:** `issue-card.tsx`
+  (`IssueCard`/`MobileIssueCard`/`IssueCardSheet`) is *not* dead code — it's
+  the board's primary card for issues in the `ready`/`realizing`/`rollout`
+  funnel columns (batch-select checkbox, `DevelopModal` to start work,
+  transition/merge actions, run chips), distinct from `UnifiedTopicCard`
+  which only renders the `idea` column. It stays as its own component —
+  no retirement, no rendering unification with `UnifiedTopicCard`. Its
+  title link (`issue-card.tsx:93`) and non-"work" primary footer link
+  (`issue-card.tsx:151`) currently go to `/issues/${issue.id}`; both
+  change to `/topics/${issue.topicId}` (always non-null per the backfill).
+  `CardActionsMenu`'s existing `open-github` action
+  (`issue-card.tsx:67-69`, already opens `issue.htmlUrl`) needs no change —
+  it's already the "view raw issue on GitHub" affordance this design
+  wants. `MobileCard`'s equivalent links get the same fix.
 - Fix remaining internal `/issues/${...}` links found in
   `delivered-section.tsx`, `card-actions-menu.tsx`, `card-actions-sheet.tsx`,
   `mobile-search-sheet.tsx`, and `(board)/page.tsx:519` — each becomes an
