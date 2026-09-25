@@ -1,4 +1,13 @@
-# Single-card consolidation: fold work items into the idea studio (2026-09-26)
+# Single-card consolidation + repo health dashboard (2026-09-26)
+
+Two related but independently-implementable pieces below: **Part 1** folds
+the work item into the idea studio (routing/rendering consolidation only).
+**Part 2** adds a gh-dash-style repo health view (new GitHub reads + a new
+integrate action) — separate scope, separate implementation plan, can land
+in either order but is written up together since both touch how "repo"
+surfaces in the UI.
+
+## Part 1: fold work items into the idea studio
 
 Branch: `ui/redesign-polish` (continues on top of the unified-funnel work:
 `2026-09-09-hub-unified-funnel-plan.md`, `d1dfd82` two-verb funnel / lineage
@@ -23,6 +32,10 @@ This is safe to do fully: `github.ts` ingest already backfills a topic for
 every issue at creation time ("Unified funnel backfill (Phase 4): everything
 is born an idea", `src/lib/github.ts:637-654`) — there is no orphan-issue
 case to design around. Every `Issue.topicId` is non-null in practice.
+
+(Project's "settings-only page" row above gains a richer counterpart in
+Part 2 below — the health dashboard — but stays out of the dashboard card
+rotation either way.)
 
 ## 1. Topic/studio page — Work panel absorbs the issue page
 
@@ -135,11 +148,91 @@ schema change. The one interface change is `LinkedWork` gaining `htmlUrl`
 - `headless-check.mjs` smoke pass on `/`, `/topics/<id>`, `/projects/<id>`
   per this repo's existing acceptance pattern.
 
+## Part 2: repo health dashboard (gh-dash-style)
+
+Modeled on `gh-dash`: for a given repo, surface open PRs (review + CI
+status), default-branch pipeline status, and the full open-issue list
+cross-referenced against DevHub topics, with a manual **Integrate** action
+for issues that aren't tracked yet — the on-ramp for tickets filed by
+other contributors directly on GitHub rather than through DevHub.
+
+### Scope
+
+Works for **any** GitHub repo reachable with the stored token, not only
+`GITHUB_TOPICS`-matched ones (per your call — closer to gh-dash itself
+than to a DevHub-only view). A managed repo (existing `Project` row)
+shows this as a section on `/projects/[id]`. An unmanaged repo is reached
+through a new repo picker and renders the same content without a `Project`
+existing yet — the route resolves by `owner/repo`
+(`/projects/by-repo/[owner]/[repo]`), redirecting to the numeric
+`/projects/[id]` once one exists. The first `Integrate` click (or an
+explicit "Track this repo") creates the `Project` via the existing
+`ensureProjectForRepo` — the same function the automatic ingest sweep
+already uses, so a repo doesn't need two different "how do I get a
+Project" code paths.
+
+### Repo picker
+
+New surface (search field alongside the existing repo filter chips).
+Backed by the repo list DevHub already fetches every ingest sweep
+(`GET /user/repos` in `refreshIssues`, `src/lib/github.ts:607`) — today
+discarded unless it matches `repoMatchesTopics`. No new GitHub call, just
+stop discarding non-matching repos before this specific listing, and flag
+each with whether a `Project` already exists.
+
+### Health section (per repo)
+
+Three live-fetched panels — computed on page load, not persisted or
+polled, same trust boundary as the rest of the app's token-scoped reads:
+
+- **Pipeline**: latest GitHub Actions run on the repo's default branch
+  (`GET /repos/{o}/{r}/actions/runs?branch={default}&per_page=1`) —
+  green / red / running. Needs `default_branch` added to the `GhRepo`
+  shape (not currently captured).
+- **Open PRs**: `GET /repos/{o}/{r}/pulls?state=open`, each annotated
+  with review state and CI status for its head SHA (check-runs for that
+  ref). This is the "anything to react on" signal: failing checks,
+  changes requested, mergeable-and-idle.
+- **Issues**: `GET /repos/{o}/{r}/issues?state=open`, filtered through
+  the existing `isPullRequest`/`isBotIssue` guards (same as ingest).
+  Cross-referenced by `githubIssueId` against stored issues
+  (`getIssueByGithub`): already-tracked ones show a small "tracked →
+  topic" indicator (dedup — not a second card); untracked ones get the
+  **Integrate** button.
+
+### Integrate action
+
+New route, e.g. `POST /api/repos/[owner]/[repo]/issues/[number]/integrate`
+— calls `ensureProjectForRepo` then the same `createTopic` + `assignIssue`
+pairing the automatic backfill already performs in
+`src/lib/github.ts:646-653`. That pairing should be factored into a
+shared helper so the automatic sweep and this manual action can't drift
+apart. `status: 'ready'` on creation, matching the existing backfill
+rationale (a GitHub issue already carries a written spec).
+
+### Data flow
+
+No new auth/token handling — reuses the per-session GitHub token already
+used for ingest and issue actions. New read-only calls: PR list +
+check-runs per PR, actions runs for the default branch, issue list for an
+arbitrary (possibly unmanaged) repo. Only `Integrate` writes, and it
+writes through existing, already-tested paths.
+
+### Testing
+
+- Route test for `Integrate`: idempotent on repeat calls for the same
+  issue (mirrors the existing ingest backfill's idempotency — "Idempotent
+  by the topicId check" comment at `github.ts:642`).
+- Mocked-GitHub tests for the health section's pass/fail/running
+  rendering, following this repo's existing mocked-GitHub fixture pattern
+  used for board tests.
+
 ## Deferred (separate scope)
 
 Mobile/visual triage (oversized text/elements seen on the topic page,
 project board, and home screenshots) is explicitly deferred until after
-this merge ships — auditing screens that are about to be restructured
-would be partly wasted work. Once this lands, a follow-up pass audits and
+Part 1 ships — auditing screens that are about to be restructured would
+be partly wasted work. Once Part 1 lands, a follow-up pass audits and
 prioritizes the *resulting* surfaces (fewer of them, since `/issues/[id]`
-is gone) for mobile sizing.
+is gone) for mobile sizing. Part 2 is independent of this deferral and can
+land before or after the mobile pass.
