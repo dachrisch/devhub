@@ -1104,6 +1104,20 @@ export function getIssuesByTopic(topicId: number): Issue[] {
   return rows.map(serializeIssue);
 }
 
+// Gives an issue a fresh, linked topic. Used by the ingest backfill (every
+// GitHub issue is "born an idea") and by deleteTopic (an issue must never
+// lose its topic — see docs/plans/2026-09-26-single-card-consolidation-design.md).
+export function backfillTopicForIssue(issue: Issue): Topic {
+  const topic = createTopic({
+    title: issue.title,
+    notes: issue.body,
+    projectId: issue.projectId ?? null,
+    status: 'ready',
+  });
+  assignIssue(issue.id, { topicId: topic.id });
+  return topic;
+}
+
 // Live active-idea predicate (devhub#208): the cached `topics.status` can go
 // stale when a linked issue closes outside the explicit mutation helpers
 // (reconcile/sweep, deletes). The board recomputes the effective column from

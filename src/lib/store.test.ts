@@ -254,6 +254,28 @@ describe('store', () => {
     });
     expect(store.getIssue(id)?.title).toBe('Renamed after reopen');
   });
+
+  it('backfills a fresh ready topic for an issue and links it', () => {
+    store.upsertIssue({
+      githubIssueId: 501,
+      owner: 'dachrisch',
+      repo: 'widget',
+      number: 5,
+      title: 'Fix the thing',
+      body: 'Some details',
+      htmlUrl: 'https://github.com/dachrisch/widget/issues/5',
+    });
+    const issue = store.getIssueByGithub('dachrisch', 'widget', 5)!;
+    expect(issue.topicId).toBeNull();
+
+    const topic = store.backfillTopicForIssue(issue);
+
+    expect(topic.title).toBe('Fix the thing');
+    expect(topic.notes).toBe('Some details');
+    expect(topic.status).toBe('ready');
+    const refreshed = store.getIssue(issue.id)!;
+    expect(refreshed.topicId).toBe(topic.id);
+  });
 });
 
 describe('actions', () => {
