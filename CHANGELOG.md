@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.29.5](https://github.com/dachrisch/devhub/compare/v1.29.4...v1.29.5) (2026-09-25)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @types/node to v24.19.0 ([#244](https://github.com/dachrisch/devhub/issues/244)) ([c1bcdc0](https://github.com/dachrisch/devhub/commit/c1bcdc09bf254e263140872e124e4549ef4d03df))
+
 ## [1.29.4](https://github.com/dachrisch/devhub/compare/v1.29.3...v1.29.4) (2026-09-25)
 
 
