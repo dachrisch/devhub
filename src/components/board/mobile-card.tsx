@@ -35,7 +35,7 @@ export function MobileCard({ issue, color, busy, justStarted = false, onPrimaryA
         <span className="mobile-card-age">{relTime(issue.updatedAt)}</span>
       </div>
       <div className="mobile-card-body">
-        <Link href={`/issues/${issue.id}`} className="mobile-card-body-link">
+        <Link href={`/topics/${issue.topicId}`} className="mobile-card-body-link">
           <span className="mobile-card-title">{issue.title}</span>
           {issue.body && <div className="mobile-card-excerpt">{excerpt(issue.body)}</div>}
         </Link>
@@ -76,7 +76,7 @@ export function MobileCard({ issue, color, busy, justStarted = false, onPrimaryA
             {primary.label}
           </button>
         ) : (
-          <Link href={`/issues/${issue.id}`} className="mobile-card-primary mobile-card-primary-link">
+          <Link href={`/topics/${issue.topicId}`} className="mobile-card-primary mobile-card-primary-link">
             {primary.label}
           </Link>
         )}

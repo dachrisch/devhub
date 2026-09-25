@@ -97,7 +97,12 @@ export function MobileSearchSheet({
           <div className="search-sheet-label">{matches.length} matches</div>
           <div className="search-sheet-matches">
             {matches.map((issue) => (
-              <Link key={issue.id} href={`/issues/${issue.id}`} className="search-sheet-match" onClick={onClose}>
+              <Link
+                key={issue.id}
+                href={issue.topicId != null ? `/topics/${issue.topicId}` : issue.htmlUrl}
+                className="search-sheet-match"
+                onClick={onClose}
+              >
                 <span className={`dot ${issue.state}`} />
                 <span className="search-sheet-match-title">
                   #{issue.number} {issue.title}

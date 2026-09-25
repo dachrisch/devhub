@@ -52,7 +52,7 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
         shipped: t.status === 'shipped',
         kind: 'topic' as const,
         work: work.map((i) => ({
-          issue: { id: i.id, owner: i.owner, repo: i.repo, number: i.number, title: i.title },
+          issue: { id: i.id, owner: i.owner, repo: i.repo, number: i.number, title: i.title, htmlUrl: i.htmlUrl },
           tag: issueTag(i),
           at: i.updatedAt,
         })),
@@ -64,8 +64,8 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
       .map((i) => ({
         key: `issue-${i.id}`,
         at: i.updatedAt,
-        href: `/issues/${i.id}`,
-        issue: { id: i.id, owner: i.owner, repo: i.repo, number: i.number, title: i.title },
+        href: i.topicId != null ? `/topics/${i.topicId}` : i.htmlUrl,
+        issue: { id: i.id, owner: i.owner, repo: i.repo, number: i.number, title: i.title, htmlUrl: i.htmlUrl },
         tag: issueTag(i),
         shipped: i.state === 'rollout',
         kind: 'issue' as const,
@@ -95,11 +95,17 @@ export function DeliveredSection({ issues, topics, sectionRef }: DeliveredSectio
             {row.work.length > 0 && (
               <div className="delivered-ribbon-work">
                 {row.work.map((w) => (
-                  <Link key={`/issues/${w.issue.id}`} href={`/issues/${w.issue.id}`} className="released-item delivered-item delivered-work-line">
+                  <a
+                    key={`work-${w.issue.id}`}
+                    href={w.issue.htmlUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="released-item delivered-item delivered-work-line"
+                  >
                     <span className="released-tag delivered-tag">{w.tag}</span>
                     <span className="released-title"><IssueRef issue={w.issue} /></span>
                     <span className="released-time">{relTime(w.at)}</span>
-                  </Link>
+                  </a>
                 ))}
               </div>
             )}

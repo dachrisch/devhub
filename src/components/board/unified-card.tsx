@@ -20,6 +20,7 @@ export interface LinkedWork {
   repo: string;
   number: number;
   state: Issue['state'];
+  htmlUrl: string;
 }
 
 export interface UnifiedTopicCardProps {
@@ -121,9 +122,9 @@ function Lineage({ linked }: { linked: LinkedWork[] }) {
   return (
     <div className="card-lineage">
       <span className={`card-lineage-dot dot ${first.state}`} aria-hidden="true" />
-      <Link href={`/issues/${first.id}`} className="card-lineage-link">
+      <a href={first.htmlUrl} target="_blank" rel="noreferrer" className="card-lineage-link">
         → {first.owner}/{first.repo} #{first.number}
-      </Link>
+      </a>
       {rest > 0 && <span className="card-lineage-more">+{rest} more</span>}
     </div>
   );

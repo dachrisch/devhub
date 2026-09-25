@@ -300,8 +300,8 @@ describe('unified funnel vocabulary (primaryTopicAction)', () => {
 
   it('never offers a separate open-studio row — recap is the one route back to the studio', () => {
     const base = { state: 'backlog' as const, blockedReason: null };
-    expect(cardActions({ ...base, topicId: 7 }, false).some((a) => a.id === 'open-studio')).toBe(false);
-    expect(cardActions({ ...base, topicId: null }, false).some((a) => a.id === 'open-studio')).toBe(false);
+    expect(cardActions({ ...base, topicId: 7 }, false).some((a) => (a.id as string) === 'open-studio')).toBe(false);
+    expect(cardActions({ ...base, topicId: null }, false).some((a) => (a.id as string) === 'open-studio')).toBe(false);
     expect(cardActions({ ...base, topicId: 7 }, true).some((a) => a.id === 'work')).toBe(false);
   });
 });

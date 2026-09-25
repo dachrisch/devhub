@@ -90,7 +90,7 @@ export function IssueCard({ issue, justStarted, onStarted, onStartFailed, select
       </div>
 
       <div className="card-body">
-        <Link href={`/issues/${issue.id}`} className="title-link">
+        <Link href={`/topics/${issue.topicId}`} className="title-link">
           <div className="title">{issue.title}</div>
           {issue.body && <div className="excerpt">{excerpt(issue.body)}</div>}
         </Link>
@@ -148,7 +148,7 @@ export function IssueCard({ issue, justStarted, onStarted, onStartFailed, select
             {primary.label}
           </button>
         ) : (
-          <Link href={`/issues/${issue.id}`} className="card-primary card-primary-link">
+          <Link href={`/topics/${issue.topicId}`} className="card-primary card-primary-link">
             {primary.label}
           </Link>
         )}

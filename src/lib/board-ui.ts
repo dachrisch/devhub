@@ -145,10 +145,7 @@ export type CardActionId =
   | 'merge'
   | 'recap'
   | 'select-batch'
-  | 'open-github'
-  // Unified funnel (idea/issue seam): an issue carrying a shaped idea gets
-  // a direct row back to the studio thread — same Link treatment as Recap.
-  | 'open-studio';
+  | 'open-github';
 
 export interface CardAction {
   id: CardActionId;
