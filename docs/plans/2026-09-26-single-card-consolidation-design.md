@@ -28,10 +28,26 @@ change for any bookmarked `/issues/N` links.
 | Project (repo config) | Card on dashboard, grouping on board | No dashboard card. Filter dimension + settings-only page (still owns deploy host/domain/auto-merge/release-mode) |
 | Cockpit action | Live status strip only, capped history + "+N more" | Live strip unchanged (in-flight visibility) **plus** a real card section (own history, not capped) |
 
-This is safe to do fully: `github.ts` ingest already backfills a topic for
-every issue at creation time ("Unified funnel backfill (Phase 4): everything
-is born an idea", `src/lib/github.ts:637-654`) — there is no orphan-issue
-case to design around. Every `Issue.topicId` is non-null in practice.
+`github.ts` ingest already backfills a topic for every issue at creation
+time ("Unified funnel backfill (Phase 4): everything is born an idea",
+`src/lib/github.ts:637-654`), so new issues always arrive with a topic.
+
+**Correction:** issues can still lose their topic later — `deleteTopic`
+(`src/lib/store.ts:1189-1198`, reachable via `DELETE /api/topics/[id]`,
+`src/app/api/topics/[id]/route.ts:87-103`) nulls `topic_id` on every
+linked issue before deleting the topic. `delivered-section.tsx`'s "orphan
+issues (no topic) keep the flat ribbon" comment (line 61) confirms this
+is a real, currently-reachable case, not a legacy artifact. Fix: extract
+the `createTopic` + `assignIssue` pairing `github.ts:647-653` already does
+into a shared helper, `backfillTopicForIssue(issue: Issue): Topic` in
+`store.ts` — `createTopic({ title: issue.title, notes: issue.body,
+projectId: issue.projectId, status: 'ready' })` then
+`assignIssue(issue.id, { topicId: topic.id })`. `github.ts`'s ingest
+backfill calls it instead of duplicating the pairing; `deleteTopic` calls
+it once per linked issue instead of nulling `topic_id`, so deleting an
+idea never leaves its GitHub-tracked work without a home. This same
+helper is what Part 2's `Integrate` action calls, below. With this fix,
+`Issue.topicId` is non-null in every reachable state, not just at ingest.
 
 (Project's "settings-only page" row above gains a richer counterpart in
 Part 2 below — the health dashboard — but stays out of the dashboard card
@@ -97,12 +113,27 @@ threaded through wherever `LinkedWork[]` is built for card props.
   (`issue-card.tsx:67-69`, already opens `issue.htmlUrl`) needs no change —
   it's already the "view raw issue on GitHub" affordance this design
   wants. `MobileCard`'s equivalent links get the same fix.
-- Fix remaining internal `/issues/${...}` links found in
-  `delivered-section.tsx`, `card-actions-menu.tsx`, `card-actions-sheet.tsx`,
-  `mobile-search-sheet.tsx`, and `(board)/page.tsx:519` — each becomes an
-  external `htmlUrl` link (if it's "view the raw issue") or a
-  `/topics/${topicId}` link (if it's "go manage this work"), decided per
-  call site during implementation.
+- `board-ui.ts`'s `cardActions()` (lines 190-192) pushes `open-studio`
+  only when `issue.topicId != null`, and unconditionally pushes `recap`
+  (line 193-196) — once every issue always has a topic, `open-studio` and
+  `recap` point at the same destination, so `open-studio` becomes dead
+  weight. Remove the `open-studio` push; `recap`'s existing conditional
+  label ("Recap"/"Recap (live)") is unchanged. In `card-actions-menu.tsx`
+  and `card-actions-sheet.tsx`, delete the now-unreachable
+  `action.id === 'open-studio'` branch in each and change the `'recap'`
+  branch's `href` from `/issues/${issue.id}` to `/topics/${issue.topicId}`.
+- `delivered-section.tsx`: the nested per-issue lines inside a topic
+  ribbon (line 98, `href={`/issues/${w.issue.id}`}`) become external —
+  add `htmlUrl` to the `work` mapping's issue shape (line 55) alongside
+  the existing `id, owner, repo, number, title` fields, link to
+  `w.issue.htmlUrl`. The orphan-issue branch (lines 61-73) becomes
+  defensive-only once the `deleteTopic` fix above lands; keep it, but
+  change its `href` (line 67) to `i.topicId != null ? `/topics/${i.topicId}` :
+  i.htmlUrl` rather than assuming orphan issues are the norm.
+- `mobile-search-sheet.tsx:100` (`href={`/issues/${issue.id}`}`) and
+  `(board)/page.tsx:519` (`href={`/issues/${i.id}`}`, the "Recap →" link
+  in global search results) both become
+  `issue.topicId != null ? `/topics/${issue.topicId}` : issue.htmlUrl`.
 
 ## 4. Dashboard — unified idea list + cockpit cards
 
