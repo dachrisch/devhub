@@ -187,9 +187,6 @@ export function cardActions(
   if (!live && issue.state === 'pr') {
     actions.push({ id: 'merge', label: 'Merge PR' });
   }
-  if (issue.topicId != null) {
-    actions.push({ id: 'open-studio', label: 'Open studio' });
-  }
   actions.push({
     id: 'recap',
     label: live || (issue.state === 'developing' && !issue.blockedReason) ? 'Recap (live)' : 'Recap',
