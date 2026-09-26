@@ -3583,6 +3583,28 @@ button:disabled {
    results and the delivered ribbon) are untouched. */
 .topic-work-panel .released-item {
   flex-wrap: wrap;
+  /* Realistic content (a run timeline, a multi-paragraph activity feed, a
+     linked PR) doesn't fit the shared "pill" shape: the 360px max-width
+     and rounded-oval styling squeeze it and spill past the border. The
+     base rule's oval/chip styling is for other consumers of
+     `.released-item` (delivered-section.tsx, global search results) —
+     don't change it there, only within this panel. */
+  max-width: none;
+  border-radius: 10px;
+  align-items: flex-start;
+}
+
+/* `.released-list` is a non-wrapping horizontal-scroll row by default
+   (with a sticky right-edge gradient) — fine for short chips, but two
+   linked issues each carrying a full IssueWorkDetail need to stack
+   vertically instead of sitting side-by-side in a scrolling strip. */
+.topic-work-panel .released-list {
+  flex-direction: column;
+  overflow-x: visible;
+}
+
+.topic-work-panel .released-list::after {
+  display: none;
 }
 
 /* `flex-basis: 100%` (same technique as `.topic-work-blocked` above)
