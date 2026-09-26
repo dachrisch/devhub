@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import type { DevelopRun, IdeaMessage, Issue, IssueEvent, Project, Topic } from '@/lib/types';
@@ -59,6 +59,12 @@ export default function TopicDetailPage() {
   const [topic, setTopic] = useState<Topic | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
+  // Mirrors `issues` ids for the SSE handler below without making the
+  // EventSource-owning effect depend on `issues` state directly — a ref read
+  // doesn't trigger re-renders/re-runs, so the connection only reconnects on
+  // signedIn/validId/topicId changes, not on every unrelated broadcast that
+  // happens to call fetchAll() and produce a fresh `issues` array reference.
+  const issueIdsRef = useRef<Set<number>>(new Set());
   const [issueEvents, setIssueEvents] = useState<Record<number, IssueEvent[]>>({});
   const [issueRuns, setIssueRuns] = useState<Record<number, DevelopRun[]>>({});
   const [shippingId, setShippingId] = useState<number | null>(null);
@@ -152,6 +158,7 @@ export default function TopicDetailPage() {
         const issData = (await issRes.json()) as { issues: Issue[] };
         const linked = issData.issues.filter((i) => i.topicId === topicId);
         setIssues(linked);
+        issueIdsRef.current = new Set(linked.map((i) => i.id));
         for (const i of linked) {
           fetch(`/api/issues/${i.id}`)
             .then((r) => (r.ok ? r.json() : null))
@@ -193,7 +200,7 @@ export default function TopicDetailPage() {
           void fetchAll();
         } else if (msg.type === 'issue' && (msg.issue as Issue).topicId === topicId) {
           void fetchAll();
-        } else if (msg.type === 'run' && issues.some((i) => i.id === (msg as { issueId?: number }).issueId)) {
+        } else if (msg.type === 'run' && issueIdsRef.current.has((msg as { issueId?: number }).issueId ?? -1)) {
           const issueId = (msg as { issueId: number }).issueId;
           fetch(`/api/issues/${issueId}/runs`)
             .then((r) => (r.ok ? r.json() : null))
@@ -203,7 +210,7 @@ export default function TopicDetailPage() {
             .catch(() => {});
         } else if (msg.type === 'opencode-event') {
           const m = msg as { issueId: number; event: Record<string, unknown> };
-          if (issues.some((i) => i.id === m.issueId)) {
+          if (issueIdsRef.current.has(m.issueId)) {
             setIssueEvents((prev) => ({
               ...prev,
               [m.issueId]: [
@@ -218,7 +225,7 @@ export default function TopicDetailPage() {
       }
     };
     return () => es.close();
-  }, [signedIn, validId, topicId, fetchAll, fetchMessages, issues]);
+  }, [signedIn, validId, topicId, fetchAll, fetchMessages]);
 
   const archive = useCallback(async () => {
     if (busy) return;
