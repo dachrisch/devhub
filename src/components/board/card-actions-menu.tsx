@@ -61,16 +61,6 @@ export function CardActionsMenu({ issue, live = false, onSelect }: CardActionsMe
             action.id === 'recap' ? (
               <Link
                 key={action.id}
-                href={`/issues/${issue.id}`}
-                className="card-menu-item"
-                role="menuitem"
-                onClick={() => setOpen(false)}
-              >
-                {action.label}
-              </Link>
-            ) : action.id === 'open-studio' && issue.topicId != null ? (
-              <Link
-                key={action.id}
                 href={`/topics/${issue.topicId}`}
                 className="card-menu-item"
                 role="menuitem"

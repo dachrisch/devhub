@@ -1,15 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import type { IdeaMessage, Issue, Project, Topic } from '@/lib/types';
+import type { DevelopRun, IdeaMessage, Issue, IssueEvent, Project, Topic } from '@/lib/types';
 import { isTopicThreadLocked, relTime } from '@/lib/board-ui';
 import { useAuth } from '@/components/use-auth';
 import { WelcomeScreen } from '@/components/auth-ui';
 import { AppHeader } from '@/components/app-header';
 import { StatusPill } from '@/components/status-pill';
 import { IssueRef } from '@/components/board/issue-ref';
+import { IssueWorkDetail } from '@/components/board/issue-work-detail';
 import { deriveTopicDisplayStatus } from '@/lib/status-display';
 
 // Client-safe copy of realizeStage (src/lib/realize.ts) — the page cannot
@@ -58,6 +59,16 @@ export default function TopicDetailPage() {
   const [topic, setTopic] = useState<Topic | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
+  // Mirrors `issues` ids for the SSE handler below without making the
+  // EventSource-owning effect depend on `issues` state directly — a ref read
+  // doesn't trigger re-renders/re-runs, so the connection only reconnects on
+  // signedIn/validId/topicId changes, not on every unrelated broadcast that
+  // happens to call fetchAll() and produce a fresh `issues` array reference.
+  const issueIdsRef = useRef<Set<number>>(new Set());
+  const [issueEvents, setIssueEvents] = useState<Record<number, IssueEvent[]>>({});
+  const [issueRuns, setIssueRuns] = useState<Record<number, DevelopRun[]>>({});
+  const [shippingId, setShippingId] = useState<number | null>(null);
+  const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState<IdeaMessage[]>([]);
   const [winner, setWinner] = useState<Topic | null>(null);
   const [candidates, setCandidates] = useState<Topic[]>([]);
@@ -145,7 +156,23 @@ export default function TopicDetailPage() {
       const issRes = await fetch('/api/issues');
       if (issRes.ok) {
         const issData = (await issRes.json()) as { issues: Issue[] };
-        setIssues(issData.issues.filter((i) => i.topicId === topicId));
+        const linked = issData.issues.filter((i) => i.topicId === topicId);
+        setIssues(linked);
+        issueIdsRef.current = new Set(linked.map((i) => i.id));
+        for (const i of linked) {
+          fetch(`/api/issues/${i.id}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d: { events?: IssueEvent[] } | null) => {
+              if (d?.events) setIssueEvents((prev) => ({ ...prev, [i.id]: d.events! }));
+            })
+            .catch(() => {});
+          fetch(`/api/issues/${i.id}/runs`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d: { runs?: DevelopRun[] } | null) => {
+              if (d?.runs) setIssueRuns((prev) => ({ ...prev, [i.id]: d.runs! }));
+            })
+            .catch(() => {});
+        }
       }
       await fetchMessages();
     } catch (err) {
@@ -161,6 +188,8 @@ export default function TopicDetailPage() {
   useEffect(() => {
     if (!signedIn || !validId) return;
     const es = new EventSource('/api/stream');
+    es.onopen = () => setConnected(true);
+    es.onerror = () => setConnected(false);
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
@@ -169,7 +198,28 @@ export default function TopicDetailPage() {
           Number(msg.topicId) === topicId
         ) {
           void fetchAll();
-        } else if (msg.type === 'issue' && (msg.issue as Issue).topicId === topicId) void fetchAll();
+        } else if (msg.type === 'issue' && (msg.issue as Issue).topicId === topicId) {
+          void fetchAll();
+        } else if (msg.type === 'run' && issueIdsRef.current.has((msg as { issueId?: number }).issueId ?? -1)) {
+          const issueId = (msg as { issueId: number }).issueId;
+          fetch(`/api/issues/${issueId}/runs`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d: { runs?: DevelopRun[] } | null) => {
+              if (d?.runs) setIssueRuns((prev) => ({ ...prev, [issueId]: d.runs! }));
+            })
+            .catch(() => {});
+        } else if (msg.type === 'opencode-event') {
+          const m = msg as { issueId: number; event: Record<string, unknown> };
+          if (issueIdsRef.current.has(m.issueId)) {
+            setIssueEvents((prev) => ({
+              ...prev,
+              [m.issueId]: [
+                { id: 0, issueId: m.issueId, kind: 'opencode', payload: m.event, ts: new Date().toISOString() },
+                ...(prev[m.issueId] ?? []),
+              ],
+            }));
+          }
+        }
       } catch {
         // ignore
       }
@@ -221,6 +271,22 @@ export default function TopicDetailPage() {
       setBusy(false);
     }
   }, [mergeInto, busy, topicId, fetchAll]);
+
+  const markShipped = useCallback(
+    async (issueId: number) => {
+      setShippingId(issueId);
+      try {
+        const res = await fetch(`/api/issues/${issueId}/mark-shipped`, { method: 'POST' });
+        const data = (await res.json()) as { issue?: Issue };
+        if (data.issue) setIssues((prev) => prev.map((i) => (i.id === issueId ? data.issue! : i)));
+      } catch {
+        // ignore — the SSE `issue` broadcast will reconcile state if the request landed
+      } finally {
+        setShippingId(null);
+      }
+    },
+    []
+  );
 
   const sendReply = useCallback(async () => {
     const text = reply.trim();
@@ -456,9 +522,9 @@ export default function TopicDetailPage() {
                 {topic.status === 'realizing' && firstBlocked && (
                   <div className="topic-reply-target" role="status">
                     Answering{' '}
-                    <Link href={`/issues/${firstBlocked.id}`}>
+                    <a href={firstBlocked.htmlUrl} target="_blank" rel="noreferrer">
                       {firstBlocked.owner}/{firstBlocked.repo} #{firstBlocked.number}
-                    </Link>{' '}
+                    </a>{' '}
                     — work resumes on its own.
                   </div>
                 )}
@@ -623,13 +689,13 @@ export default function TopicDetailPage() {
                     return (
                       <li key={i.id} className="released-item">
                         <span className={`dot ${i.state}`} />
-                        <Link href={`/issues/${i.id}`} className="released-title topic-work-link">
+                        <a href={i.htmlUrl} target="_blank" rel="noreferrer" className="released-title topic-work-link">
                           {titleMatches ? (
                             <IssueRef issue={i} variant="chip" />
                           ) : (
                             <IssueRef issue={i} />
                           )}
-                        </Link>
+                        </a>
                         {titleMatches && <StatusPill issueState={i.state} />}
                         <span className="topic-work-state">{TOPIC_WORK_STATE[i.state] ?? i.state}</span>
                       {(i.resultPrUrl || i.linkedPrUrl) && (
@@ -647,6 +713,14 @@ export default function TopicDetailPage() {
                           Needs input: {i.blockedReason}
                         </div>
                       )}
+                      <IssueWorkDetail
+                        issue={i}
+                        events={issueEvents[i.id] ?? []}
+                        runs={issueRuns[i.id] ?? []}
+                        connected={connected}
+                        onMarkShipped={() => void markShipped(i.id)}
+                        shipping={shippingId === i.id}
+                      />
                     </li>
                   );
                   })}

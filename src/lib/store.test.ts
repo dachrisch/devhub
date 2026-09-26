@@ -254,6 +254,28 @@ describe('store', () => {
     });
     expect(store.getIssue(id)?.title).toBe('Renamed after reopen');
   });
+
+  it('backfills a fresh ready topic for an issue and links it', () => {
+    store.upsertIssue({
+      githubIssueId: 501,
+      owner: 'dachrisch',
+      repo: 'widget',
+      number: 5,
+      title: 'Fix the thing',
+      body: 'Some details',
+      htmlUrl: 'https://github.com/dachrisch/widget/issues/5',
+    });
+    const issue = store.getIssueByGithub('dachrisch', 'widget', 5)!;
+    expect(issue.topicId).toBeNull();
+
+    const topic = store.backfillTopicForIssue(issue);
+
+    expect(topic.title).toBe('Fix the thing');
+    expect(topic.notes).toBe('Some details');
+    expect(topic.status).toBe('ready');
+    const refreshed = store.getIssue(issue.id)!;
+    expect(refreshed.topicId).toBe(topic.id);
+  });
 });
 
 describe('actions', () => {
@@ -398,7 +420,9 @@ describe('projects & topics (devhub#167)', () => {
 
     store.deleteTopic(inbox.id);
     expect(store.getTopic(inbox.id)).toBeNull();
-    expect(store.getIssue(issue.id)?.topicId).toBeNull();
+    // Issue gets a fresh backfilled topic instead of being orphaned
+    expect(store.getIssue(issue.id)?.topicId).not.toBeNull();
+    expect(store.getIssue(issue.id)?.topicId).not.toBe(inbox.id);
   });
 
   it('keeps topic status synced automatically as its issue changes state (no explicit refresh call)', () => {
@@ -512,6 +536,30 @@ describe('projects & topics (devhub#167)', () => {
     expect(store.chooseIdeaOption(hub.id, 'opt-9')).toBeNull();
     store.deleteTopic(topic.id);
     expect(store.getIdeaMessages(topic.id)).toHaveLength(0);
+  });
+
+  it('backfills a replacement topic for linked issues instead of orphaning them on delete', () => {
+    const topic = store.createTopic({ title: 'Doomed idea' });
+    store.upsertIssue({
+      githubIssueId: 502,
+      owner: 'dachrisch',
+      repo: 'widget',
+      number: 6,
+      title: 'Linked work',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/widget/issues/6',
+    });
+    const issue = store.getIssueByGithub('dachrisch', 'widget', 6)!;
+    store.assignIssue(issue.id, { topicId: topic.id });
+
+    store.deleteTopic(topic.id);
+
+    const refreshed = store.getIssue(issue.id)!;
+    expect(refreshed.topicId).not.toBeNull();
+    expect(refreshed.topicId).not.toBe(topic.id);
+    const newTopic = store.getTopic(refreshed.topicId!)!;
+    expect(newTopic.title).toBe('Linked work');
+    expect(store.getTopic(topic.id)).toBeNull();
   });
 
   it('excludes a stale realizing topic whose only linked issue is settled (devhub#208)', async () => {

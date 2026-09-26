@@ -1,0 +1,133 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+
+name: "🚀 Stage deploy"
+
+# Manual staging deploys ("issue" one from the Actions tab, picking any
+# branch). Builds the branch image, pushes it tagged ONLY as
+# stage / stage-<sha> (never latest — the shared push part would move the
+# prod tag), then recreates the devhub-stage container on the stage host.
+#
+# One-time setup (GitHub → repo Settings → Environments → New environment
+# named `staging`):
+#   Vars:    STAGE_HOST (stage ssh host), STAGE_USER, STAGE_SSH_PORT (22),
+#            STAGE_PORT (host port, e.g. 3111), STAGE_URL (public URL, no
+#            trailing slash — used for the environment link AND the OAuth
+#            callback ${STAGE_URL}/api/auth/callback)
+#   Secrets: STAGE_SSH_KEY (private key for STAGE_USER), DOCKER_TOKEN already
+#            exists at repo level for Docker Hub pushes, plus the app runtime:
+#            GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (from a STAGING GitHub
+#            OAuth App whose callback is ${STAGE_URL}/api/auth/callback —
+#            localhost and prod apps can't be reused, the callback is fixed
+#            at app creation), OPENCODE_BASIC_PASSWORD (or OPENCODE_API_KEY).
+# Host prerequisites (one-time, on the stage host): docker installed, a
+# Traefik (or other) route from STAGE_URL to 127.0.0.1:${STAGE_PORT}.
+# NOTE: the stage host has no WORKSPACE_ROOT checkouts, so develop/realize
+# runs fail there — stage is for reviewing UI + board flows, not agents.
+
+on:
+  workflow_dispatch:
+
+run-name: "Stage deploy ${{ github.ref_name }} @ ${{ github.sha }}"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage-deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY: docker.io
+  IMAGE: docker.io/dachrisch/devhub
+
+jobs:
+  build:
+    uses: ./.github/workflows/part_docker_build.yaml
+    with:
+      image_name: devhub
+
+  push-stage:
+    needs: [build]
+    runs-on: ubuntu-latest
+    outputs:
+      stage_tag: ${{ steps.tag.outputs.stage_tag }}
+    steps:
+      - name: "📥 Download Docker image artifact"
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: /tmp
+
+      - name: "🐳 Load Docker image"
+        run: docker load --input /tmp/devhub.tar
+
+      - name: "🔐 Log into Docker Hub"
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: "🏷️ Tag + push stage image"
+        id: tag
+        run: |
+          TAG="${{ env.IMAGE }}:stage-${{ github.sha }}"
+          docker tag devhub:latest "${{ env.IMAGE }}:stage"
+          docker tag devhub:latest "$TAG"
+          docker push "${{ env.IMAGE }}:stage"
+          docker push "$TAG"
+          echo "stage_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Pushed: $TAG"
+
+  deploy:
+    needs: [push-stage]
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ vars.STAGE_URL }}
+    steps:
+      - name: "🚀 Recreate devhub-stage on the stage host"
+        uses: appleboy/ssh-action@v1
+        env:
+          STAGE_IMAGE: ${{ needs.push-stage.outputs.stage_tag }}
+          STAGE_PORT: ${{ vars.STAGE_PORT }}
+          STAGE_URL: ${{ vars.STAGE_URL }}
+          GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
+          OPENCODE_BASIC_PASSWORD: ${{ secrets.OPENCODE_BASIC_PASSWORD }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          host: ${{ vars.STAGE_HOST }}
+          username: ${{ vars.STAGE_USER }}
+          port: ${{ vars.STAGE_SSH_PORT }}
+          key: ${{ secrets.STAGE_SSH_KEY }}
+          envs: STAGE_IMAGE,STAGE_PORT,STAGE_URL,GITHUB_CLIENT_ID,GITHUB_CLIENT_SECRET,OPENCODE_BASIC_PASSWORD,OPENCODE_API_KEY
+          script: |
+            set -euo pipefail
+            PORT="${STAGE_PORT:-3111}"
+            docker pull "$STAGE_IMAGE"
+            docker stop devhub-stage 2>/dev/null || true
+            docker rm devhub-stage 2>/dev/null || true
+            docker run -d --name devhub-stage --restart unless-stopped \
+              -p "127.0.0.1:${PORT}:3000" \
+              -v devhub-stage-data:/data \
+              -e NODE_ENV=production \
+              -e DEVHUB_DB=/data/stage.db \
+              -e "GITHUB_REDIRECT_URI=${STAGE_URL}/api/auth/callback" \
+              -e "GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}" \
+              -e "GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}" \
+              -e "OPENCODE_BASIC_PASSWORD=${OPENCODE_BASIC_PASSWORD:-}" \
+              -e "OPENCODE_API_KEY=${OPENCODE_API_KEY:-}" \
+              "$STAGE_IMAGE"
+            for _ in $(seq 1 30); do
+              CODE="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/api/auth/me" || true)"
+              if [ "$CODE" = "200" ] || [ "$CODE" = "401" ]; then
+                echo "Healthy (HTTP $CODE): ${STAGE_URL}"
+                docker ps --filter name=devhub-stage --format '{{.Names}} {{.Status}}'
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "Stage container failed to answer on :${PORT}"
+            docker logs --tail 50 devhub-stage || true
+            exit 1

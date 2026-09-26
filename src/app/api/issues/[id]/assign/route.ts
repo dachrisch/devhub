@@ -38,7 +38,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   if (body.topicId !== undefined) {
     if (body.topicId === null) {
-      assignment.topicId = null;
+      // Issue.topicId is never null in any reachable state — every issue is
+      // always attached to a topic. Links throughout the app construct
+      // `/topics/${issue.topicId}` without a null check, so clearing this
+      // field would make the issue unreachable from the UI.
+      return NextResponse.json({ error: 'topicId cannot be cleared' }, { status: 400 });
     } else {
       const topicId = Number(body.topicId);
       if (!Number.isInteger(topicId) || !getTopic(topicId)) {

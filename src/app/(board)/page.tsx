@@ -516,7 +516,7 @@ export default function BoardPage() {
                   <Link href={i.projectId != null ? `/projects/${i.projectId}` : '/'} className="released-title">
                     <IssueRef issue={i} />
                   </Link>
-                  <Link href={`/issues/${i.id}`} className="ghost">
+                  <Link href={i.topicId != null ? `/topics/${i.topicId}` : i.htmlUrl} className="ghost">
                     Recap →
                   </Link>
                 </span>
