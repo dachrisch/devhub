@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.30.0](https://github.com/dachrisch/devhub/compare/v1.29.5...v1.30.0) (2026-09-26)
+
+
+### Features
+
+* **board:** delete /issues/[id] — the topic studio is the one work surface now ([b20a529](https://github.com/dachrisch/devhub/commit/b20a5298fda9bf00671e1805e0f02211411b4e9d))
+* **topics:** embed issue work detail directly in the studio page ([f3b23ed](https://github.com/dachrisch/devhub/commit/f3b23edced23df229a2ecf6e51de6a6ab2bc583a))
+
+
+### Bug Fixes
+
+* **api:** reject topicId:null on the issue assign route ([a59bc9b](https://github.com/dachrisch/devhub/commit/a59bc9b15347f0bd21b25637e411887e8d4f7303))
+* **topics:** stack work-panel issues and drop pill sizing for real content ([b07faab](https://github.com/dachrisch/devhub/commit/b07faabc9e3dc098c83048532d80b1c699df4a24))
+* **topics:** wrap work-panel rows at all widths, stabilize studio SSE connection ([de2a4b3](https://github.com/dachrisch/devhub/commit/de2a4b3ebaec92468048d3ed68c7ae9ab93ce166))
+
 ## [1.29.5](https://github.com/dachrisch/devhub/compare/v1.29.4...v1.29.5) (2026-09-25)
 
 
