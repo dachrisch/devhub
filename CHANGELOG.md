@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.30.2](https://github.com/dachrisch/devhub/compare/v1.30.1...v1.30.2) (2026-09-27)
+
+
+### Bug Fixes
+
+* **auth:** single-flight OAuth refresh; never drop realize work silently ([0b4fce5](https://github.com/dachrisch/devhub/commit/0b4fce524a6c73120b0fff6894b72ee492172e54))
+
 ## [1.30.1](https://github.com/dachrisch/devhub/compare/v1.30.0...v1.30.1) (2026-09-27)
 
 
