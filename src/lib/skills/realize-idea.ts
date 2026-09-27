@@ -30,7 +30,9 @@ registerSkill(
       return { success: true, summary: `"${topic.title}" is already delivered.` };
     }
     const command = typeof ctx.params.command === 'string' ? (ctx.params.command as string) : '';
-    void realizeTopic(topicId, ctx.token, { command });
+    void realizeTopic(topicId, ctx.token, { command }).catch((err) => {
+      console.error(`[realize-idea] topic #${topicId} threw:`, err instanceof Error ? err.message : err);
+    });
     return {
       success: true,
       summary: `Realizing "${topic.title}" hands-off — watch the idea page; I'll surface Needs input if anything blocks.`,

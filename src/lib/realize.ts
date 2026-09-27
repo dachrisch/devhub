@@ -1,4 +1,5 @@
 import {
+  appendEvent,
   getIdeaMessages,
   getIssue,
   getIssuesByTopic,
@@ -8,6 +9,7 @@ import {
   refreshTopicStatus,
   setBlockedReason,
   updateRun,
+  updateTopic,
 } from './store';
 import { canDevelop, startWork } from './develop';
 import { buildIdeaContext } from './shape-idea';
@@ -121,6 +123,7 @@ export async function realizeTopic(
 ): Promise<RealizeOutcome> {
   const topic = getTopic(topicId);
   if (!topic) return { mode: 'gone' };
+  const priorStatus = topic.status;
   const decision = canRealize(topic, getIssuesByTopic(topicId), isRealizeLive(topicId));
   if (!decision.ok) return { mode: 'already-running' };
   if (decision.action === 'done') {
@@ -146,9 +149,37 @@ export async function realizeTopic(
       await startWork(getIssue(issue.id) ?? issue, opts.command ?? '', token, opts.selectedModel ?? null, ideaContext);
     }
     return await waitForRealization(topicId, token, opts.waitTimeoutMs ?? ENV.realizeWaitTimeoutMs);
+  } catch (err) {
+    // The realize chain must never reject: a silent rejection leaves the topic
+    // pinned at `realizing` with no live run and no blocked_reason (the failure
+    // mode behind devhub topic 28). Surface it instead.
+    return surfaceRealizeFailure(topicId, priorStatus, err);
   } finally {
     liveRealizeRuns.delete(topicId);
   }
+}
+
+// Turns an unexpected realize failure into a visible, retryable state: link the
+// reason onto the pending card, or roll the topic back when promotion itself
+// failed (no issue to carry the reason).
+function surfaceRealizeFailure(topicId: number, priorStatus: Topic['status'], err: unknown): RealizeOutcome {
+  const reason = err instanceof Error ? err.message : String(err);
+  console.error(`[realize] topic #${topicId} failed:`, reason);
+  try {
+    const pending = getIssuesByTopic(topicId).find((i) => i.state !== 'rollout' && i.state !== 'closed');
+    if (pending) {
+      appendEvent(pending.id, 'error', { message: `Realize failed: ${reason}` });
+      const updated = setBlockedReason(pending.id, `Realize failed: ${reason}`.slice(0, 500));
+      if (updated) publishIssue(updated);
+    } else {
+      // Promotion never produced an issue: roll back so the next click retries.
+      updateTopic(topicId, { status: priorStatus === 'realizing' ? 'ready' : priorStatus });
+    }
+    publishTopic(topicId);
+  } catch (surfaceErr) {
+    console.error(`[realize] topic #${topicId} failure surfacing threw:`, surfaceErr instanceof Error ? surfaceErr.message : surfaceErr);
+  }
+  return { mode: 'needs-input' };
 }
 
 // Watches the sweep (source of truth for rollout/shipped) until the topic

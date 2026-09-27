@@ -62,6 +62,8 @@ export async function POST(
         if (outcome.mode !== 'delivered' && outcome.mode !== 'needs-input') {
           console.log(`[realize-reply] topic #${topicId} ended: ${outcome.mode}`);
         }
+      }).catch((err) => {
+        console.error(`[realize-reply] topic #${topicId} threw:`, err instanceof Error ? err.message : err);
       });
     }
     const fresh = getTopic(topicId)!;

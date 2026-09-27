@@ -517,7 +517,9 @@ async function runRefinementInner(
     }
 
     if (result.improvedBody) {
-      void updateIssueBody(issue.owner, issue.repo, issue.number, result.improvedBody, token);
+      void updateIssueBody(issue.owner, issue.repo, issue.number, result.improvedBody, token).catch((err) => {
+        console.error(`[refine] issue #${issue.id} body write-back failed:`, err instanceof Error ? err.message : err);
+      });
       setIssueBody(issue.id, result.improvedBody);
       void mirrorComment(issue, 'DevHub refined this issue (added acceptance criteria, clarified scope).', token);
     } else {
@@ -551,25 +553,39 @@ export async function startWork(
   selectedModel?: OpencodeModel | null,
   ideaContext?: IdeaContext | null
 ): Promise<void> {
-  if (issue.state === 'backlog') {
-    const moved = setIssueState(issue.id, 'refinement');
-    if (moved) publishIssue(moved);
-    void mirrorLabels(issue, 'refinement', token);
-    return await runRefinement(moved ?? issue, command, token, selectedModel, ideaContext);
-  }
+  try {
+    if (issue.state === 'backlog') {
+      const moved = setIssueState(issue.id, 'refinement');
+      if (moved) publishIssue(moved);
+      void mirrorLabels(issue, 'refinement', token);
+      return await runRefinement(moved ?? issue, command, token, selectedModel, ideaContext);
+    }
 
-  if (issue.state === 'refinement') {
-    return await runRefinement(issue, command, token, selectedModel, ideaContext);
-  }
+    if (issue.state === 'refinement') {
+      return await runRefinement(issue, command, token, selectedModel, ideaContext);
+    }
 
-  if (issue.state === 'developing') {
-    // Only reachable when a previous run failed (see canDevelop): a live run
-    // must never get a concurrent duplicate session in the same worktree.
-    clearBlockedReason(issue.id);
-    return await startDevelop(issue, command, token, selectedModel, ideaContext);
-  }
+    if (issue.state === 'developing') {
+      // Only reachable when a previous run failed (see canDevelop): a live run
+      // must never get a concurrent duplicate session in the same worktree.
+      clearBlockedReason(issue.id);
+      return await startDevelop(issue, command, token, selectedModel, ideaContext);
+    }
 
-  // pr / rollout / closed — nothing to do.
+    // pr / rollout / closed — nothing to do.
+  } catch (err) {
+    // Fire-and-forget entry point: never let a surprise throw become an
+    // unhandled rejection that leaves the card silently stuck.
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(`[startWork] issue #${issue.id} failed:`, reason);
+    try {
+      appendEvent(issue.id, 'error', { message: `Work failed: ${reason}` });
+      const updated = setBlockedReason(issue.id, `Work failed: ${reason}`.slice(0, 500));
+      if (updated) publishIssue(updated);
+    } catch {
+      /* surfacing is best-effort */
+    }
+  }
 }
 
 export function canDevelop(issue: Issue): boolean {

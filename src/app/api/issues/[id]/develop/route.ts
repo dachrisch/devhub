@@ -46,7 +46,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const selectedModel: OpencodeModel | null = modelId ? { id: modelId, providerID: providerID ?? 'opencode' } : null;
 
   // Fire-and-forget: the route returns immediately; progress streams via SSE.
-  void startWork(issue, command, session.token, selectedModel);
+  void startWork(issue, command, session.token, selectedModel).catch((err) => {
+    console.error(`[develop] issue #${issueId} threw:`, err instanceof Error ? err.message : err);
+  });
 
   return NextResponse.json({ ok: true, state: issue.state }, { status: 202 });
 }

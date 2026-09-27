@@ -58,6 +58,8 @@ export async function POST(
     if (outcome.mode !== 'delivered' && outcome.mode !== 'needs-input') {
       console.log(`[realize] topic #${topicId} ended: ${outcome.mode}`);
     }
+  }).catch((err) => {
+    console.error(`[realize] topic #${topicId} threw:`, err instanceof Error ? err.message : err);
   });
   return NextResponse.json({ topic, mode: decision.action }, { status: 202 });
 }

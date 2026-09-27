@@ -54,7 +54,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         });
         continue;
       }
-      void startWork(issue, '', session.token);
+      void startWork(issue, '', session.token).catch((err) => {
+        console.error(`[batch-work] issue #${issueId} threw:`, err instanceof Error ? err.message : err);
+      });
       results.push({ id: issueId, success: true, mode: 'working' });
       continue;
     }

@@ -128,13 +128,84 @@ export async function refreshAccessToken(refreshToken: string): Promise<Exchange
   if (!res.ok) throw new Error(`GitHub token refresh failed (${res.status})`);
   const data = (await res.json()) as GithubTokenResponse;
   if (!data.access_token) {
-    throw new Error(`GitHub token refresh error: ${data.error_description ?? data.error ?? 'no token'}`);
+    throw new Error(
+      `GitHub token refresh error${data.error ? ` (${data.error})` : ''}: ${data.error_description ?? data.error ?? 'no token'}`
+    );
   }
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token ?? refreshToken,
     expiresIn: data.expires_in ?? null,
   };
+}
+
+function toSessionUser(session: AuthSession): SessionUser {
+  return {
+    id: session.id, login: session.login, avatarUrl: session.avatarUrl,
+    token: session.token, refreshToken: session.refreshToken, tokenExpiresAt: session.tokenExpiresAt,
+  };
+}
+
+// True when the access token is at/near expiry and a refresh token is available.
+function needsRefresh(session: SessionUser, withinMs = 5 * 60_000): boolean {
+  if (!session.refreshToken || !session.tokenExpiresAt) return false;
+  return new Date(session.tokenExpiresAt + 'Z').getTime() - Date.now() < withinMs;
+}
+
+function tokenExpiryFrom(expiresIn: number | null): string | null {
+  return expiresIn
+    ? new Date(Date.now() + expiresIn * 1000).toISOString().slice(0, 19).replace('T', ' ')
+    : null;
+}
+
+// GitHub rotates (invalidates) the refresh token on every use, so concurrent
+// requests for the same session must share a single refresh instead of racing
+// with the same single-use token — that race is what poisons the stored token.
+const inflightRefresh = new Map<string, Promise<SessionUser | null>>();
+
+function refreshSessionSingleFlight(session: SessionUser): Promise<SessionUser | null> {
+  const existing = inflightRefresh.get(session.id);
+  if (existing) return existing;
+  const pending = performRefresh(session).finally(() => inflightRefresh.delete(session.id));
+  inflightRefresh.set(session.id, pending);
+  return pending;
+}
+
+async function performRefresh(session: SessionUser): Promise<SessionUser | null> {
+  // Re-read first: a concurrent request may already have rotated the token.
+  const latest = getAuthSession(session.id);
+  if (!latest) return null;
+  if (!latest.refreshToken) return toSessionUser(latest);
+  // Another request refreshed between our snapshot and now — use its fresh token.
+  if (latest.token !== session.token && !needsRefresh(toSessionUser(latest), 0)) {
+    return toSessionUser(latest);
+  }
+  try {
+    const refreshed = await refreshAccessToken(latest.refreshToken);
+    updateSessionToken(
+      latest.id,
+      refreshed.accessToken,
+      refreshed.refreshToken,
+      tokenExpiryFrom(refreshed.expiresIn)
+    );
+    const after = getAuthSession(latest.id);
+    return after ? toSessionUser(after) : null;
+  } catch (err) {
+    if (isDeadRefreshToken(err)) {
+      // The refresh token is spent or revoked for good: drop it and keep serving
+      // on the current access token until it expires, then force a re-login.
+      console.warn('[requireMember] refresh token no longer valid; clearing it:', err instanceof Error ? err.message : err);
+      updateSessionToken(latest.id, latest.token, null, null);
+      const cleared = getAuthSession(latest.id);
+      return cleared ? toSessionUser(cleared) : null;
+    }
+    throw err;
+  }
+}
+
+function isDeadRefreshToken(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /bad_refresh_token|incorrect or expired/i.test(msg);
 }
 
 interface GithubUser {
@@ -182,10 +253,7 @@ export function getSession(req: Request): SessionUser | null {
   if (!id) return null;
   const session = getAuthSession(id);
   if (!session) return null;
-  return {
-    id: session.id, login: session.login, avatarUrl: session.avatarUrl,
-    token: session.token, refreshToken: session.refreshToken, tokenExpiresAt: session.tokenExpiresAt,
-  };
+  return toSessionUser(session);
 }
 
 // Deletes the session row for the request's cookie; returns the cookie to clear.
@@ -207,27 +275,18 @@ export function verifyState(req: Request): boolean {
 // ForbiddenError (not a member), or GithubUnavailableError (GitHub API/network
 // failure — transient, not an auth problem; the caller should surface a retry).
 export async function requireMember(req: Request): Promise<SessionUser> {
-  const session = getSession(req);
+  let session = getSession(req);
   if (!session) throw new UnauthorizedError('not signed in');
 
   // Proactive refresh: if the token is within 5 minutes of expiry, refresh now.
-  if (session.refreshToken && session.tokenExpiresAt) {
-    const expiresAtMs = new Date(session.tokenExpiresAt + 'Z').getTime();
-    if (expiresAtMs - Date.now() < 5 * 60_000) {
-      try {
-        const refreshed = await refreshAccessToken(session.refreshToken);
-        updateSessionToken(session.id, refreshed.accessToken, refreshed.refreshToken, refreshed.refreshToken
-          ? new Date(Date.now() + (refreshed.expiresIn ?? 3600) * 1000).toISOString().slice(0, 19).replace('T', ' ')
-          : null);
-        session.token = refreshed.accessToken;
-        session.refreshToken = refreshed.refreshToken;
-        session.tokenExpiresAt = refreshed.expiresIn
-          ? new Date(Date.now() + refreshed.expiresIn * 1000).toISOString().slice(0, 19).replace('T', ' ')
-          : null;
-        console.log('[requireMember] proactive token refresh succeeded');
-      } catch (err) {
-        console.error('[requireMember] proactive token refresh failed:', err instanceof Error ? err.message : err);
-      }
+  // Concurrent requests share one refresh via the single-flight helper.
+  if (needsRefresh(session)) {
+    try {
+      const refreshed = await refreshSessionSingleFlight(session);
+      if (!refreshed) throw new UnauthorizedError('not signed in');
+      session = refreshed;
+    } catch (err) {
+      console.error('[requireMember] proactive token refresh failed:', err instanceof Error ? err.message : err);
     }
   }
 
@@ -238,20 +297,33 @@ export async function requireMember(req: Request): Promise<SessionUser> {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[requireMember] GitHub org check failed:', msg);
 
-    // Reactive refresh: if the error looks like a 401 and we have a refresh
-    // token, try refreshing once before giving up.
-    if (session.refreshToken && /401/.test(msg)) {
+    // Reactive refresh: on a 401, try one shared refresh then retry the check.
+    if (/401/.test(msg)) {
+      if (!session.refreshToken) {
+        // No credential left to recover with: drop the session so the UI re-signs in.
+        deleteAuthSession(session.id);
+        throw new UnauthorizedError('github auth expired — sign in again');
+      }
+      let refreshed: SessionUser | null;
       try {
-        const refreshed = await refreshAccessToken(session.refreshToken);
-        updateSessionToken(session.id, refreshed.accessToken, refreshed.refreshToken, refreshed.refreshToken
-          ? new Date(Date.now() + (refreshed.expiresIn ?? 3600) * 1000).toISOString().slice(0, 19).replace('T', ' ')
-          : null);
-        session.token = refreshed.accessToken;
-        console.log('[requireMember] reactive token refresh succeeded, retrying org check');
-        allowed = await isAllowedMember(session.token);
+        refreshed = await refreshSessionSingleFlight(session);
       } catch (refreshErr) {
         console.error('[requireMember] reactive token refresh/retry failed:', refreshErr instanceof Error ? refreshErr.message : refreshErr);
         throw new GithubUnavailableError('github org check unavailable (token refresh failed)');
+      }
+      if (!refreshed) throw new UnauthorizedError('not signed in');
+      if (refreshed.token === session.token) {
+        // Refresh could not mint a new credential (token spent): force re-login.
+        deleteAuthSession(session.id);
+        throw new UnauthorizedError('github auth expired — sign in again');
+      }
+      session = refreshed;
+      try {
+        allowed = await isAllowedMember(session.token);
+      } catch (retryErr) {
+        console.error('[requireMember] org check failed after refresh:', retryErr instanceof Error ? retryErr.message : retryErr);
+        deleteAuthSession(session.id);
+        throw new UnauthorizedError('github auth expired — sign in again');
       }
     } else {
       throw new GithubUnavailableError('github org check unavailable');
