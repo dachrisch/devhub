@@ -29,6 +29,10 @@ const REFINE_REPLIES = {
     blockingQuestions: [],
     scope: 'service',
     infra_first: false,
+    // The refiner is only developable with >=1 testable criterion (see
+    // parseRefineResult / startWork); omit this and the mock stalls at
+    // "No testable acceptance criteria were produced".
+    acceptanceCriteria: ['mock-opencode confirms the change is testable'],
   },
   improve: {
     ready: true,
@@ -37,6 +41,7 @@ const REFINE_REPLIES = {
     blockingQuestions: [],
     scope: 'service',
     infra_first: false,
+    acceptanceCriteria: ['produced by mock-opencode'],
   },
   blocked: {
     ready: false,
@@ -45,6 +50,7 @@ const REFINE_REPLIES = {
     blockingQuestions: ['Use SQLite or Postgres?', 'Which auth flow?'],
     scope: 'service',
     infra_first: false,
+    acceptanceCriteria: [],
   },
 };
 
@@ -66,14 +72,31 @@ const SHAPE_REPLIES = {
   failure: 'CANNOT FULFILL: simulated shaping failure (mock-opencode)',
 };
 
-let scenario = { refine: 'ready', develop: 'pr', shape: 'options' };
+let scenario = { refine: 'ready', develop: 'pr', shape: 'options', verify: 'pass' };
 let sessionCounter = 0;
 /** sessionId -> { kind: 'refine'|'develop', text } */
 const pending = new Map();
 
+// Verifier verdicts must cover every numbered acceptance criterion in the
+// prompt (parseVerifyResult marks missing ones failed). Read the criteria
+// block and echo a verdict per entry.
+const VERIFY_SCENARIOS = new Set(['pass', 'fail']);
+function verifyReply(prompt, mode) {
+  const block = String(prompt).split('## Acceptance criteria')[1]?.split('## Pull requests')[0] ?? '';
+  const criteria = [...block.matchAll(/^\s*(\d+)\.\s/gm)].map((m) => Number(m[1]));
+  const pass = mode !== 'fail';
+  const verdicts = criteria.map((ac) => ({
+    ac,
+    pass,
+    evidence: pass ? 'mock-opencode: criterion satisfied' : 'mock-opencode: forced verification failure',
+  }));
+  return JSON.stringify({ verdicts });
+}
+
 function classify(prompt) {
   if (typeof prompt === 'string' && prompt.includes('You are shaping an idea')) return 'shape';
   if (typeof prompt === 'string' && prompt.includes('You are refining')) return 'refine';
+  if (typeof prompt === 'string' && prompt.includes('You are reviewing')) return 'verify';
   if (typeof prompt === 'string' && prompt.includes('You are implementing')) return 'develop';
   return 'develop';
 }
@@ -100,6 +123,7 @@ export function startMockOpencode(port) {
         refine: REFINE_REPLIES[body.refine] ? body.refine : scenario.refine,
         develop: DEVELOP_REPLIES[body.develop] ? body.develop : scenario.develop,
         shape: SHAPE_REPLIES[body.shape] ? body.shape : scenario.shape,
+        verify: VERIFY_SCENARIOS.has(body.verify) ? body.verify : scenario.verify,
       };
       return json(res, { ok: true, scenario });
     }
@@ -131,7 +155,9 @@ export function startMockOpencode(port) {
           ? JSON.stringify(REFINE_REPLIES[scenario.refine])
           : kind === 'shape'
             ? SHAPE_REPLIES[scenario.shape]
-            : DEVELOP_REPLIES[scenario.develop];
+            : kind === 'verify'
+              ? verifyReply(prompt, scenario.verify)
+              : DEVELOP_REPLIES[scenario.develop];
       pending.set(m[1], { kind, text });
       return json(res, { data: { id: `msg_mock_${m[1]}` } });
     }

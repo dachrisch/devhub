@@ -955,6 +955,9 @@ button:active:not(:disabled),
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
+    /* Fill the wrapping list so the pills below can clamp to its width
+       instead of shrink-to-fit overflowing the viewport (devhub#248 F3). */
+    width: 100%;
   }
   .delivered-ribbon .delivered-title {
     max-width: 60vw;
@@ -964,6 +967,20 @@ button:active:not(:disabled),
   }
   .delivered-ribbon-work {
     flex-wrap: wrap;
+    /* Take the ribbon's width so the nowrap work pills clamp to it instead of
+       expanding the inline-flex box past the viewport (devhub#248 F3). */
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+  }
+  /* Ribbons wrap at phone width, so their pills must be allowed to shrink to
+     the row instead of holding `flex: none` and pushing the full issue ref
+     past the viewport (devhub#248 F3). */
+  .delivered-ribbon .delivered-item,
+  .delivered-ribbon-work .delivered-item {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
   }
 }
 
@@ -1093,11 +1110,30 @@ button:active:not(:disabled),
   padding-bottom: 2px;
 }
 
+/* Scroll affordance mirroring `.released-list`: a fade pinned to the trailing
+   edge so a clipped strip reads as scrollable, not broken (devhub#248 F3). */
+.action-strip-list::after {
+  content: '';
+  position: sticky;
+  right: 0;
+  flex: 0 0 28px;
+  align-self: stretch;
+  margin-left: -28px;
+  background: linear-gradient(to right, transparent, var(--strip-fade, var(--panel)));
+  pointer-events: none;
+  z-index: 1;
+}
+
+.action-strip.live {
+  --strip-fade: var(--panel-2);
+}
+
 .action-item {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: 460px;
+  /* 72vw keeps an item inside a phone viewport; desktop keeps the 460px cap. */
+  max-width: min(460px, 72vw);
   padding: 4px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -1391,7 +1427,8 @@ button.action-item:hover {
   box-shadow: var(--shadow-tinted);
 }
 
-.card-strip {
+.card-strip,
+.mobile-card-strip {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1412,14 +1449,16 @@ button.action-item:hover {
   flex: none;
 }
 
-.card-strip-dot {
+.card-strip-dot,
+.mobile-card-dot {
   width: 8px;
   height: 8px;
   border-radius: 999px;
   flex: none;
 }
 
-.card-strip-repo {
+.card-strip-repo,
+.mobile-card-repo {
   font-size: 11.5px;
   font-weight: 650;
   overflow: hidden;
@@ -1427,17 +1466,20 @@ button.action-item:hover {
   white-space: nowrap;
 }
 
-.card-strip-number {
+.card-strip-number,
+.mobile-card-number {
   font-size: 11.5px;
   color: var(--muted);
   flex: none;
 }
 
-.card-strip-age {
+.card-strip-age,
+.mobile-card-age {
   flex: none;
 }
 
-.card-body {
+.card-body,
+.mobile-card-body {
   padding: 12px 14px 14px;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1499,12 +1541,15 @@ button.action-item:hover {
   text-wrap: pretty;
 }
 
-.title-link {
+.title-link,
+.mobile-card-body-link {
+  display: block;
   color: var(--text);
   text-decoration: none;
 }
 
-.title-link:hover {
+.title-link:hover,
+.mobile-card-body-link:hover {
   color: var(--text);
   text-decoration: none;
 }
@@ -1528,7 +1573,8 @@ button.action-item:hover {
   font-variant-numeric: tabular-nums;
 }
 
-.age {
+.age,
+.mobile-card-age {
   margin-left: auto;
   font-size: 11px;
   color: var(--muted);
@@ -1549,14 +1595,23 @@ button.action-item:hover {
   font-weight: 600;
 }
 
-.card-footer {
+.card-footer,
+.mobile-card-footer {
   display: flex;
   align-items: stretch;
   border-top: 1px solid var(--border);
 }
 
-.card-primary {
+/* Layout-affecting `flex` lives in the context selector, never on the shared
+   `.card-primary` class — otherwise reusing it as a plain button (e.g. the
+   topic reply Send) stretches it into leftover space (devhub#248 F2). */
+.card-footer .card-primary,
+.mobile-card-footer .mobile-card-primary {
   flex: 1;
+}
+
+.card-primary,
+.mobile-card-primary {
   height: 48px;
   display: flex;
   align-items: center;
@@ -1568,7 +1623,8 @@ button.action-item:hover {
   border: none;
 }
 
-.card-primary-link {
+.card-primary-link,
+.mobile-card-primary-link {
   text-decoration: none;
 }
 
@@ -2748,58 +2804,10 @@ button:disabled {
     overflow: hidden;
   }
 
-  .mobile-card-strip {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 14px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .mobile-card-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    flex: none;
-  }
-
-  .mobile-card-repo {
-    font-size: 11.5px;
-    font-weight: 650;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-card-number {
-    font-size: 11.5px;
-    color: var(--muted);
-    flex: none;
-  }
-
-  .mobile-card-age {
-    margin-left: auto;
-    font-size: 11px;
-    color: var(--muted);
-    flex: none;
-  }
-
-  .mobile-card-body {
-    padding: 12px 14px 14px;
-  }
-
-  .mobile-card-body-link {
-    display: block;
-    color: inherit;
-    text-decoration: none;
-  }
-
-  .mobile-card-body-link:hover {
-    text-decoration: none;
-  }
-
+  /* Shared strip/body/footer/dot/primary rules live in the base `.card*`
+     selectors (see the grouped selectors above); only the genuinely
+     mobile-specific treatment stays here. */
   .mobile-card-title {
-    display: block;
     font-size: 15.5px;
     font-weight: 650;
     line-height: 1.35;
@@ -2847,49 +2855,6 @@ button:disabled {
   @keyframes dh-pulse {
     0%, 100% { opacity: 0.3; }
     50% { opacity: 1; }
-  }
-
-  .mobile-card-footer {
-    display: flex;
-    align-items: stretch;
-    border-top: 1px solid var(--border);
-  }
-
-  .mobile-card-primary {
-    flex: 1;
-    height: 48px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    font-weight: 650;
-    color: var(--accent);
-    background: transparent;
-    border: none;
-  }
-
-  .mobile-card-primary-link {
-    text-decoration: none;
-  }
-
-  .mobile-card-more {
-    width: 64px;
-    height: 48px;
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    background: transparent;
-    border: none;
-    border-left: 1px solid var(--border);
-  }
-
-  .mobile-card-more span {
-    width: 3.5px;
-    height: 3.5px;
-    border-radius: 999px;
-    background: var(--muted);
   }
 
   /* Card-actions bottom sheet */
@@ -3334,9 +3299,12 @@ button:disabled {
 .project-card-name {
   font-weight: 600;
   font-size: 15px;
+  line-height: 1.3;
+  /* Two-line clamp: a real project name shouldn't collapse to "dev…". */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .proj-badge {
@@ -3451,9 +3419,11 @@ button:disabled {
 .project-idea-link {
   color: var(--text);
   text-decoration: none;
+  /* Two-line clamp instead of a mid-word single-line cut. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -3735,6 +3705,13 @@ button:disabled {
   align-items: flex-end;
 }
 
+/* The reply composer is not a card footer: the input fills and Send hugs its
+   content instead of floating away on a shared `flex: 1` (devhub#248 F2). */
+.topic-reply .card-primary {
+  flex: none;
+  padding: 0 18px;
+}
+
 .topic-reply-target {
   font-size: 12px;
   color: var(--muted);
@@ -3749,6 +3726,7 @@ button:disabled {
 
 .topic-reply-input {
   flex: 1;
+  max-width: none;
   resize: vertical;
   font: inherit;
 }
@@ -4286,6 +4264,14 @@ button.recap-link {
 .issue-ref--full {
   font-size: inherit;
   color: inherit;
+  /* Delivered ribbons are nowrap pills: clamp the full ref itself so it
+     ellipsizes instead of pushing past a phone viewport (devhub#248 F3). */
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 /* ======================================================================

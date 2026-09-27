@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Issue, ModelOption } from '@/lib/types';
 import { ModelPicker } from '@/components/board/model-picker';
 import { IssueRef } from '@/components/board/issue-ref';
@@ -51,7 +52,7 @@ export function DevelopModal({
     };
   }, [issue.topicId]);
 
-  return (
+  return createPortal(
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <h3>
@@ -107,6 +108,7 @@ export function DevelopModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
