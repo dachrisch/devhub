@@ -7,8 +7,8 @@ import { FUNNEL_COLUMNS, FUNNEL_STAGE_LABELS, funnelColumnForIssue, funnelColumn
 import { countRepos, matchesIssue, matchesTopic } from '@/lib/board-ui';
 import { MobileStatusStrip, statusPanelId, statusTabId } from '@/components/board/mobile-status-strip';
 import { RefreshButton } from '@/components/board/board-toolbar';
-import { IssueCard, IssueCardSheet, MobileIssueCard } from '@/components/board/issue-card';
-import { MobileUnifiedTopicCard, UnifiedTopicCard, type LinkedWork } from '@/components/board/unified-card';
+import { IssueCard } from '@/components/board/issue-card';
+import { UnifiedTopicCard, type LinkedWork } from '@/components/board/unified-card';
 
 export interface KanbanBoardProps {
   // Live pools (delivered history renders separately below the board).
@@ -79,7 +79,6 @@ export function KanbanBoard({
 }: KanbanBoardProps) {
   const [sorts, setSorts] = useState<Partial<Record<FunnelColumn, 'newest' | 'oldest'>>>({});
   const [activeColumn, setActiveColumn] = useState<FunnelColumn>('idea');
-  const [openActionsFor, setOpenActionsFor] = useState<Issue | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<Map<FunnelColumn, HTMLElement>>(new Map());
 
@@ -144,17 +143,12 @@ export function KanbanBoard({
         key: `topic-${topic.id}`,
         updatedAt: topic.updatedAt,
         blocked: false,
-        node: isMobile ? (
-          <MobileUnifiedTopicCard
-            topic={topic}
-            column={columnOfTopic(topic)}
-            linked={linkedIssues?.get(topic.id)}
-          />
-        ) : (
+        node: (
           <UnifiedTopicCard
             topic={topic}
             column={columnOfTopic(topic)}
             linked={linkedIssues?.get(topic.id)}
+            variant={isMobile ? 'mobile' : 'desktop'}
           />
         ),
       })),
@@ -167,20 +161,11 @@ export function KanbanBoard({
           updatedAt: issue.updatedAt,
           // Cards needing input float to the top of their column.
           blocked: Boolean(issue.blockedReason) && !justStarted,
-          node: isMobile ? (
-            <MobileIssueCard
-              key={issue.id}
-              issue={issue}
-              justStarted={justStarted}
-              onStarted={onStarted}
-              onStartFailed={onStartFailed}
-              onOpenActions={() => setOpenActionsFor(issue)}
-              topicTitle={topicTitleOf(issue.topicId)}
-            />
-          ) : (
+          node: (
             <IssueCard
               key={issue.id}
               issue={issue}
+              variant={isMobile ? 'mobile' : 'desktop'}
               justStarted={justStarted}
               onStarted={onStarted}
               onStartFailed={onStartFailed}
@@ -232,6 +217,9 @@ export function KanbanBoard({
             <section
               className="column"
               key={col}
+              // Raw column key for automation/tests: the visible head text is a
+              // friendly stage label ("Checking…"), not the column id.
+              data-column={col}
               id={statusPanelId(col)}
               role={isMobile ? 'tabpanel' : undefined}
               aria-labelledby={isMobile ? statusTabId(col) : undefined}
@@ -240,38 +228,16 @@ export function KanbanBoard({
                 if (el) columnRefs.current.set(col, el);
               }}
             >
-              {isMobile ? (
-                <div className="column-meta">
-                  <span>
-                    {cells.length} items · {countRepos(colIssues)} repos
-                  </span>
-                  <span className="column-meta-actions">
-                    <button
-                      className="sort-toggle"
-                      onClick={() => toggleSort(col)}
-                      title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                      aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                    >
-                      {sortLabel}
-                    </button>
-                    <RefreshButton refreshing={refreshing} onRefresh={onRefresh} />
-                  </span>
-                </div>
-              ) : (
-                <div className="column-head">
-                  <span className={`dot ${col}`} aria-hidden="true" />
-                  {FUNNEL_STAGE_LABELS[col]}
-                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({cells.length})</span>
-                  <button
-                    className="sort-toggle"
-                    onClick={() => toggleSort(col)}
-                    title={`Sort ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                    aria-label={`Sort ${col} ${sorts[col] === 'oldest' ? 'oldest' : 'newest'} first`}
-                  >
-                    {sortLabel}
-                  </button>
-                </div>
-              )}
+              <ColumnHeader
+                column={col}
+                count={cells.length}
+                repoCount={countRepos(colIssues)}
+                sortLabel={sortLabel}
+                isMobile={isMobile}
+                refreshing={refreshing}
+                onSort={() => toggleSort(col)}
+                onRefresh={onRefresh}
+              />
               {extras}
               {cells.length === 0 ? (
                 <div className="empty">nothing here</div>
@@ -282,19 +248,61 @@ export function KanbanBoard({
           );
         })}
       </div>
-
-      {openActionsFor && isMobile && (
-        <IssueCardSheet
-          // Render from the live issue list, not the snapshot taken at open
-          // time, so a run started elsewhere flips the sheet to live/recap.
-          issue={issues.find((i) => i.id === openActionsFor.id) ?? openActionsFor}
-          justStarted={justStartedIds.has(openActionsFor.id)}
-          onStarted={() => markJustStarted(openActionsFor.id)}
-          onStartFailed={() => clearJustStarted(openActionsFor.id)}
-          onClose={() => setOpenActionsFor(null)}
-          onToggleSelection={toggleSelection}
-        />
-      )}
     </>
+  );
+}
+
+// Desktop names the stage + count in a sticky head; mobile groups count/repos
+// on the left and the sort/refresh controls on the right. One component, two
+// shells — previously the sort toggle was inlined twice (devhub#248 Phase 2).
+function ColumnHeader({
+  column,
+  count,
+  repoCount,
+  sortLabel,
+  isMobile,
+  refreshing,
+  onSort,
+  onRefresh,
+}: {
+  column: FunnelColumn;
+  count: number;
+  repoCount: number;
+  sortLabel: string;
+  isMobile: boolean;
+  refreshing: boolean;
+  onSort: () => void;
+  onRefresh: () => void;
+}) {
+  const sortToggle = (
+    <button
+      className="sort-toggle"
+      onClick={onSort}
+      title={`Sort ${sortLabel.replace('↑ ', '').replace('↓ ', '')} first`}
+      aria-label={`Sort ${column} ${sortLabel.replace('↑ ', '').replace('↓ ', '')} first`}
+    >
+      {sortLabel}
+    </button>
+  );
+  if (isMobile) {
+    return (
+      <div className="column-meta">
+        <span>
+          {count} items · {repoCount} repos
+        </span>
+        <span className="column-meta-actions">
+          {sortToggle}
+          <RefreshButton refreshing={refreshing} onRefresh={onRefresh} />
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="column-head">
+      <span className={`dot ${column}`} aria-hidden="true" />
+      {FUNNEL_STAGE_LABELS[column]}
+      <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({count})</span>
+      {sortToggle}
+    </div>
   );
 }

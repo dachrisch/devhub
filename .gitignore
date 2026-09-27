@@ -13,6 +13,7 @@ devhub.db-shm
 .devhub-dev.db-shm
 .devhub-dev-board.png
 .devhub-e2e
+.devhub-audit
 .DS_Store
 test-results
 coverage

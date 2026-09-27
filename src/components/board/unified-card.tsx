@@ -29,6 +29,9 @@ export interface UnifiedTopicCardProps {
   // never the raw status — so pill and column can't contradict each other.
   column: FunnelColumn;
   linked?: LinkedWork[];
+  // One shell for both board variants: desktop `.card*` / mobile `.mobile-card*`
+  // (previously two line-for-line twin components).
+  variant?: 'desktop' | 'mobile';
 }
 
 // The strip always names the column the card sits in — never the raw
@@ -41,69 +44,39 @@ function stripLabel(topic: Topic, column: FunnelColumn): string {
   return FUNNEL_STAGE_LABELS[column];
 }
 
-export function UnifiedTopicCard({ topic, column, linked = [] }: UnifiedTopicCardProps) {
+export function UnifiedTopicCard({ topic, column, linked = [], variant = 'desktop' }: UnifiedTopicCardProps) {
+  const mobile = variant === 'mobile';
+  const p = mobile ? 'mobile-card' : 'card';
   const summary = topic.shapedSummary ?? topic.notes;
   const primary = primaryTopicAction(topic.status);
   const label = stripLabel(topic, column);
   return (
-    <div className="card">
-      <div className="card-strip">
-        <span className={`card-strip-dot dot ${column}`} aria-hidden="true" />
-        <span className="card-strip-repo">{label}</span>
-        <span className="card-strip-age age">{relTime(topic.updatedAt)}</span>
+    <div className={p}>
+      <div className={`${p}-strip`}>
+        <span
+          className={`${mobile ? 'mobile-card-dot' : 'card-strip-dot'} dot ${column}`}
+          aria-hidden="true"
+        />
+        <span className={mobile ? 'mobile-card-repo' : 'card-strip-repo'}>{label}</span>
+        <span className={mobile ? 'mobile-card-age' : 'card-strip-age age'}>{relTime(topic.updatedAt)}</span>
       </div>
 
-      <div className="card-body">
+      <div className={`${p}-body`}>
         <Link
           href={`/topics/${topic.id}`}
-          className="title-link"
+          className={mobile ? 'mobile-card-body-link' : 'title-link'}
           aria-label={`Open studio: ${topic.title}`}
         >
-          <div className="title">{topic.title}</div>
-          {summary && <div className="excerpt">{excerpt(summary)}</div>}
+          <div className={mobile ? 'mobile-card-title' : 'title'}>{topic.title}</div>
+          {summary && <div className={mobile ? 'mobile-card-excerpt' : 'excerpt'}>{excerpt(summary)}</div>}
         </Link>
         {linked.length > 0 && <Lineage linked={linked} />}
       </div>
 
-      <div className="card-footer">
+      <div className={`${p}-footer`}>
         <Link
           href={`/topics/${topic.id}`}
-          className="card-primary card-primary-link"
-          aria-label={`${primary.label}: ${topic.title}`}
-        >
-          {primary.label}
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-export function MobileUnifiedTopicCard({ topic, column, linked = [] }: UnifiedTopicCardProps) {
-  const summary = topic.shapedSummary ?? topic.notes;
-  const primary = primaryTopicAction(topic.status);
-  const label = stripLabel(topic, column);
-  return (
-    <div className="mobile-card">
-      <div className="mobile-card-strip">
-        <span className={`mobile-card-dot dot ${column}`} aria-hidden="true" />
-        <span className="mobile-card-repo">{label}</span>
-        <span className="mobile-card-age">{relTime(topic.updatedAt)}</span>
-      </div>
-      <div className="mobile-card-body">
-        <Link
-          href={`/topics/${topic.id}`}
-          className="mobile-card-body-link"
-          aria-label={`Open studio: ${topic.title}`}
-        >
-          <span className="mobile-card-title">{topic.title}</span>
-          {summary && <div className="mobile-card-excerpt">{excerpt(summary)}</div>}
-        </Link>
-        {linked.length > 0 && <Lineage linked={linked} />}
-      </div>
-      <div className="mobile-card-footer">
-        <Link
-          href={`/topics/${topic.id}`}
-          className="mobile-card-primary mobile-card-primary-link"
+          className={`${p}-primary ${p}-primary-link`}
           aria-label={`${primary.label}: ${topic.title}`}
         >
           {primary.label}

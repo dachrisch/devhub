@@ -189,11 +189,13 @@ const JS = {
       return pill.includes('${ownerRepo}') && num;
     });
     if (!card) return null;
+    const section = card.closest('section');
     return {
       text: card.innerText,
-      inColumn: card.closest('section')?.querySelector('.column-head')?.innerText?.split('\\n')[0]?.trim().toLowerCase() ?? null,
+      inColumn: section?.dataset.column ?? section?.querySelector('.column-head')?.innerText?.split('\\n')[0]?.trim().toLowerCase() ?? null,
       hasWork: [...card.querySelectorAll('button.card-primary')].some((b) => b.textContent.trim() === 'Work'),
       hasBlockedBanner: !!card.querySelector('.card-blocked'),
+      links: [...card.querySelectorAll('a[href]')].map((a) => a.getAttribute('href')),
     };
   })()`,
   clickWork: (ownerRepo, number) => `(() => {
@@ -363,7 +365,9 @@ async function main() {
       15000, (d) => d.inColumn === 'rollout'
     );
     assert(s1dom.inColumn === 'rollout', 'devhub#101 card sits in the rollout column');
-    assert(s1dom.text.includes(s1.resultPrUrl), 'pr card shows the PR URL');
+    // The card renders a friendly "Review it on GitHub ↗" label, so match the
+    // PR URL on the anchor href rather than the card's text.
+    assert(s1dom.links?.includes(s1.resultPrUrl), 'pr card links the PR URL');
     await guardHeads('S1');
     await screenshot(cdp, sessionId, 's1-happy-path');
 

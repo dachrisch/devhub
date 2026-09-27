@@ -17,6 +17,7 @@ import { AppHeader } from '@/components/app-header';
 import { StatusPill } from '@/components/status-pill';
 import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
 import { KanbanBoard } from '@/components/board/kanban-board';
+import { BatchActions } from '@/components/board/batch-actions';
 import { RepoChips } from '@/components/board/board-toolbar';
 import { DeliveredSection } from '@/components/board/delivered-section';
 function statusBadge(status: string | null): string {
@@ -531,18 +532,13 @@ export default function ProjectBoardPage() {
               />
             )}
             {selectedIds.size > 0 && (
-              <div className="batch-actions">
-                <button className="develop-batch-btn" onClick={workSelected} disabled={refreshing}>
-                  Work on selected ({selectedIds.size})
-                </button>
-                <button className="advance-btn" onClick={advanceSelected} disabled={refreshing}>
-                  {advanceLabel}
-                </button>
-                <div className="keyboard-hints">
-                  <span>Ctrl+Enter to move</span>
-                  <span>Esc to clear</span>
-                </div>
-              </div>
+              <BatchActions
+                selectedCount={selectedIds.size}
+                advanceLabel={advanceLabel}
+                refreshing={refreshing}
+                onWorkSelected={workSelected}
+                onAdvanceSelected={advanceSelected}
+              />
             )}
           </>
         }

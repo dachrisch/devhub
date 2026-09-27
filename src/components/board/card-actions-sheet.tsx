@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { createPortal } from 'react-dom';
 import type { Issue } from '@/lib/types';
 import { cardActions, type CardActionId } from '@/lib/board-ui';
 import { IssueRef } from '@/components/board/issue-ref';
@@ -17,7 +18,7 @@ interface CardActionsSheetProps {
 export function CardActionsSheet({ issue, live = false, onClose, onSelect }: CardActionsSheetProps) {
   const actions = cardActions(issue, live);
 
-  return (
+  return createPortal(
     <div className="card-sheet-backdrop" onClick={onClose}>
       <div className="card-sheet" role="menu" aria-label="Issue actions" onClick={(e) => e.stopPropagation()}>
         <div className="card-sheet-handle" />
@@ -50,6 +51,7 @@ export function CardActionsSheet({ issue, live = false, onClose, onSelect }: Car
           )
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
