@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.30.1](https://github.com/dachrisch/devhub/compare/v1.30.0...v1.30.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **board:** portal overlays, audit layout fixes + card dedupe ([#248](https://github.com/dachrisch/devhub/issues/248)) ([8e9e056](https://github.com/dachrisch/devhub/commit/8e9e056916b48151db28acc5d36bf85cffab162a))
+* **board:** portal overlays, fix audit layout bugs, dedupe cards ([#248](https://github.com/dachrisch/devhub/issues/248)) ([af29b87](https://github.com/dachrisch/devhub/commit/af29b875f36a8412746716925f83b0a4a1fb4143))
+
 ## [1.30.0](https://github.com/dachrisch/devhub/compare/v1.29.5...v1.30.0) (2026-09-26)
 
 
