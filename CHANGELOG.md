@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.30.4](https://github.com/dachrisch/devhub/compare/v1.30.3...v1.30.4) (2026-10-01)
+
+
+### Bug Fixes
+
+* **deps:** update dependency vitest to v5.0.3 ([#254](https://github.com/dachrisch/devhub/issues/254)) ([f4f7f49](https://github.com/dachrisch/devhub/commit/f4f7f49301393cd99cf17ea4b89aa642d5fecd45))
+* **deps:** update nextjs monorepo to v16.3.8 ([#255](https://github.com/dachrisch/devhub/issues/255)) ([b65ebf8](https://github.com/dachrisch/devhub/commit/b65ebf8fcef6565b289bbebe2f8d883b6bc52900))
+
 ## [1.30.3](https://github.com/dachrisch/devhub/compare/v1.30.2...v1.30.3) (2026-09-29)
 
 
