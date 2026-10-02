@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.30.5](https://github.com/dachrisch/devhub/compare/v1.30.4...v1.30.5) (2026-10-02)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @types/node to v24.19.1 ([#257](https://github.com/dachrisch/devhub/issues/257)) ([6014703](https://github.com/dachrisch/devhub/commit/6014703b1ef0186788efc5d495e2a9578ad148f9))
+
 ## [1.30.4](https://github.com/dachrisch/devhub/compare/v1.30.3...v1.30.4) (2026-10-01)
 
 
