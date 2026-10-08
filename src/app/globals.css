@@ -4693,7 +4693,14 @@ button.recap-link {
   justify-content: center;
   background: color-mix(in srgb, var(--bg) 55%, transparent);
   backdrop-filter: blur(3px);
-  padding: 72px 16px 16px;
+  padding: 72px 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+/* The fixed command dock sits above the modal layer (--z-sheet > --z-modal),
+   so it would overlay the dim backdrop and clip the detail panel's bottom.
+   A detail is modal — hide the dock while it's open. */
+.page-wrap:has(.v2-detail) .v2-dock {
+  display: none;
 }
 
 .page-wrap:has(.v2-detail) > .app-head {
@@ -4734,6 +4741,21 @@ button.recap-link {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.v2-detail-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.v2-detail-body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.v2-detail-body::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* Markdown body (v3). Code and links styled; <pre> keeps raw mono text. */
