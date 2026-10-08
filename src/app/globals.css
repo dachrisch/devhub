@@ -4395,22 +4395,11 @@ button.recap-link {
   margin: 0; /* legacy `.card` margin:10px would double up with the flex gap */
 }
 
-.v2-card-selected {
-  border-color: var(--accent);
-}
-
 .v2-card-top {
   padding: 14px 16px 10px;
   display: flex;
   align-items: flex-start;
   gap: 10px;
-}
-
-.v2-card-check {
-  margin-top: 4px;
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent);
 }
 
 .v2-card-main {
@@ -4443,6 +4432,12 @@ button.recap-link {
 .v2-split-card .v2-card-repo {
   font-size: 12.5px;
   color: var(--muted);
+}
+
+.v2-detail-issue h3 {
+  margin: 4px 0 0;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .v2-chip {
@@ -4512,17 +4507,6 @@ button.recap-link {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.v2-combine-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 12px 16px 0;
-  padding: 8px 12px;
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  font-size: 13px;
 }
 
 /* Collapsed "recently closed" strip under the card list: dimmed rows that
@@ -4698,53 +4682,290 @@ button.recap-link {
   font-size: 14px;
 }
 
-/* Full-screen detail view. */
+/* Detail overlay: dimmed page backdrop with a centered column (v3). The
+   appbar stays mounted above the dim layer (z-bumped when a detail is open),
+   so Refresh/user controls remain visible and clickable. */
 .v2-detail {
   position: fixed;
   inset: 0;
   z-index: var(--z-modal);
   display: flex;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(3px);
+  padding: 72px 16px 16px;
+}
+
+.page-wrap:has(.v2-detail) > .app-head {
+  position: relative;
+  z-index: calc(var(--z-modal) + 1);
+}
+
+.v2-detail-panel {
+  width: min(560px, 100%);
+  max-height: 100%;
+  display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
 }
 
 .v2-detail-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 16px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
-.v2-detail-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
+.v2-detail-head-state {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .v2-detail-body {
   flex: 1;
   overflow-y: auto;
-  max-width: 720px;
-  width: 100%;
-  margin: 0 auto;
   padding: 16px 16px 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.v2-detail-issue h3 {
-  margin: 4px 0 8px;
+/* Markdown body (v3). Code and links styled; <pre> keeps raw mono text. */
+.v2-markdown {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.55;
 }
 
-.v2-detail-body-text {
+.v2-markdown h1,
+.v2-markdown h2 {
   font-size: 14px;
-  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 8px 0 2px;
+}
+
+.v2-markdown h3,
+.v2-markdown h4 {
+  font-size: 14.5px;
+  font-weight: 600;
+  margin: 6px 0 2px;
+}
+
+.v2-markdown h5,
+.v2-markdown h6 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 4px 0 0;
+}
+
+.v2-markdown p {
+  margin: 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.v2-markdown ul,
+.v2-markdown ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.v2-markdown pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  overflow-x: auto;
+  white-space: pre;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.v2-markdown code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  overflow-wrap: anywhere;
+}
+
+.v2-markdown pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+.v2-markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+.v2-markdown blockquote {
+  margin: 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+.v2-markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2px 0;
+}
+
+.v2-chat-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.v2-chat-text p {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+}
+
+/* Meta + link chips (v3): GitHub / PR links are distinct chip buttons. */
+.v2-detail-meta {
+  color: var(--muted);
+}
+
+.v2-link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+
+.v2-link-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Activity timeline (v3). */
+.v2-activity summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.v2-activity ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.v2-activity-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.v2-activity-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  transform: translateY(-1px);
+}
+
+.v2-activity-dot.dot-agent {
+  background: var(--accent);
+}
+
+.v2-activity-dot.dot-user {
+  background: #7aa7ff;
+}
+
+.v2-activity-dot.dot-state {
+  background: #7ce49e;
+}
+
+.v2-activity-dot.dot-run {
+  background: #f3c969;
+}
+
+.v2-activity-dot.dot-recovery,
+.v2-activity-dot.dot-verification {
+  background: #f78b7c;
+}
+
+.v2-activity-time {
+  flex-shrink: 0;
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
+}
+
+.v2-activity-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Last result block (issue detail). */
+.v2-result summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.v2-result[open] summary {
+  margin-bottom: 4px;
+}
+
+/* Read-only note for non-workable states. */
+.v2-detail-note {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Detail view bottom action bar (issue detail). */
+.v2-detail-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .v2-chat {
