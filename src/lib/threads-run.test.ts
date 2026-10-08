@@ -133,4 +133,19 @@ describe('confirmSplit', () => {
     expect(runs.getQueuePosition(1)).toBeNull();
     expect(store.getThread(t.id)?.state).not.toBe('done');
   });
+
+  test('recovers the latest split proposal from the last agent turn', () => {
+    const t = store.createThread({ kind: 'strategy', title: 'Split', issueIds: [] });
+    runs.recordPlannerTurn(t.id, 'strategy thoughts, no proposal');
+    runs.recordPlannerTurn(t.id, 'Split time.\n```json\n[{"repo":"a/b","title":"T","body":"B","why":"W"}]\n```');
+    const proposal = runs.getLatestSplitProposal(t.id);
+    expect(proposal).toHaveLength(1);
+    expect(proposal[0].title).toBe('T');
+  });
+
+  test('no proposal on thread yields empty', () => {
+    const t = store.createThread({ kind: 'strategy', title: 'No split', issueIds: [] });
+    runs.recordPlannerTurn(t.id, 'just chatting');
+    expect(runs.getLatestSplitProposal(t.id)).toEqual([]);
+  });
 });

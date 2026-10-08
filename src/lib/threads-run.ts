@@ -49,6 +49,18 @@ export function recordPlannerTurn(threadId: number, text: string): SplitItem[] {
   return parseSplitProposal(text);
 }
 
+// Split proposals arrive on the last thread_event — recover the latest one
+// for the confirm gate. Empty when the planner never proposed a split.
+export function getLatestSplitProposal(threadId: number): SplitItem[] {
+  const events = getThreadEvents(threadId);
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].kind !== 'agent') continue;
+    const items = parseSplitProposal(events[i].text);
+    if (items.length > 0) return items;
+  }
+  return [];
+}
+
 // ---------------------------------------------------------------------------
 // Serial work queue: confirmed split cards enter auto-Work one developing run
 // at a time; the card shows its visible queue position.
