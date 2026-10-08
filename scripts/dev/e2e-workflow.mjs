@@ -1,34 +1,33 @@
-// End-to-end test of the unified Work flow (devhub#132) + Projects & Topics
-// cockpit (devhub#167) against a running start-dev.mjs instance (mocked
-// GitHub + mocked opencode).
+// End-to-end test of the v2 command-first flow + Projects & Topics engine
+// against a running start-dev.mjs instance (mocked GitHub + mocked opencode).
 //
-// Covers:
-//   S1  happy path      backlog → refinement → developing → pr (PR URL shown)
+// Covers (API-level; --api-only runs without chromium):
+//   S1  happy path      command "Implement dachrisch/devhub#101" → thread →
+//                       refinement → developing → pr (PR URL shown)
 //   S1b auto-refine     refinement rewrites the issue body, then develops
 //   S2  needs input     refinement fails → card stays with "Needs input";
-//                       after the issue is answerable, Work resumes → pr
+//                       command resumes → pr
 //   S3  develop retry   develop fails → card stays developing with reason;
-//                       Work retries → pr
-//   S4  batch work      "Work on selected" advances two backlog cards → pr
+//                       command retries → pr
+//   S4  chips           unknown repo → chips (never a guess); bare #ref →
+//                       issue-search chip → hand-select works the card
 //   S5  topic flow      idea → promote → work → pr (+run timeline) → mark
 //                       shipped → rollout → project last-shipped updated
 //   S6  shaping loop    idea → 3 options → choose → summary updates → reply →
-//                       next options → ready (devhub#171 Phase 2)
+//                       next options → ready
 //   S7  realize         ready → realize → promote → work → pr → merge+tag →
-//                       rollout → shipped → Delivered (devhub#171 Phase 3)
+//                       rollout → shipped
 //   S8  auto-merge      realize → worker merges green PR + cuts tag → rollout
-//                       → shipped, no steering (devhub#171 Phase 4)
-//   S9  strategy      command → strategy thread → split proposal → chip
+//                       → shipped, no steering
+//   S9  strategy        command → strategy thread → split proposal → chip
 //                       confirm gate (no auto-create) → real issues → serial
-//                       queue → pr (v2 command-first, API-level)
-//   guard               no `blocked` column exists anywhere on the board
-//
-// The flat board is gone (devhub#167): S1-S4 drive the per-project boards at
-// /projects/<id>; S5 additionally touches the projects home (badge/shipped).
+//                       queue → pr
+//   guard               no `blocked` issue state; batch-advance route is gone;
+//                       (DOM mode) no board columns, dock present
 //
 // Usage:
 //   node scripts/dev/start-dev.mjs --port 3111   # separate terminal
-//   node scripts/dev/e2e-workflow.mjs --url http://localhost:3111
+//   node scripts/dev/e2e-workflow.mjs --url http://localhost:3111 [--api-only]
 'use strict';
 
 import { spawn, execFileSync } from 'node:child_process';
@@ -41,10 +40,9 @@ function arg(flag, fallback) {
   const i = process.argv.indexOf(flag);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
+const API_ONLY = process.argv.includes('--api-only');
 
 let base = arg('--url', 'http://localhost:3000').replace(/\/$/, '');
-// Next 16 dev blocks "cross-origin" dev resources for non-localhost hosts,
-// which stalls hydration — force localhost (see .opencode/skill/headless-dev).
 base = new URL(Object.assign(new URL(base), { hostname: 'localhost' })).toString().replace(/\/$/, '');
 const session = arg('--session', DEV_SESSION_ID);
 const mockBase = arg('--mock-url', 'http://localhost:3222').replace(/\/$/, '');
@@ -63,7 +61,7 @@ function findChromium() {
       // try next
     }
   }
-  throw new Error('no chromium binary found (set CHROMIUM_BIN)');
+  throw new Error('no chromium binary found (set CHROMIUM_BIN or pass --api-only)');
 }
 
 async function wait(ms) {
@@ -125,6 +123,28 @@ async function waitForIssueState(owner, repo, number, predicate, label, timeoutM
   );
 }
 
+// The v2 command pathway: one POST per bar/mic submission. Returns the thread.
+async function command(input, extra = {}) {
+  const res = await api('/api/threads', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ input, ...extra }),
+  });
+  assert(typeof res.threadId === 'number', `command accepted ("${input.slice(0, 50)}…") → thread #${res.threadId}`);
+  return res;
+}
+
+async function waitForSplit(threadId, count, label, timeoutMs = 60000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await api(`/api/threads/${threadId}`);
+    if ((last.splitProposal?.length ?? 0) >= count) return last;
+    await wait(500);
+  }
+  throw new Error(`timeout waiting for ${label}; last=${JSON.stringify(last?.splitProposal)}`);
+}
+
 class Cdp {
   constructor(ws) {
     this.ws = ws;
@@ -181,60 +201,30 @@ async function evaluate(cdp, sessionId, expression) {
   return res.result?.value;
 }
 
-// JS snippets evaluated in the page (current markup: .card root,
-// .card-strip-repo pill, .card-strip-number, button.card-primary "Work").
+// v2 home markup: .v2-card cards, .v2-dock command bar, .card-blocked banner,
+// .v2-detail full-screen thread view.
 const JS = {
-  cardInfo: (ownerRepo, number) => `(() => {
-    const cards = [...document.querySelectorAll('.card')];
-    const card = cards.find((c) => {
-      const pill = c.querySelector('.card-strip-repo')?.innerText ?? '';
-      const num = [...c.querySelectorAll('.card-strip-number')].some((n) => n.textContent.trim() === '#${number}');
-      return pill.includes('${ownerRepo}') && num;
-    });
-    if (!card) return null;
-    const section = card.closest('section');
-    return {
-      text: card.innerText,
-      inColumn: section?.dataset.column ?? section?.querySelector('.column-head')?.innerText?.split('\\n')[0]?.trim().toLowerCase() ?? null,
-      hasWork: [...card.querySelectorAll('button.card-primary')].some((b) => b.textContent.trim() === 'Work'),
-      hasBlockedBanner: !!card.querySelector('.card-blocked'),
-      links: [...card.querySelectorAll('a[href]')].map((a) => a.getAttribute('href')),
-    };
-  })()`,
-  clickWork: (ownerRepo, number) => `(() => {
-    const cards = [...document.querySelectorAll('.card')];
-    const card = cards.find((c) => {
-      const pill = c.querySelector('.card-strip-repo')?.innerText ?? '';
-      const num = [...c.querySelectorAll('.card-strip-number')].some((n) => n.textContent.trim() === '#${number}');
-      return pill.includes('${ownerRepo}') && num;
-    });
-    if (!card) return false;
-    const btn = [...card.querySelectorAll('button.card-primary')].find((b) => b.textContent.trim() === 'Work');
-    if (!btn) return false;
+  homeReady: `(() => ({
+    dock: !!document.querySelector('.v2-dock'),
+    cards: document.querySelectorAll('.v2-card').length,
+    columns: document.querySelectorAll('.column-head').length,
+  }))()`,
+  dockSubmit: (text) => `(() => {
+    const input = document.querySelector('.v2-dock-input');
+    if (!input) return false;
+    input.focus();
+    document.execCommand('selectAll', false, null);
+    document.execCommand('insertText', false, ${JSON.stringify(text)});
+    const btn = document.querySelector('.v2-dock-send');
+    if (!btn || btn.disabled) return false;
     btn.click();
     return true;
   })()`,
-  clickStartWork: `(() => {
-    const modal = document.querySelector('.modal');
-    if (!modal) return false;
-    const btn = [...modal.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Start work');
-    if (!btn) return false;
-    btn.click();
-    return true;
+  detailOpen: `!!document.querySelector('.v2-detail')`,
+  needsInputBanner: `(() => {
+    const b = document.querySelector('.v2-card .card-blocked');
+    return b ? b.innerText : null;
   })()`,
-  clickCheckbox: (ownerRepo, number) => `(() => {
-    const cb = document.querySelector('input[aria-label="Select issue ${ownerRepo} #${number} for batch actions"]');
-    if (!cb) return false;
-    if (!cb.checked) cb.click();
-    return true;
-  })()`,
-  clickWorkOnSelected: `(() => {
-    const btn = [...document.querySelectorAll('.batch-actions button')].find((b) => b.textContent.startsWith('Work on selected'));
-    if (!btn) return false;
-    btn.click();
-    return true;
-  })()`,
-  columnHeads: `[...document.querySelectorAll('.column-head')].map((h) => h.innerText.split('\\n')[0].trim())`,
 };
 
 async function waitForDom(cdp, sessionId, expression, label, timeoutMs = 15000, predicate) {
@@ -242,23 +232,14 @@ async function waitForDom(cdp, sessionId, expression, label, timeoutMs = 15000, 
   let last;
   while (Date.now() < deadline) {
     last = await evaluate(cdp, sessionId, expression);
-    // Default: wait for any non-null value. With a predicate (e.g. the card
-    // must sit in the expected column), keep polling until it holds — the
-    // first non-null render can still lag the SSE state change.
     if (last && (!predicate || predicate(last))) return last;
     await wait(400);
   }
   throw new Error(`timeout waiting for DOM: ${label} (last=${JSON.stringify(last)})`);
 }
 
-async function clickWorkAndStart(cdp, sessionId, ownerRepo, number, label) {
-  const clicked = await waitForDom(cdp, sessionId, JS.clickWork(ownerRepo, number), `Work button on ${label}`);
-  if (!clicked) throw new Error(`Work button not clickable on ${label}`);
-  await waitForDom(cdp, sessionId, JS.clickStartWork, `Start work button for ${label}`);
-  await wait(500); // modal close + POST
-}
-
 async function screenshot(cdp, sessionId, name) {
+  if (API_ONLY || !cdp) return;
   const shot = await cdp.send('Page.captureScreenshot', { format: 'png' }, sessionId);
   const file = path.join(shotDir, `${name}.png`);
   await writeFile(file, Buffer.from(shot.data, 'base64'));
@@ -268,34 +249,46 @@ async function screenshot(cdp, sessionId, name) {
 async function main() {
   mkdirSync(shotDir, { recursive: true });
 
-  // 0. Server sanity + fresh mock scenario.
   const me = await api('/api/auth/me');
   assert(me.user?.login === 'octocat', `signed in as ${me.user?.login}`);
   await setScenario({ refine: 'ready', develop: 'pr' });
-  // Mock-github merge/tag state persists in /tmp across runs — clear it so
-  // the sweep can't roll S7 out before its `pr` assertion observes it.
   await setGithubScenario({ merged: [], tags: [] });
   const seeded = findIssue(await allIssues(), 'dachrisch', 'devhub', 105);
   assert(seeded?.state === 'developing' && seeded?.blockedReason, 'retry fixture (devhub#105) seeded: developing + blocked_reason');
 
-  // Launch Chromium over CDP (no driver deps; see headless-check.mjs).
-  const bin = findChromium();
-  const { mkdtempSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os');
-  const profile = mkdtempSync(path.join(tmpdir(), 'devhub-e2e-chrome-'));
-  const chrome = spawn(bin, [
-    '--headless=new',
-    '--no-sandbox',
-    '--disable-gpu',
-    '--disable-dev-shm-usage',
-    '--hide-scrollbars',
-    '--window-size=1440,900',
-    '--remote-debugging-port=0',
-    `--user-data-dir=${profile}`,
-    'about:blank',
-  ]);
+  // v2 guard: no `blocked` issue state exists; the batch-advance route is gone.
+  const states = new Set((await allIssues()).map((i) => i.state));
+  assert(!states.has('blocked'), `no blocked issue state (${[...states].join(',')})`);
+  const batchRes = await fetch(`${base}/api/issues/batch-advance`, {
+    method: 'POST',
+    headers: { cookie: COOKIE, 'content-type': 'application/json' },
+    body: '{}',
+  });
+  // Deleted route 404s — or falls through to /api/issues/[id], which has
+  // no POST handler (405) and rejects the non-numeric id. Either way the
+  // v1 batch endpoint is dead.
+  assert(batchRes.status === 404 || batchRes.status === 405, 'batch-advance route is gone (v1 batch mode deleted)');
 
-  try {
+  // Chromium (DOM mode only) — api-only skips straight to API assertions.
+  let cdp = null;
+  let domSessionId = null;
+  let chrome = null;
+  if (!API_ONLY) {
+    const bin = findChromium();
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const profile = mkdtempSync(path.join(tmpdir(), 'devhub-e2e-chrome-'));
+    chrome = spawn(bin, [
+      '--headless=new',
+      '--no-sandbox',
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+      '--hide-scrollbars',
+      '--window-size=1440,900',
+      '--remote-debugging-port=0',
+      `--user-data-dir=${profile}`,
+      'about:blank',
+    ]);
     const wsUrl = await new Promise((resolve, reject) => {
       let buf = '';
       const t = setTimeout(() => reject(new Error('chromium never printed a DevTools endpoint')), 20000);
@@ -317,137 +310,114 @@ async function main() {
       ws.addEventListener('open', resolve);
       ws.addEventListener('error', reject);
     });
-    const cdp = new Cdp(ws);
+    cdp = new Cdp(ws);
     const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
-    await cdp.send('Page.enable', {}, sessionId);
-    await cdp.send('Runtime.enable', {}, sessionId);
-    await cdp.send('Network.enable', {}, sessionId);
-    await cdp.send('Network.setCookie', { name: 'devhub_session', value: session, url: base }, sessionId);
+    ({ sessionId: domSessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true }));
+    await cdp.send('Page.enable', {}, domSessionId);
+    await cdp.send('Runtime.enable', {}, domSessionId);
+    await cdp.send('Network.enable', {}, domSessionId);
+    await cdp.send('Network.setCookie', { name: 'devhub_session', value: session, url: base }, domSessionId);
 
-    // Resolve the per-project boards (migration auto-creates skeleton
-    // projects from the seeded repos on server startup).
-    const projects = (await api('/api/projects')).projects;
-    const findProject = (owner, repo) =>
-      projects.find((p) => p.project?.serviceRepoOwner === owner && p.project?.serviceRepoName === repo)?.project
-      ?? projects.find((p) => p.project?.name === repo)?.project;
-    const devhubProject = findProject('dachrisch', 'devhub');
-    const warehouseProject = findProject('bumbleflies', 'warehouse');
-    assert(devhubProject?.id, `devhub project resolved (got ${JSON.stringify(projects.map((p) => p.project?.name))})`);
-    assert(warehouseProject?.id, `warehouse project resolved`);
-    const devhubBoard = `${base}/projects/${devhubProject.id}`;
-    const warehouseBoard = `${base}/projects/${warehouseProject.id}`;
+    const loaded = cdp.waitForEvent('Page.loadEventFired');
+    await cdp.send('Page.navigate', { url: base }, domSessionId);
+    await loaded;
+    await wait(7000); // hydration + /api/threads + /api/issues + SSE
+    const home = await waitForDom(cdp, domSessionId, JS.homeReady, 'v2 home render');
+    assert(home.dock, 'bottom dock present');
+    assert(home.cards > 0, `work-item cards render (${home.cards})`);
+    assert(home.columns === 0, 'no board columns anywhere');
+  }
 
-    async function gotoBoard(url, label) {
-      const loaded = cdp.waitForEvent('Page.loadEventFired');
-      await cdp.send('Page.navigate', { url }, sessionId);
-      await loaded;
-      await wait(7000); // hydration + /api/issues + topics + SSE
-      const bodyText = await evaluate(cdp, sessionId, 'document.body.innerText.slice(0,120)');
-      assert(!/sign in/i.test(bodyText ?? ''), `${label}: no login wall`);
+  try {
+    // ── S1: happy path via the command bar ──────────────────────────────
+    console.log('\nS1: command → refinement → developing → pr');
+    if (cdp) {
+      await waitForDom(cdp, domSessionId, JS.dockSubmit('Implement dachrisch/devhub#101'), 'dock submit');
+      await waitForDom(cdp, domSessionId, JS.detailOpen, 'thread detail opens', 15000, (v) => v === true);
+    } else {
+      await command('Implement dachrisch/devhub#101');
     }
-
-    await gotoBoard(devhubBoard, 'devhub board');
-
-    const guardHeads = async (label) => {
-      const heads = await evaluate(cdp, sessionId, JS.columnHeads);
-      assert(
-        Array.isArray(heads) && heads.length > 0 && heads.every((h) => !/blocked/i.test(h)),
-        `${label}: board columns are ${JSON.stringify(heads)} — no blocked column`
-      );
-    };
-    await guardHeads('startup');
-
-    // ── S1: happy path ────────────────────────────────────────────────────
-    console.log('\nS1: backlog → refinement → developing → pr');
-    await clickWorkAndStart(cdp, sessionId, 'dachrisch/devhub', 101, 'devhub#101');
     const s1 = await waitForIssueState('dachrisch', 'devhub', 101, (i) => i.state === 'pr' && i.resultPrUrl, 'to reach pr');
     assert(s1.resultPrUrl.includes('/pull/'), `devhub#101 reached pr with ${s1.resultPrUrl}`);
-    const s1dom = await waitForDom(
-      cdp, sessionId, JS.cardInfo('dachrisch/devhub', 101), 'devhub#101 card re-render',
-      15000, (d) => d.inColumn === 'rollout'
-    );
-    assert(s1dom.inColumn === 'rollout', 'devhub#101 card sits in the rollout column');
-    // The card renders a friendly "Review it on GitHub ↗" label, so match the
-    // PR URL on the anchor href rather than the card's text.
-    assert(s1dom.links?.includes(s1.resultPrUrl), 'pr card links the PR URL');
-    await guardHeads('S1');
-    await screenshot(cdp, sessionId, 's1-happy-path');
+    await screenshot(cdp, domSessionId, 's1-happy-path');
 
-    // ── S1b: auto-refine writes the improved body back ────────────────────
+    // ── S1b: auto-refine writes the improved body back ───────────────────
     console.log('\nS1b: refinement auto-refines the issue body, then develops');
     await setScenario({ refine: 'improve', develop: 'pr' });
-    await clickWorkAndStart(cdp, sessionId, 'dachrisch/devhub', 103, 'devhub#103');
+    await command('Implement dachrisch/devhub#103');
     const s1b = await waitForIssueState('dachrisch', 'devhub', 103, (i) => i.state === 'pr', 'to reach pr');
     assert(
       (s1b.body ?? '').includes('Mock-refined body'),
       'improvedBody was persisted to the DevHub row (develop prompt used the refined body)'
     );
-    await screenshot(cdp, sessionId, 's1b-auto-refine');
+    await screenshot(cdp, domSessionId, 's1b-auto-refine');
 
-    // ── S2: needs input → resume ──────────────────────────────────────────
+    // ── S2: needs input → resume ────────────────────────────────────────
     console.log('\nS2: refinement blocks with questions, then resumes');
     await setScenario({ refine: 'blocked' });
-    await clickWorkAndStart(cdp, sessionId, 'dachrisch/devhub', 102, 'devhub#102');
+    const s2thread = await command('Work on dachrisch/devhub#102');
     const s2a = await waitForIssueState('dachrisch', 'devhub', 102, (i) => i.state === 'refinement' && Boolean(i.blockedReason), 'to need input');
     assert(s2a.blockedReason.includes('SQLite or Postgres'), 'blocked_reason carries the blocking questions');
-    const bannerText = await waitForDom(
-      cdp,
-      sessionId,
-      `(() => {
-        const c = [...document.querySelectorAll('.card')].find((c) =>
-          c.querySelector('.card-blocked') &&
-          [...c.querySelectorAll('.card-strip-number')].some((n) => n.textContent.trim() === '#102'));
-        return c ? c.querySelector('.card-blocked').innerText : null;
-      })()`,
-      'Needs input banner'
+    const s2detail = await api(`/api/threads/${s2thread.threadId}`);
+    assert(
+      (s2detail.issues?.[0]?.blockedReason ?? '').includes('SQLite or Postgres'),
+      'thread detail surfaces the Needs input banner'
     );
-    assert(String(bannerText).includes('Needs input'), 'card shows the "Needs input" banner');
-    assert((await evaluate(cdp, sessionId, JS.cardInfo('dachrisch/devhub', 102))).inColumn === 'realizing', 'card stayed in realizing');
+    if (cdp) {
+      const banner = await waitForDom(cdp, domSessionId, JS.needsInputBanner, 'Needs input banner');
+      assert(String(banner).includes('Needs input'), 'card shows the "Needs input" banner');
+    }
 
     await setScenario({ refine: 'ready' });
-    await clickWorkAndStart(cdp, sessionId, 'dachrisch/devhub', 102, 'devhub#102 (resume)');
+    await command('Work on dachrisch/devhub#102');
     const s2b = await waitForIssueState('dachrisch', 'devhub', 102, (i) => i.state === 'pr', 'to resume to pr');
     assert(s2b.state === 'pr' && !s2b.blockedReason, 'devhub#102 resumed all the way to pr with no reason left');
-    await screenshot(cdp, sessionId, 's2-needs-input-resumed');
+    await screenshot(cdp, domSessionId, 's2-needs-input-resumed');
 
-    // ── S3: develop failure → retry from developing ───────────────────────
-    console.log('\nS3: develop failure keeps the card in developing, Work retries');
-    await gotoBoard(warehouseBoard, 'warehouse board');
+    // ── S3: develop failure → retry ─────────────────────────────────────
+    console.log('\nS3: develop failure keeps the card in developing, command retries');
     await setScenario({ develop: 'cannot' });
-    await clickWorkAndStart(cdp, sessionId, 'bumbleflies/warehouse', 101, 'warehouse#101');
+    await command('Implement bumbleflies/warehouse#101');
     const s3a = await waitForIssueState('bumbleflies', 'warehouse', 101, (i) => i.state === 'developing' && Boolean(i.blockedReason), 'to fail back into developing');
     assert(s3a.blockedReason.includes('simulated develop failure'), 'blocked_reason carries the develop failure');
-    const s3domA = await evaluate(cdp, sessionId, JS.cardInfo('bumbleflies/warehouse', 101));
-    assert(s3domA.inColumn === 'realizing', 'card stayed in the realizing column');
-    assert(s3domA.hasBlockedBanner && s3domA.hasWork, 'failed developing card shows Needs input and a Work button');
 
     await setScenario({ develop: 'pr' });
-    await clickWorkAndStart(cdp, sessionId, 'bumbleflies/warehouse', 101, 'warehouse#101 (retry)');
+    await command('Implement bumbleflies/warehouse#101');
     const s3b = await waitForIssueState('bumbleflies', 'warehouse', 101, (i) => i.state === 'pr', 'to reach pr after retry');
     assert(s3b.state === 'pr', 'retry took warehouse#101 to pr');
-    await screenshot(cdp, sessionId, 's3-develop-retry');
+    await screenshot(cdp, domSessionId, 's3-develop-retry');
 
-    // ── S4: batch work on selected ────────────────────────────────────────
-    console.log('\nS4: batch "Work on selected" runs the flow for each card');
+    // ── S4: chips, never a guess ────────────────────────────────────────
+    console.log('\nS4: unknown repo → chips; bare #ref → hand-select');
+    const s4chips = await api('/api/threads', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ input: 'Implement login in ZZZ' }),
+    });
+    assert(s4chips.needsChoice && (s4chips.chips?.length ?? 0) > 0, 'unknown repo resolves to chips, not a guess');
+    const s4search = await api('/api/threads', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ input: 'Implement #103' }),
+    });
+    assert(
+      s4search.needsChoice && s4search.chips?.some((c) => c.kind === 'issue-search'),
+      'bare issue ref asks for hand-select'
+    );
     await setScenario({ refine: 'ready', develop: 'pr' });
-    for (const n of [102, 103]) {
-      const ok = await evaluate(cdp, sessionId, JS.clickCheckbox('bumbleflies/warehouse', n));
-      if (!ok) throw new Error(`checkbox not found for warehouse#${n}`);
-    }
-    await waitForDom(cdp, sessionId, JS.clickWorkOnSelected, 'Work on selected button');
-    await wait(500);
-    for (const n of [102, 103]) {
-      const done = await waitForIssueState('bumbleflies', 'warehouse', n, (i) => i.state === 'pr', 'batch → pr');
-      assert(done.state === 'pr', `warehouse#${n} reached pr via batch work`);
-    }
-    await screenshot(cdp, sessionId, 's4-batch-work');
+    const handpick = findIssue(await allIssues(), 'bumbleflies', 'warehouse', 103);
+    await command('Implement #103', { issueId: handpick.id });
+    const s4done = await waitForIssueState('bumbleflies', 'warehouse', 103, (i) => i.state === 'pr', 'hand-selected → pr');
+    assert(s4done.state === 'pr', 'hand-selected warehouse#103 reached pr');
+    await screenshot(cdp, domSessionId, 's4-chips');
 
-    // ── S5: topic flow (devhub#167) ─────────────────────────────────────
-    // idea → promote → work → pr (+run timeline) → mark shipped → rollout →
-    // project last-shipped updated.
+    // ── S5: topic flow (engine API) ─────────────────────────────────────
     console.log('\nS5: idea → promote → work → mark shipped → rollout');
     await setScenario({ refine: 'ready', develop: 'pr' });
+    const projects = (await api('/api/projects')).projects;
+    const devhubProject = projects.find((p) => p.project?.serviceRepoName === 'devhub')?.project
+      ?? projects.find((p) => p.project?.name === 'devhub')?.project;
+    assert(devhubProject?.id, 'devhub project resolved');
     const topic = await api('/api/topics', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -475,14 +445,6 @@ async function main() {
       `run timeline tracks the PR(s): ${JSON.stringify(s5runs.runs.map((r) => `${r.role}:${r.state}`))}`
     );
 
-    await gotoBoard(devhubBoard, 'devhub board (S5)');
-    const s5dom = await waitForDom(
-      cdp, sessionId, JS.cardInfo('dachrisch/devhub', promotedIssue.number), 'promoted card re-render',
-      15000, (d) => d.inColumn === 'rollout'
-    );
-    assert(s5dom.inColumn === 'rollout', 'promoted card sits in the rollout column');
-    assert(s5dom.text.includes('●pr'), 'pr card shows the per-run PR chip');
-
     await api(`/api/issues/${promotedIssue.id}/mark-shipped`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -498,10 +460,9 @@ async function main() {
       s5devhub?.project?.lastShippedTitle === s5done.title,
       `project last-shipped updated ("${s5devhub?.project?.lastShippedTitle}")`
     );
-    await screenshot(cdp, sessionId, 's5-topic-flow');
+    await screenshot(cdp, domSessionId, 's5-topic-flow');
 
-    // ── S6: shaping loop (devhub#171 Phase 2) ─────────────────────────────
-    // create idea → 3 options → choose → summary updates → reply → ready.
+    // ── S6: shaping loop ────────────────────────────────────────────────
     console.log('\nS6: idea → options → choose → reply → ready');
     await setScenario({ shape: 'options' });
     const shaping = await api('/api/topics', {
@@ -553,21 +514,10 @@ async function main() {
 
     const ready = await api(`/api/topics/${shapingId}/ready`, { method: 'POST' });
     assert(ready.topic?.status === 'ready' && ready.topic?.readyAt, 'idea marked ready with readyAt');
+    await screenshot(cdp, domSessionId, 's6-shaping-loop');
 
-    await gotoBoard(`${base}/topics/${shapingId}`, 'idea page (S6)');
-    const s6dom = await waitForDom(
-      cdp, sessionId, 'document.body.innerText', 'idea page thread render',
-      15000, (t) => typeof t === 'string' && t.includes(picked.title) && t.includes('Ready')
-    );
-    assert(s6dom.includes('Choose') || s6dom.includes('Chosen'), 'idea page shows the options thread');
-    await screenshot(cdp, sessionId, 's6-shaping-loop');
-
-    // ── S7: one-click Realize (devhub#171 Phase 3) ─────────────────────────
-    // ready → realize (202) → promote → work → pr → mock merge+tag → sweep →
-    // rollout → topic shipped → idea page shows Delivered. Auto-merge is
-    // toggled OFF first so the PR waits stably for the external merge (this
-    // also covers the per-project opt-out); S8 covers the worker path.
-    console.log('\nS7: realize → pr → merge+tag → rollout → Delivered');
+    // ── S7: one-click Realize ───────────────────────────────────────────
+    console.log('\nS7: realize → pr → merge+tag → rollout');
     await setScenario({ refine: 'ready', develop: 'pr', shape: 'options' });
     const autoOff = await api(`/api/projects/${devhubProject.id}`, {
       method: 'PATCH',
@@ -606,9 +556,6 @@ async function main() {
     );
     assert((rPr.resultPrUrl ?? '').includes('/pull/'), `realized issue reached pr (${rPr.resultPrUrl})`);
 
-    // Drive the merge + release tag through the mock-github control plane,
-    // then refresh so the sweep observes them immediately (the realize waiter
-    // also sweeps on its own cadence).
     await setGithubScenario({
       merged: [{ owner: 'dachrisch', repo: 'devhub', number: 999, sha: 'mockmerge7' }],
       tags: [{ owner: 'dachrisch', repo: 'devhub', name: 'v7.7.7-e2e', sha: 'mockmerge7' }],
@@ -630,14 +577,7 @@ async function main() {
     }
     const rShipped = await waitForTopicShipped(realizeId, 'realized topic → shipped');
     assert(rShipped.status === 'shipped', 'realized topic shipped');
-
-    await gotoBoard(`${base}/topics/${realizeId}`, 'idea page (S7)');
-    const s7dom = await waitForDom(
-      cdp, sessionId, 'document.body.innerText', 'idea page Delivered render',
-      15000, (t) => typeof t === 'string' && t.includes('Delivered')
-    );
-    assert(s7dom.includes('Delivered'), 'idea page shows Delivered without opening kanban');
-    await screenshot(cdp, sessionId, 's7-realize');
+    await screenshot(cdp, domSessionId, 's7-realize');
 
     const autoOn = await api(`/api/projects/${devhubProject.id}`, {
       method: 'PATCH',
@@ -646,10 +586,8 @@ async function main() {
     });
     assert(autoOn.project?.autoMerge !== false, 'auto-merge restored for S8');
 
-    // ── S8: auto-merge when green (devhub#171 Phase 4) ─────────────────────
-    // Same chain, but NO steering: the worker merges the green PR and cuts
-    // the release tag itself, the sweep observes both, topic ships.
-    console.log('\nS8: realize → worker merge+tag → rollout → Delivered');
+    // ── S8: auto-merge when green ───────────────────────────────────────
+    console.log('\nS8: realize → worker merge+tag → rollout');
     await setGithubScenario({ merged: [], tags: [] });
     const autoTopic = await api('/api/topics', {
       method: 'POST',
@@ -666,8 +604,6 @@ async function main() {
     });
     assert(autoStarted.mode === 'full', `realize accepted (mode=${autoStarted.mode})`);
     const aIssue = await waitForLinkedIssue(autoId, 'auto-merge promotes to an issue');
-    // The worker can merge + release within one poll gap, so pr may never be
-    // observable — accept pr or straight-to-rollout here.
     await waitForIssueState(
       'dachrisch', 'devhub', aIssue.number, (i) => i.state === 'pr' || i.state === 'rollout', 'auto-merge issue → pr', 60000
     );
@@ -686,18 +622,9 @@ async function main() {
     );
     const aShipped = await waitForTopicShipped(autoId, 'auto-merged topic → shipped');
     assert(aShipped.status === 'shipped', 'auto-merged topic shipped');
-    await gotoBoard(`${base}/topics/${autoId}`, 'idea page (S8)');
-    const s8dom = await waitForDom(
-      cdp, sessionId, 'document.body.innerText', 'idea page Delivered render',
-      15000, (t) => typeof t === 'string' && t.includes('Delivered')
-    );
-    assert(s8dom.includes('Delivered'), 'idea page shows Delivered after worker merge');
-    await screenshot(cdp, sessionId, 's8-auto-merge');
+    await screenshot(cdp, domSessionId, 's8-auto-merge');
 
-    // ── S9: strategy thread (v2 command-first) ───────────────────────────
-    // command → strategy thread → split proposal waits for the chip-confirm
-    // gate (nothing auto-created) → confirm → real GitHub issues → serial
-    // auto-Work queue → pr. API-level: no DOM dependency.
+    // ── S9: strategy thread (v2 command-first) ──────────────────────────
     console.log('\nS9: strategy thread → chip gate → confirm → serial queue → pr');
     await setScenario({ planner: 'split', refine: 'ready', develop: 'pr' });
     const beforeCount = (await allIssues()).length;
@@ -709,17 +636,6 @@ async function main() {
       }),
     });
     assert(typeof cmd.threadId === 'number', `strategy thread created (#${cmd.threadId})`);
-
-    async function waitForSplit(threadId, count, label, timeoutMs = 60000) {
-      const deadline = Date.now() + timeoutMs;
-      let last = null;
-      while (Date.now() < deadline) {
-        last = await api(`/api/threads/${threadId}`);
-        if ((last.splitProposal?.length ?? 0) >= count) return last;
-        await wait(500);
-      }
-      throw new Error(`timeout waiting for ${label}; last=${JSON.stringify(last?.splitProposal)}`);
-    }
     const proposed = await waitForSplit(cmd.threadId, 2, 'planner split proposal');
     assert(proposed.thread?.kind === 'strategy', 'thread is a strategy thread');
     assert(
@@ -736,9 +652,6 @@ async function main() {
     const doneThread = await api(`/api/threads/${cmd.threadId}`);
     assert(doneThread.thread?.state === 'done', 'thread is done after confirm');
 
-    // Serial auto-Work queue drains both confirmed cards to pr (mock
-    // merge/tag state from S7/S8 may roll them straight to rollout — accept
-    // either terminal-ish state, as S8 does for the worker path).
     for (const issueId of conf.issueIds) {
       const created = (await allIssues()).find((i) => i.id === issueId);
       assert(created, `confirmed card ${issueId} exists`);
@@ -748,15 +661,18 @@ async function main() {
       );
       assert(terminal.state === 'pr' || terminal.state === 'rollout', `card ${issueId} worked (${terminal.state})`);
     }
-    await screenshot(cdp, sessionId, 's9-strategy-thread');
+    await screenshot(cdp, domSessionId, 's9-strategy-thread');
 
-    cdp.close();
+    if (cdp) cdp.close();
     console.log('\n────────────────────────────────────────────');
-    console.log('E2E PASS — unified Work flow + Projects & Topics cockpit behave as designed');
+    console.log('E2E PASS — v2 command-first flow + engine behave as designed');
+    console.log(`(mode: ${API_ONLY ? 'api-only' : 'dom + api'})`);
     console.log('────────────────────────────────────────────');
   } finally {
-    chrome.kill('SIGTERM');
-    await wait(300);
+    if (chrome) {
+      chrome.kill('SIGTERM');
+      await wait(300);
+    }
   }
 }
 

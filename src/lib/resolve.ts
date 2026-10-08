@@ -24,7 +24,7 @@ const ISSUE_RE = /#(\d+)\b/g;
 const FULL_REPO_RE = /([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/g;
 // Leading command verbs are never repo mentions ("Implement login in XY").
 const INTENT_VERBS = new Set(
-  'implement fix ship build add create update refactor look show make run do plan check review merge release test suggest shape realize promote'.split(' ')
+  'implement work fix ship build add create update refactor look show make run do plan check review merge release test suggest shape realize promote'.split(' ')
 );
 
 // Normalized for shorthand compare: lowercase, alphanumerics only.

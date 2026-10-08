@@ -80,6 +80,14 @@ describe('resolveCommand', () => {
     const r = resolveCommand('Implement #132', REPOS, { openThread: false });
     expect(r.issueNumbers).toEqual([132]);
   });
+
+  test('leading "Work on" phrasing resolves the repo', () => {
+    const r = resolveCommand('Work on dachrisch/devhub#102', REPOS, { openThread: false });
+    expect(r.intent).toBe('implement');
+    expect(r.targets).toEqual(['dachrisch/devhub']);
+    expect(r.chips).toEqual([]);
+    expect(r.issueNumbers).toEqual([102]);
+  });
 });
 
 describe('formatMention', () => {

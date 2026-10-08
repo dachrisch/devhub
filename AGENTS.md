@@ -1,7 +1,8 @@
 # AGENTS.md
 
 Personal, single-user dev command board (Next.js 15 App Router + better-sqlite3 + opencode).
-No auth, no multi-tenancy. The live design plan is `docs/plans/2026-08-30-devhub-design.md`.
+No auth, no multi-tenancy. The live design plan is `docs/plans/2026-10-08-devhub-v2-command-first-design.md`
+(v2, command-first); the v1 board shell was deleted in the same change that shipped v2.
 
 ## Commands
 
@@ -72,6 +73,18 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
   **Never re-develop an issue in `pr`/`rollout`/`closed`, and never re-develop a `developing`
   card whose run is live** (`canDevelop` allows `backlog`/`refinement`, plus `developing`
   only when `blocked_reason` is set).
+- v2 command-first (`src/lib/resolve.ts`, `src/lib/plan.ts`, `src/lib/threads-run.ts`,
+  `src/app/api/threads/**`) — every dock/mic submission goes through one pipeline:
+  parse intent (`implement`/`strategy`/`question`) → resolve repos against the fetched
+  GitHub repo list (**never guessed** — misses yield chips) → create a `threads` row
+  (work starts `refining`, strategy starts `planning`) and run fire-and-forget.
+  Strategy threads build a condensed context brief (no raw bodies), run the planner at
+  2× the refinement poll budget, and surface split proposals (`{repo,title,body,why}`,
+  capped at 10) that wait for the chip-confirm gate — nothing is auto-created.
+  Confirmed cards become topic-tagged GitHub issues and drain through the **serial
+  work queue** (one `developing` run at a time; `getQueuePosition` backs the card badge).
+  Thread stalls record a `blocked:`-prefixed `system` thread_event; reply-from-detail
+  resumes. SSE adds `thread`/`thread-event` id-notifications.
 
 ## Env
 
@@ -83,7 +96,7 @@ only for the opt-in insecure deployment (not production `code.lehel.xyz`).
 Auth: GitHub OAuth (scopes `repo` + `read:org`). Only members of `GITHUB_ALLOWED_ORG`
 (=`bumbleflies`) get a session. Sessions live in the `auth_sessions` table; the OAuth
 token is server-side only. `src/lib/auth.ts` owns cookies + membership checks; the
-`/api/auth/*` routes own the flow. All `/api/issues*` and `/api/stream` require a session;
+`/api/auth/*` routes own the flow. All `/api/issues*`, `/api/threads*` and `/api/stream` require a session;
 `POST /api/issues` and `POST /api/issues/[id]/develop` additionally re-check org membership.
 GitHub API calls in `src/lib/github.ts` take the token as an argument — never read env PATs.
 
@@ -94,24 +107,22 @@ permissions grant **Read** access to Organization membership — otherwise the `
 scope won't be granted and org checks fail silently (`/?auth=denied`). If login returns
 `auth=denied`, unauthorize and re-authorize the app, approving all requested scopes.
 
-## Batch Operations
+## Command bar (v2 — batch mode is deleted)
 
-The board supports batch operations for advancing multiple issues through the pipeline:
+One screen, one input (bottom dock + mic). Every submission POSTs to
+`/api/threads`:
 
-### Batch Selection
-- Click checkboxes on cards to select issues
-- Use `Ctrl+A` to select all visible issues
-- Use `Escape` to clear selection
+- **Implement**: `Implement owner/repo#123` (or tap "Command on" on a card to
+  prefill) → work thread → #132 flow. Bare `#123` without a repo asks for
+  hand-select (issue-search chip) — never guessed.
+- **Strategy**: multi-target asks ("combined strategy for XY and warehouse")
+  → strategy thread → planner → split-proposal chips → confirm (≤10) →
+  serial work queue.
+- **Question**: follow-ups route into the open thread and resume the run.
+- Unknown/ambiguous repos yield repo-choice chips, not guesses.
 
-### Batch Actions
-- **Work on selected**: run the unified Work flow (devhub#132) for each selected issue —
-  backlog → refinement check → develop; failed `developing` cards retry
-- **Advance selected**: Move selected issues to the next stage (backlog → refinement, refinement → backlog)
-
-### Keyboard Shortcuts
-- `Ctrl+A`: Select all visible issues
-- `Escape`: Clear selection
-- `Ctrl+Enter`: Advance selected issues
+Card checkboxes still exist for multi-select: selecting 2+ cards shows a
+**Combine** bar that prefills the dock with a combined-strategy mention.
 
 ### Work Flow Gate
 The unified Work flow (single "Work" button, `startWork`) routes by stage:
@@ -123,16 +134,12 @@ The unified Work flow (single "Work" button, `startWork`) routes by stage:
 Failures never move the card backwards or to a dead state — the card stays put with
 `blocked_reason` set and the next Work click resumes from there.
 
-Every per-issue Work entry point (desktop card button, mobile card primary button,
-mobile "…" sheet) opens the Start-work modal first, offering extra instructions
-(prompt extension) and a model override (pre-selected with the operator's last-used
-default). "Work on selected" is the exception: it starts immediately with defaults.
-
 ### E2E
 Headless Work-flow e2e against mocked GitHub + opencode:
 `node scripts/dev/start-dev.mjs --port 3111` then
 `node scripts/dev/e2e-workflow.mjs --url http://localhost:3111`
-(see `docs/plans/2026-09-02-unify-develop-flow.md`).
+(`--api-only` skips the chromium/CDP DOM pass; see
+`docs/plans/2026-09-02-unify-develop-flow.md`).
 
 ## Not yet verified live (from the plan)
 
