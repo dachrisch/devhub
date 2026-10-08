@@ -451,10 +451,12 @@ export async function checkPrBase(
 }
 
 // States re-checked against GitHub on every refresh. `developing` is left to
-// the live run and `rollout` is DevHub's own terminal pipeline state; every
-// other card gets reconciled so GitHub-closed issues stop accumulating.
+// the live run. `rollout` is DevHub's own terminal pipeline state, but a
+// rollout card whose GitHub issue is already closed (e.g. closed manually or
+// by the merge before the tag sweep ran) must still move to `closed` —
+// otherwise it clogs the board forever.
 // `closed` is included so a card GitHub reopened can move back onto the board.
-const RECONCILE_STATES = ['backlog', 'refinement', 'pr', 'closed'] as const;
+const RECONCILE_STATES = ['backlog', 'refinement', 'pr', 'rollout', 'closed'] as const;
 
 // Catch-up reconciliation: the ingest loop only fetches `state=open` issues,
 // so an issue closed outside DevHub's pipeline (manually, duplicate/wontfix,

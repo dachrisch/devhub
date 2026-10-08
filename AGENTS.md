@@ -53,6 +53,13 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
   release tag contains the merge commit (`GET /pulls/{n}` merged + `GET /tags` + compare).
   Manual board moves are restricted to `backlog → refinement` / `refinement → backlog`
   (`src/lib/transitions.ts`, `POST /api/issues/[id]/transition`).
+  `reconcileClosedIssues` rechecks `backlog/refinement/pr/rollout/closed` against GitHub:
+  GitHub-closed → `closed`, GitHub-open `closed` rows → reopened into `backlog`. Include
+  `rollout` so a rollout card whose GitHub issue got closed manually (or by the merge
+  before the tag sweep ran) finally flips to `closed` — the v2 board hides closed cards,
+  so without it they'd clog the list forever.
+  The v2 **Refresh button calls this POST** (with busy state + count notice + error
+  banner); SSE-driven refetches stay GET-only.
 - `src/lib/opencode.ts` — opencode driver. Auth header `X-Api-Key`. Model picker lists
   **all** server models (free + paid, e.g. DeepSeek V4 Flash) via `GET .../api/model`;
   pinned tiers `mimo-v2.5-free` → `big-pickle` → `nemotron-3.5-lightning-free` (provider `opencode`)
@@ -112,8 +119,8 @@ scope won't be granted and org checks fail silently (`/?auth=denied`). If login 
 One screen, one input (bottom dock + mic). Every submission POSTs to
 `/api/threads`:
 
-- **Implement**: `Implement owner/repo#123` (or tap "Command on" on a card to
-  prefill) → work thread → #132 flow. Bare `#123` without a repo asks for
+- **Implement**: `Implement owner/repo#123` (or tap "Work on this" on a card to
+  prefill + focus the dock) → work thread → #132 flow. Bare `#123` without a repo asks for
   hand-select (issue-search chip) — never guessed.
 - **Strategy**: multi-target asks ("combined strategy for XY and warehouse")
   → strategy thread → planner → split-proposal chips → confirm (≤10) →
@@ -121,8 +128,19 @@ One screen, one input (bottom dock + mic). Every submission POSTs to
 - **Question**: follow-ups route into the open thread and resume the run.
 - Unknown/ambiguous repos yield repo-choice chips, not guesses.
 
+Card interaction split: **click = read, button = act**. Clicking a card opens
+`ThreadDetail` when it has a thread, otherwise the issue-only `IssueDetail`
+(`src/components/threads/issue-detail.tsx`, reuses the `v2-detail` shell; its
+"Work on this" submits the implement mention — hidden for
+`pr/rollout/closed` since `canDevelop` denies those). The "Work on this"
+card button only prefills + focuses the dock; sending is always a manual
+press. Cards whose state is `closed`/`done` leave the main list for a
+collapsed "N recently closed" strip (tap there reopens the detail); fix
+stale data (e.g. GitHub-closed rollout cards) by running Refresh.
+
 Card checkboxes still exist for multi-select: selecting 2+ cards shows a
-**Combine** bar that prefills the dock with a combined-strategy mention.
+**Combine** bar that prefills the dock with a combined-strategy mention
+(and focuses it).
 
 ### Work Flow Gate
 The unified Work flow (single "Work" button, `startWork`) routes by stage:

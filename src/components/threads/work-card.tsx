@@ -18,6 +18,8 @@ export interface CardItem {
   issueId: number | null;
   commandMention: string;
   active: boolean;
+  /** Terminal detail for the closed strip (e.g. not_planned → "not planned"). */
+  note: string | null;
 }
 
 export function cardForThread(thread: Thread, issues: Issue[]): CardItem {
@@ -42,6 +44,7 @@ export function cardForThread(thread: Thread, issues: Issue[]): CardItem {
     threadId: thread.id,
     issueId: linked[0]?.id ?? null,
     commandMention: linked[0] ? `Work on ${linked[0].owner}/${linked[0].repo}#${linked[0].number}` : thread.title,
+    note: linked.find((i) => i.state === 'closed')?.stateReason ?? null,
     active: thread.state !== 'done',
   };
 }
@@ -58,6 +61,7 @@ export function cardForIssue(issue: Issue): CardItem {
     threadId: null,
     issueId: issue.id,
     commandMention: `Implement ${issue.owner}/${issue.repo}#${issue.number}`,
+    note: issue.stateReason,
     active: issue.state !== 'rollout' && issue.state !== 'closed',
   };
 }
@@ -115,8 +119,8 @@ export function WorkCard({ card, selected, onToggleSelect, onOpen, onCommandOn }
         </div>
       )}
       <div className="v2-card-actions">
-        <button type="button" className="ghost" onClick={onCommandOn}>
-          Command on
+        <button type="button" className="ghost" onClick={onCommandOn} aria-label={`Prepare command for ${card.title}`}>
+          Work on this
         </button>
       </div>
     </article>

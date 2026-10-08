@@ -369,6 +369,33 @@ describe('reconcileClosedIssues', () => {
     expect(fromPr?.resultPrUrl).toBe('https://github.com/dachrisch/matched/pull/55');
   });
 
+  it('reconciles a stale rollout card whose GitHub issue is already closed', async () => {
+    store.upsertIssue({
+      githubIssueId: 605,
+      owner: 'dachrisch',
+      repo: 'matched',
+      number: 25,
+      title: 'stale rollout',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/matched/issues/25',
+    });
+    const id = store.getIssueByGithub('dachrisch', 'matched', 25)!.id;
+    store.setRollout(id, 'v1.2.3');
+    expect(store.getIssue(id)?.state).toBe('rollout');
+
+    const fetchFn = (async (url: string) => {
+      if (url.endsWith('/issues/25')) return ghResponse({ state: 'closed', state_reason: 'completed' })();
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+
+    const count = await reconcileClosedIssues('token-abc', fetchFn);
+    expect(count).toBe(1);
+    expect(store.getIssue(id)?.state).toBe('closed');
+    expect(store.getIssue(id)?.stateReason).toBe('completed');
+    // the rollout tag is preserved history
+    expect(store.getIssue(id)?.releaseTag).toBe('v1.2.3');
+  });
+
   it('reopens a closed card when GitHub reports the issue open again', async () => {
     store.upsertIssue({
       githubIssueId: 603,
