@@ -49,7 +49,7 @@ export function AppHeader({ back, title, status, connection, controls, user }: A
             role="status"
           >
             <span className="conn-dot" />
-            {connection.connected ? 'live' : 'connecting…'}
+            <span className="conn-text">{connection.connected ? 'live' : 'connecting…'}</span>
           </span>
         )}
         {user && (

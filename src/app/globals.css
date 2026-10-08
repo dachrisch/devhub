@@ -2322,25 +2322,51 @@ button:disabled {
     overflow: hidden;
   }
 
-  header {
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 12px 16px;
-  }
-
+  /* One compact row even on phones: small brand, tight controls — the old
+     two-row stacked header left a sparse full-width control strip. */
   .app-head {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    flex-wrap: nowrap;
+    min-width: 0;
   }
 
-  .head-controls {
-    gap: 12px;
-    width: 100%;
+  header {
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .brand {
+    gap: 6px;
+    min-width: 0;
   }
 
   .brand-name {
-    display: none;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+
+  .head-controls {
+    gap: 6px;
+    flex-wrap: nowrap;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+
+  .head-controls > .ghost {
+    padding: 6px 10px;
+    font-size: 12.5px;
+    white-space: nowrap;
+  }
+
+  .conn-status {
+    flex-shrink: 0;
+  }
+
+  .conn-text {
+    display: none; /* dot-only on phones — semantics in the title tooltip */
   }
 
   .auth-login {
@@ -4360,12 +4386,13 @@ button.recap-link {
 .v2-cards {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 14px;
+  padding: 16px 16px 24px;
 }
 
 .v2-card {
   width: 100%;
+  margin: 0; /* legacy `.card` margin:10px would double up with the flex gap */
 }
 
 .v2-card-selected {
@@ -4373,6 +4400,7 @@ button.recap-link {
 }
 
 .v2-card-top {
+  padding: 14px 16px 10px;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -4461,8 +4489,15 @@ button.recap-link {
   color: var(--muted);
 }
 
+.v2-card .card-blocked {
+  margin: 0 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  line-height: 1.4;
+}
+
 .v2-queue {
-  margin-top: 6px;
+  margin: 0 16px;
   font-size: 12px;
   color: var(--developing);
 }
@@ -4470,7 +4505,7 @@ button.recap-link {
 .v2-card-actions {
   display: flex;
   gap: 8px;
-  margin-top: 8px;
+  margin: 8px 16px 14px;
 }
 
 .v2-needs-input {
@@ -4488,6 +4523,71 @@ button.recap-link {
   border: 1px solid var(--accent);
   border-radius: 8px;
   font-size: 13px;
+}
+
+/* Collapsed "recently closed" strip under the card list: dimmed rows that
+   open the same issue detail. Github-closed items land here on refresh. */
+.v2-closed {
+  margin: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.v2-closed summary {
+  cursor: pointer;
+  padding: 9px 12px;
+  color: var(--muted);
+  user-select: none;
+}
+
+.v2-closed[open] summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.v2-closed-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.v2-closed-item:hover {
+  color: var(--text);
+}
+
+.v2-closed-item .v2-closed-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v2-closed-item .v2-closed-repo {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.v2-closed-item .v2-closed-reason {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Detail view bottom action bar (issue detail). */
+.v2-detail-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  border-top: 1px solid var(--border);
 }
 
 /* Bottom dock: fixed, thumb-reachable. */

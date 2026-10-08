@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type Ref } from 'react';
 
 // Bottom dock (fixed, thumb-reachable): command bar + mic button. Freeform
 // text or speech — no repo/stage/issue pre-selection required. The mic is a
@@ -11,6 +11,8 @@ interface CommandDockProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   busy?: boolean;
+  /** Optional imperative handle to the command input (prefill + focus). */
+  inputRef?: Ref<HTMLInputElement>;
 }
 
 type SpeechRecognitionLike = {
@@ -32,7 +34,7 @@ function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-export function CommandDock({ value, onChange, onSubmit, busy = false }: CommandDockProps) {
+export function CommandDock({ value, onChange, onSubmit, busy = false, inputRef }: CommandDockProps) {
   const [listening, setListening] = useState(false);
   const [micSupported] = useState(() => getSpeechRecognition() !== null);
   const recogRef = useRef<SpeechRecognitionLike | null>(null);
@@ -99,6 +101,7 @@ export function CommandDock({ value, onChange, onSubmit, busy = false }: Command
         </button>
       )}
       <input
+        ref={inputRef}
         className="v2-dock-input"
         value={value}
         onChange={(e) => onChange(e.target.value)}
