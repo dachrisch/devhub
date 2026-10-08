@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/dachrisch/devhub/compare/v2.0.0...v2.1.0) (2026-10-08)
+
+
+### Features
+
+* **v2:** UI polish round 1 (issue detail, Work on this, real Refresh sync, closed strip, mobile header) ([#263](https://github.com/dachrisch/devhub/issues/263)) ([e3c28ed](https://github.com/dachrisch/devhub/commit/e3c28ed997841da15df2074ad907ad59970977cd))
+
 ## [2.0.0](https://github.com/dachrisch/devhub/compare/v1.30.6...v2.0.0) (2026-10-08)
 
 
