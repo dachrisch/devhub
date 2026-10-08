@@ -5,6 +5,7 @@ import type { Issue, IssueEvent } from '@/lib/types';
 import { DetailShell } from './detail-shell';
 import { MarkdownBody } from './markdown-body';
 import { ActivityTimeline, type ActivityRow } from './activity-timeline';
+import { parseSqliteUtc } from '@/lib/time';
 
 // Card tap → detail (v3). Shared DetailShell (appbar stays visible, Esc/back
 // close, ?card= URL sync). Markdown body via MarkdownBody, event history via
@@ -40,7 +41,7 @@ function activityRows(events: IssueEvent[]): ActivityRow[] {
 }
 
 function relativeSynced(issue: Issue): string {
-  const t = new Date(issue.updatedAt).getTime();
+  const t = parseSqliteUtc(issue.updatedAt);
   if (!Number.isFinite(t)) return '';
   const mins = Math.round((Date.now() - t) / 60000);
   if (mins < 1) return 'synced just now';

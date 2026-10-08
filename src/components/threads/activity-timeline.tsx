@@ -1,5 +1,7 @@
 'use client';
 
+import { parseSqliteUtc, relativeTime } from '@/lib/time';
+
 // Collapsible activity timeline from event rows (issue events or thread
 // events) — one tinted dot per kind, relative timestamps, capped previews.
 // Default-open when the item is blocked so the last failure is visible.
@@ -21,17 +23,10 @@ const DOT_CLASS: Record<string, string> = {
   verification: 'dot-verification',
 };
 
-function relTime(ts: string): string {
-  const t = new Date(ts).getTime();
-  if (!Number.isFinite(t)) return '';
-  const diff = Date.now() - t;
-  const abs = Math.abs(diff);
-  const mins = Math.round(abs / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+function exactTime(ts: string): string | undefined {
+  const t = parseSqliteUtc(ts);
+  if (!Number.isFinite(t)) return undefined;
+  return new Date(t).toLocaleString();
 }
 
 function preview(text: string, max = 200): string {
@@ -49,7 +44,7 @@ export function ActivityTimeline({ rows, defaultOpen = false }: { rows: Activity
         {shown.map((r) => (
           <li key={r.id} className="v2-activity-row">
             <span className={`v2-activity-dot ${DOT_CLASS[r.kind] ?? 'dot-system'}`} aria-hidden="true" />
-            <span className="v2-activity-time">{relTime(r.ts)}</span>
+            <span className="v2-activity-time" title={exactTime(r.ts)}>{relativeTime(r.ts)}</span>
             <span className="v2-activity-text">{preview(r.text)}</span>
           </li>
         ))}

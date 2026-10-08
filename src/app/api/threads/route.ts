@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createWorkRequest, getIssue, getIssueByGithub, getIssues, listThreads } from '@/lib/store';
-import { createThread, replyToThread, startStrategyThread, startWorkThread } from '@/lib/threads-run';
+import { createThread, listQueuePositions, replyToThread, startStrategyThread, startWorkThread } from '@/lib/threads-run';
 import { resolveCommand } from '@/lib/resolve';
 import { deriveWorkRequestTitle } from '@/lib/work-requests';
 import { canDevelop } from '@/lib/develop';
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     return authError(err);
   }
-  return NextResponse.json({ threads: listThreads() });
+  return NextResponse.json({ threads: listThreads(), queuePositions: listQueuePositions() });
 }
 
 // Every bar/mic submission goes through this one pipeline: parse intent →

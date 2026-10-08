@@ -116,7 +116,14 @@ export function ThreadDetail({ threadId, onClose, onChanged }: ThreadDetailProps
   };
 
   return (
-    <DetailShell title={data?.thread.title ?? 'Thread'} onClose={onClose}>
+    <DetailShell
+      title={
+        data?.thread.kind === 'work'
+          ? data.issues[0]?.title ?? data.thread.title
+          : data?.thread.title ?? 'Thread'
+      }
+      onClose={onClose}
+    >
       <div className="v2-detail-head-state">
         {data && <span className={`v2-chip v2-chip-${data.thread.state}`}>{data.thread.state}</span>}
       </div>

@@ -8,7 +8,8 @@ import { AppHeader } from '@/components/app-header';
 import { CommandDock } from '@/components/threads/command-dock';
 import { ThreadDetail } from '@/components/threads/thread-detail';
 import { IssueDetail } from '@/components/threads/issue-detail';
-import { WorkCard, cardForIssue, cardForThread, cardRank, type CardItem } from '@/components/threads/work-card';
+import { WorkCard } from '@/components/threads/work-card';
+import { cardForIssue, cardForThread, cardRank, type CardItem, type QueuePositions } from '@/lib/cards';
 import type { ResolveChip } from '@/lib/resolve';
 import { filterIssueCandidates } from '@/lib/issue-search';
 
@@ -33,6 +34,7 @@ interface SyncResult {
 export default function HomePage() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [queuePositions, setQueuePositions] = useState<QueuePositions>({});
   const [connected, setConnected] = useState(false);
   const [command, setCommand] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -50,8 +52,9 @@ export default function HomePage() {
     try {
       const [t, i] = await Promise.all([fetch('/api/threads'), fetch('/api/issues')]);
       if (t.ok) {
-        const data = (await t.json()) as { threads?: Thread[] };
+        const data = (await t.json()) as { threads?: Thread[]; queuePositions?: QueuePositions };
         if (data.threads) setThreads(data.threads);
+        if (data.queuePositions) setQueuePositions(data.queuePositions);
       }
       if (i.ok) {
         const data = (await i.json()) as { issues?: Issue[] };
@@ -112,23 +115,27 @@ export default function HomePage() {
   }, [signedIn, fetchAll]);
 
   // Threads own their issues; unlinked issues still get cards (closed ones
-  // land in the "recently closed" strip via the partition below).
+  // land in the "recently closed" strip via the partition below). A done
+  // strategy thread releases its confirmed split cards so each shows its own
+  // queue badge while it drains instead of hiding behind the finished thread.
   const { activeCards, closedCards } = useMemo(() => {
     const linkedIds = new Set<number>();
     const threadCards = threads.map((t) => {
-      for (const id of t.issueIds) linkedIds.add(id);
-      return cardForThread(t, issues.filter((i) => t.issueIds.includes(i.id)));
+      if (t.state !== 'done') for (const id of t.issueIds) linkedIds.add(id);
+      return cardForThread(t, issues.filter((i) => t.issueIds.includes(i.id)), queuePositions);
     });
     const all = [
       ...threadCards,
-      ...issues.filter((i) => i.source !== 'request' && !linkedIds.has(i.id)).map(cardForIssue),
+      ...issues
+        .filter((i) => i.source !== 'request' && !linkedIds.has(i.id))
+        .map((i) => cardForIssue(i, queuePositions)),
     ].sort((a, b) => cardRank(a) - cardRank(b));
     const isDone = (c: CardItem) => c.statusKey === 'closed' || c.statusKey === 'done';
     return {
       activeCards: all.filter((c) => !isDone(c)),
       closedCards: all.filter(isDone).slice(0, 8),
     };
-  }, [threads, issues]);
+  }, [threads, issues, queuePositions]);
 
   const detailIssue = detailIssueId !== null ? issues.find((i) => i.id === detailIssueId) ?? null : null;
 

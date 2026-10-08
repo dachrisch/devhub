@@ -105,6 +105,16 @@ export function getQueuePosition(issueId: number): number | 'live' | null {
   return idx + 1 + (liveWorkIssueId != null ? 1 : 0);
 }
 
+// Snapshot for the board: issue id → position for everything queued or live.
+export function listQueuePositions(): Record<number, number | 'live'> {
+  const out: Record<number, number | 'live'> = {};
+  if (liveWorkIssueId != null) out[liveWorkIssueId] = 'live';
+  workQueue.forEach((id, idx) => {
+    out[id] = idx + 1 + (liveWorkIssueId != null ? 1 : 0);
+  });
+  return out;
+}
+
 // Starts queued runs when none is live and drains the queue one run at a
 // time. Failures never stall the queue — the card keeps its blocked_reason
 // and the next item proceeds. Re-entrant pumps while a drain is in flight

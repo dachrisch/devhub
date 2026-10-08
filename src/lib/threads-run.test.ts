@@ -68,6 +68,11 @@ describe('serial work queue', () => {
     expect(runs.getQueuePosition(999)).toBeNull();
   });
 
+  test('lists positions for the board snapshot', () => {
+    runs.enqueueWork([5, 6]);
+    expect(runs.listQueuePositions()).toEqual({ 5: 1, 6: 2 });
+  });
+
   test('one pump drains the queue in order, strictly serially', async () => {
     const started: number[] = [];
     const finished: number[] = [];
