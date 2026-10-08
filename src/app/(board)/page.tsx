@@ -1,370 +1,139 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import type { Issue, Topic } from '@/lib/types';
-import { matchesIssue } from '@/lib/board-ui';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { Issue, Thread } from '@/lib/types';
 import { useAuth } from '@/components/use-auth';
 import { WelcomeScreen } from '@/components/auth-ui';
 import { AppHeader } from '@/components/app-header';
-import { IssueRef } from '@/components/board/issue-ref';
-import { CockpitComposer } from '@/components/board/cockpit-composer';
-import { ActionDetail } from '@/components/board/action-detail';
-import { useKeyboardInset } from '@/components/board/use-keyboard-inset';
-import type { ModelOption } from '@/lib/types';
-import { useMediaQuery, MOBILE_QUERY } from '@/components/board/use-media-query';
-import { MobileSearchSheet } from '@/components/board/mobile-search-sheet';
-import { ProjectsHome } from '@/components/board/projects-home';
-import { DeliveredSection } from '@/components/board/delivered-section';
-import {
-  ActionStatusStrip,
-  actionFromApi,
-  isTerminalActionStatus,
-  mergeAction,
-  type ApiActionRow,
-  type CockpitAction,
-} from '@/components/board/action-status-strip';
+import { CommandDock } from '@/components/threads/command-dock';
+import { ThreadDetail } from '@/components/threads/thread-detail';
+import { WorkCard, cardForIssue, cardForThread, cardRank, type CardItem } from '@/components/threads/work-card';
+import type { ResolveChip } from '@/lib/resolve';
 
-// Projects-first home (devhub#167): project cards + inbox above the fold. The
-// kanban lives only under /projects/[id]; the header search is global (across
-// projects/issues) and jumps to the project board or recap page.
-export default function BoardPage() {
+// v2 command-first home: one screen, one input. No columns, no board, no
+// separate intake modes. Work-item cards top of page (single column, active
+// first), bottom dock with command bar + mic.
+
+interface ChipAnswer {
+  intent: string;
+  chips: ResolveChip[];
+}
+
+export default function HomePage() {
+  const [threads, setThreads] = useState<Thread[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
-  // Settled ideas for the Delivered ribbons: without them every home ribbon
-  // falls back to the orphan flat row and the idea↔work grouping never shows.
-  const [deliveredTopics, setDeliveredTopics] = useState<Topic[]>([]);
   const [connected, setConnected] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  // Bumped on refresh + live issue SSE so the project cards re-fetch.
-  const [projectTick, setProjectTick] = useState(0);
-  const [searchHelp, setSearchHelp] = useState(false);
-  const [searchSheetOpen, setSearchSheetOpen] = useState(false);
-  const helpRef = useRef<HTMLDivElement>(null);
+  const [command, setCommand] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [chipAnswer, setChipAnswer] = useState<ChipAnswer | null>(null);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const [detailThreadId, setDetailThreadId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const { user, loading, denied, logout } = useAuth();
-  const isMobile = useMediaQuery(MOBILE_QUERY);
-  const router = useRouter();
-
-  // Cockpit input bar — one shared composer (multiline prompt + model
-  // override) rendered in both shells: the mobile FAB bottom sheet and the
-  // desktop expanded form. Submitting keeps the shell open and the text
-  // intact on failure; on success the detail view opens for the new action.
-  const [actionInput, setActionInput] = useState('');
-  const [cockpitOpen, setCockpitOpen] = useState(false);
-  const [submittingAction, setSubmittingAction] = useState(false);
-  const [cockpitModel, setCockpitModel] = useState<ModelOption | null>(null);
-  // Lineage for a rerun: seeds POST /api/action params so the new row is
-  // traceable to the action whose prompt was adjusted.
-  const [retryOfId, setRetryOfId] = useState<number | null>(null);
-  // Desktop cockpit starts collapsed to a trigger pill, same instinct as
-  // mobile's FAB+sheet: don't spend fixed vertical space until it's wanted.
-  const [desktopCockpitOpen, setDesktopCockpitOpen] = useState(false);
-  // Recent cockpit actions with live status: hydrated from GET /api/action on
-  // load, updated by `type:'action'` SSE broadcasts, and drilled into
-  // GET /api/action/[id] for summary/duration when we lack the row.
-  const [actions, setActions] = useState<CockpitAction[]>([]);
-  const [actionError, setActionError] = useState<string | null>(null);
-  // Currently-open action detail view (null = closed). The strip items, the
-  // error banner's "Details" affordance and a successful submit all open it.
-  const [detailActionId, setDetailActionId] = useState<number | null>(null);
-  // Model picker data for the cockpit (shared with the develop modal's
-  // endpoint): the list plus the operator's last-used default.
-  const [models, setModels] = useState<ModelOption[]>([]);
-  const knownActionIdsRef = useRef<Set<number>>(new Set());
-  const actionDetailFetchedRef = useRef<Set<string>>(new Set());
-  const keyboardInset = useKeyboardInset();
-
   const signedIn = Boolean(user);
 
-  const repos = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of issues) set.add(`${i.owner}/${i.repo}`);
-    return Array.from(set).sort();
-  }, [issues]);
-
-  // Global search (across projects/issues with jump): matches reuse the board
-  // filter syntax; each hit links to its project board and recap page.
-  const searchHits = useMemo(() => {
-    if (!query.trim()) return [];
-    return issues.filter((i) => matchesIssue(i, query)).slice(0, 20);
-  }, [issues, query]);
-
-  const upsert = useCallback((issue: Issue) => {
-    setIssues((prev) => {
-      const idx = prev.findIndex((i) => i.id === issue.id);
-      if (idx === -1) return [issue, ...prev];
-      const next = prev.slice();
-      next[idx] = issue;
-      return next;
-    });
-  }, []);
-
-  // Drill into GET /api/action/[id] for the full row (input text, stored
-  // summary, duration). Used when an SSE broadcast references an action this
-  // client doesn't know, and when an action finishes so the broadcast's terse
-  // detail can be upgraded to the stored summary.
-  const hydrateAction = useCallback(async (actionId: number) => {
+  const fetchAll = useCallback(async () => {
     try {
-      const res = await fetch(`/api/action/${actionId}`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { action?: ApiActionRow };
-      const row = data.action;
-      if (!row || typeof row.id !== 'number') return;
-      setActions((prev) => {
-        const idx = prev.findIndex((a) => a.id === row.id);
-        if (idx === -1) return prev;
-        const next = prev.slice();
-        next[idx] = mergeAction(next[idx], row);
-        return next;
-      });
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Recent action history so past cockpit runs are discoverable on load.
-  useEffect(() => {
-    if (!signedIn) return;
-    let active = true;
-    fetch('/api/action?limit=20')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { actions?: ApiActionRow[] } | null) => {
-        const rows = data?.actions;
-        if (!active || !rows) return;
-        knownActionIdsRef.current = new Set(rows.map((a) => a.id));
-        setActions((prev) => {
-          const byId = new Map(prev.map((a) => [a.id, a] as const));
-          for (const row of rows) {
-            const existing = byId.get(row.id);
-            byId.set(row.id, existing ? mergeAction(existing, row) : actionFromApi(row));
-          }
-          return Array.from(byId.values()).sort((a, b) => b.id - a.id);
-        });
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [signedIn]);
-
-  const fetchDeliveredTopics = useCallback(async () => {
-    try {
-      const res = await fetch('/api/topics');
-      if (!res.ok) return;
-      const data = (await res.json()) as { topics?: Topic[] };
-      if (data.topics) {
-        setDeliveredTopics(
-          data.topics.filter((t) => t.status === 'shipped' || t.status === 'dropped')
-        );
+      const [t, i] = await Promise.all([fetch('/api/threads'), fetch('/api/issues')]);
+      if (t.ok) {
+        const data = (await t.json()) as { threads?: Thread[] };
+        if (data.threads) setThreads(data.threads);
+      }
+      if (i.ok) {
+        const data = (await i.json()) as { issues?: Issue[] };
+        if (data.issues) setIssues(data.issues);
       }
     } catch {
-      // ignore — delivered history degrades to issue-only ribbons
+      // ignore — SSE keeps it live
     }
   }, []);
 
   useEffect(() => {
     if (!signedIn) return;
-    let active = true;
-    fetch('/api/issues')
-      .then((r) => r.json())
-      .then((data: { issues: Issue[] }) => {
-        if (active) {
-          setIssues(data.issues);
-          setLastRefreshed(new Date());
-        }
-      })
-      .catch(() => {});
+    // Initial hydration — async fan-out, not a sync setState cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void fetchDeliveredTopics();
-
+    void fetchAll();
     const es = new EventSource('/api/stream');
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false);
     es.onmessage = (e) => {
       try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'issue') {
-          upsert(msg.issue as Issue);
-          setProjectTick((t) => t + 1);
-        } else if (msg.type === 'project' || msg.type === 'topic' || msg.type === 'run') {
-          // Project cockpit id-notification (see sse.ts): the cards + inbox
-          // re-fetch via refreshKey.
-          setProjectTick((t) => t + 1);
-          if (msg.type === 'topic') void fetchDeliveredTopics();
-        } else if (msg.type === 'action') {
-          const actionId = Number(msg.actionId);
-          const status = String(msg.status);
-          const detail = typeof msg.detail === 'string' ? msg.detail : null;
-          if (!Number.isInteger(actionId) || actionId <= 0) return;
-          const known = knownActionIdsRef.current.has(actionId);
-          knownActionIdsRef.current.add(actionId);
-          setActions((prev) => {
-            const idx = prev.findIndex((a) => a.id === actionId);
-            if (idx === -1) {
-              return [{ id: actionId, input: `Action #${actionId}`, status, detail, durationMs: null }, ...prev];
-            }
-            const next = prev.slice();
-            const current = next[idx];
-            next[idx] = {
-              ...current,
-              status,
-              detail: detail ?? current.detail,
-              durationMs: isTerminalActionStatus(status) ? null : current.durationMs,
-            };
-            return next;
-          });
-          // Fetch the stored row when we don't know the action (fills the
-          // input text) or when it finishes (fills summary + duration).
-          const phase = isTerminalActionStatus(status) ? 'final' : 'initial';
-          const key = `${actionId}:${phase}`;
-          if ((!known || phase === 'final') && !actionDetailFetchedRef.current.has(key)) {
-            actionDetailFetchedRef.current.add(key);
-            void hydrateAction(actionId);
-          }
-        }
+        const msg = JSON.parse(e.data) as { type?: string };
+        if (msg.type === 'thread' || msg.type === 'thread-event' || msg.type === 'issue') void fetchAll();
       } catch {
-        // ignore malformed
+        // ignore
       }
     };
-    return () => {
-      active = false;
-      es.close();
-    };
-  }, [signedIn, upsert, hydrateAction, fetchDeliveredTopics]);
+    return () => es.close();
+  }, [signedIn, fetchAll]);
 
-  // Error banners persist until dismissed or superseded — an 8s timer
-  // risks hiding the failure from an operator who looked away, and a missed
-  // autonomous-run failure is the core risk of this board.
-
-  // Model list for the cockpit picker. The endpoint returns the full server
-  // registry plus the operator's last-used default (set by a develop run or a
-  // cockpit run with an override).
-  useEffect(() => {
-    if (!signedIn) return;
-    let active = true;
-    fetch('/api/models')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { models?: ModelOption[]; default?: ModelOption | null } | null) => {
-        if (!active) return;
-        if (data?.models) setModels(data.models);
-        if (data?.default !== undefined) setCockpitModel(data.default ?? null);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [signedIn]);
-
-  const submitAction = useCallback(async () => {
-    const input = actionInput.trim();
-    if (!input) return;
-    setSubmittingAction(true);
-    try {
-      const body: {
-        input: string;
-        params?: Record<string, unknown>;
-        modelId?: string;
-        providerID?: string;
-      } = { input };
-      if (retryOfId != null) body.params = { retryOf: retryOfId };
-      if (cockpitModel) {
-        body.modelId = cockpitModel.id;
-        body.providerID = cockpitModel.providerID;
-      }
-      const res = await fetch('/api/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; actionId?: number; error?: string }
-        | null;
-      if (!res.ok || !data?.ok || typeof data.actionId !== 'number') {
-        // The prompt stays in the composer for adjustment (rerun-ready).
-        setActionError(data?.error ?? `action failed (HTTP ${res.status})`);
-        return;
-      }
-      // Optimistically surface the action as pending; the `type:'action'`
-      // SSE broadcasts (starting immediately on the server) keep it live.
-      knownActionIdsRef.current.add(data.actionId);
-      const actionId = data.actionId;
-      setActions((prev) =>
-        prev.some((a) => a.id === actionId)
-          ? prev
-          : [{ id: actionId, input, status: 'pending', detail: null, durationMs: null }, ...prev]
+  // Threads own their issues; unlinked active issues still get cards so
+  // synced backlog items stay actionable without a thread.
+  const cards: CardItem[] = useMemo(() => {
+    const linkedIds = new Set<number>();
+    const threadCards = threads.map((t) => {
+      for (const id of t.issueIds) linkedIds.add(id);
+      return cardForThread(
+        t,
+        issues.filter((i) => t.issueIds.includes(i.id))
       );
-      // Success: clear the composer and hand over to the detail view so the
-      // prompt, result and transcript stay fully visible while the run goes.
-      setActionInput('');
-      setRetryOfId(null);
-      setCockpitOpen(false);
-      setDesktopCockpitOpen(false);
-      setDetailActionId(actionId);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSubmittingAction(false);
-    }
-  }, [actionInput, cockpitModel, retryOfId]);
+    });
+    const lone = issues
+      .filter((i) => !linkedIds.has(i.id) && i.state !== 'closed')
+      .map(cardForIssue);
+    return [...threadCards, ...lone].sort((a, b) => cardRank(a) - cardRank(b));
+  }, [threads, issues]);
 
-  // Rerun: seed the composer with the old prompt + its model override, mark
-  // the lineage, and let the next submit create a fresh action.
-  const rerunAction = useCallback(
-    (input: string, model: ModelOption | null, retryOf: number) => {
-      setActionInput(input);
-      setCockpitModel(model);
-      setRetryOfId(retryOf);
-      setDetailActionId(null);
-      if (isMobile) setCockpitOpen(true);
-      else setDesktopCockpitOpen(true);
+  const submitCommand = useCallback(
+    async (extra?: { repoChoice?: string; issueId?: number }) => {
+      const input = command.trim();
+      if (!input || submitting) return;
+      setSubmitting(true);
+      setCommandError(null);
+      try {
+        const res = await fetch('/api/threads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input, ...extra }),
+        });
+        const data = (await res.json().catch(() => null)) as
+          | { ok?: boolean; threadId?: number; needsChoice?: boolean; intent?: string; chips?: ResolveChip[]; error?: string }
+          | null;
+        if (!res.ok) throw new Error(data?.error ?? `command failed (${res.status})`);
+        if (data?.needsChoice) {
+          setChipAnswer({ intent: data.intent ?? 'implement', chips: data.chips ?? [] });
+          return;
+        }
+        setChipAnswer(null);
+        setCommand('');
+        if (typeof data?.threadId === 'number') setDetailThreadId(data.threadId);
+        void fetchAll();
+      } catch (err) {
+        setCommandError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSubmitting(false);
+      }
     },
-    [isMobile]
+    [command, submitting, fetchAll]
   );
 
-  useEffect(() => {
-    if (!searchHelp) return;
-    const onDown = (e: MouseEvent) => {
-      if (helpRef.current && !helpRef.current.contains(e.target as Node)) setSearchHelp(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSearchHelp(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [searchHelp]);
-
-  const refresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      const res = await fetch('/api/issues', { method: 'POST' });
-      if (!res.ok) {
-        let detail = '';
-        try {
-          const data = (await res.json()) as { error?: string };
-          detail = data.error ?? '';
-        } catch {
-          // non-JSON body
-        }
-        throw new Error(detail || `refresh failed (HTTP ${res.status})`);
-      }
-      const data = (await res.json().catch(() => null)) as { issues?: Issue[] } | null;
-      if (data?.issues) setIssues(data.issues);
-      setRefreshError(null);
-      setLastRefreshed(new Date());
-      setProjectTick((t) => t + 1);
-    } catch (err) {
-      setRefreshError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRefreshing(false);
-    }
+  const toggleSelect = useCallback((key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }, []);
+
+  const combineSelected = useCallback(() => {
+    const mentions = cards
+      .filter((c) => selected.has(c.key) && c.issueId != null)
+      .map((c) => c.commandMention);
+    if (mentions.length === 0) return;
+    setCommand(`Come up with a combined strategy for ${mentions.join(', ')}`);
+    setSelected(new Set());
+  }, [cards, selected]);
 
   if (!signedIn) {
     return (
@@ -378,236 +147,106 @@ export default function BoardPage() {
   }
 
   return (
-    <div className="page-wrap">
+    <div className="page-wrap v2-page">
       <AppHeader
         title="DevHub"
         connection={{ connected }}
         user={user ? { login: user.login, avatarUrl: user.avatarUrl, onLogout: logout } : undefined}
         controls={
-          <>
-            <div className="search-wrapper">
-              {isMobile ? (
-                <button
-                  className="search-mobile-trigger"
-                  onClick={() => setSearchSheetOpen(true)}
-                  aria-label="Search issues"
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M10.68 11.74a6 6 0 01-7.922-8.982 6 6 0 018.982 7.922l3.04 3.04a.749.749 0 01-1.06 1.06zM11.5 7a4.5 4.5 0 10-9 0 4.5 4.5 0 009 0z" />
-                  </svg>
-                  <span>{query || 'Search issues'}</span>
-                </button>
-              ) : (
-                <>
-                  <input
-                    className="search"
-                    placeholder="Search… e.g. repo:devhub title:auth"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    aria-label="Search issues"
-                  />
-                  <div className="search-help" ref={helpRef}>
-                    <button
-                      className="search-help-btn"
-                      onClick={() => setSearchHelp((h) => !h)}
-                      aria-label="Search syntax help"
-                      aria-expanded={searchHelp}
-                    >
-                      ?
-                    </button>
-                    {searchHelp && (
-                      <div className="search-help-menu">
-                        <div className="search-help-title">Search filters</div>
-                        <div className="search-help-item"><code>repo:</code> match repo name</div>
-                        <div className="search-help-item"><code>title:</code> match title</div>
-                        <div className="search-help-item"><code>owner:</code> match owner</div>
-                        <div className="search-help-item"><code>state:</code> match state</div>
-                        <div className="search-help-item"><code>body:</code> match body</div>
-                        <div className="search-help-item"><code>number:</code> match issue #</div>
-                        <div className="search-help-note">Combine filters with plain text. e.g. repo:web auth</div>
-                        <div className="search-help-note">Ideas live on project boards — there title: and status: work, and repo:/owner:/number: are ignored.</div>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-            <button className="ghost" onClick={refresh} disabled={refreshing} title={lastRefreshed ? `Last refreshed ${lastRefreshed.toLocaleTimeString()}` : 'Refresh from GitHub'}>
-              {refreshing ? 'Refreshing…' : 'Refresh'}
-            </button>
-          </>
+          <button className="ghost" onClick={() => void fetchAll()}>
+            Refresh
+          </button>
         }
       />
 
-      <main id="board-main" className="board-main">
-      {refreshError && (
-        <div className="banner" role="alert">
-          <span>
-            Refresh failed: {refreshError}
-            {/401|auth/i.test(refreshError) && (
-              <> — <a href="/api/auth/login" style={{ color: 'inherit', textDecoration: 'underline' }}>log in again</a></>
-            )}
-          </span>
-          <button className="ghost" onClick={() => setRefreshError(null)}>
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {actionError && (
-        <div className="banner" role="alert">
-          <span>
-            Action failed: {actionError}
-            {/401|auth/i.test(actionError) && (
-              <> — <a href="/api/auth/login" style={{ color: 'inherit', textDecoration: 'underline' }}>log in again</a></>
-            )}
-          </span>
-          <button className="ghost" onClick={() => setActionError(null)}>
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Live status for cockpit submissions (pending → running → done/failed)
-          plus recent history, fed by SSE + GET /api/action. Each item opens
-          the full detail view — the only place long prompts/errors are
-          readable. */}
-      <ActionStatusStrip actions={actions} onSelect={(id) => setDetailActionId(id)} />
-
-      {!isMobile && !desktopCockpitOpen && (
-        <div className="cockpit-collapsed-wrap">
-          <button
-            type="button"
-            className="cockpit-collapsed-trigger"
-            onClick={() => setDesktopCockpitOpen(true)}
-          >
-            Tell me what you want… <span className="cockpit-collapsed-hint">e.g. &quot;Launch a new API&quot;, &quot;Fix issue #42&quot;</span>
-          </button>
-        </div>
-      )}
-
-      {!isMobile && desktopCockpitOpen && (
-        <div className="cockpit-expanded-wrap">
-          <CockpitComposer
-            input={actionInput}
-            onInputChange={setActionInput}
-            models={models}
-            selectedModel={cockpitModel}
-            onSelectedModelChange={setCockpitModel}
-            onSubmit={() => void submitAction()}
-            busy={submittingAction}
-            autoFocus
-            onCancel={() => setDesktopCockpitOpen(false)}
-            closable
-          />
-        </div>
-      )}
-
-      {query.trim() && (
-        <div className="global-search-results" role="status" aria-label="Search results">
-          <span className="released-label">Results ({searchHits.length})</span>
-          {searchHits.length === 0 ? (
-            <div className="empty">nothing matches — try another filter</div>
-          ) : (
-            <div className="released-list">
-              {searchHits.map((i) => (
-                <span key={i.id} className="released-item">
-                  <span className={`dot ${i.state}`} />
-                  <Link href={i.projectId != null ? `/projects/${i.projectId}` : '/'} className="released-title">
-                    <IssueRef issue={i} />
-                  </Link>
-                  <Link href={i.topicId != null ? `/topics/${i.topicId}` : i.htmlUrl} className="ghost">
-                    Recap →
-                  </Link>
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      <ProjectsHome
-        selectedId={null}
-        onSelect={(id) => {
-          if (id != null) router.push(`/projects/${id}`);
-        }}
-        refreshKey={projectTick}
-      />
-
-      {/* History lives below the projects, muted and collapsed — never above
-          the first card. */}
-      <DeliveredSection
-        issues={issues.filter((i) => i.state === 'rollout' || i.state === 'closed')}
-        topics={deliveredTopics}
-      />
-
-      {searchSheetOpen && isMobile && (
-        <MobileSearchSheet
-          query={query}
-          onQueryChange={setQuery}
-          repos={repos}
-          repoFilter={null}
-          onRepoFilterChange={() => {}}
-          issues={issues}
-          onClose={() => setSearchSheetOpen(false)}
-        />
-      )}
-
-      {/* Mobile: the cockpit collapses to a FAB + bottom sheet so the input
-          bar doesn't consume fixed chrome above the first card. The sheet
-          lifts above the on-screen keyboard (iOS has no
-          interactive-widget=resizes-content, hence the inline offset). */}
-      {isMobile && (
-        <button
-          className="cockpit-fab"
-          onClick={() => setCockpitOpen(true)}
-          aria-label="Open command input"
-        >
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M2.5 4l4 4-4 4" />
-            <path d="M8.5 12h5" />
-          </svg>
-        </button>
-      )}
-
-      {cockpitOpen && isMobile && (
-        <div className="cockpit-backdrop" onClick={() => setCockpitOpen(false)}>
-          <div
-            className="cockpit-sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Command input"
-            style={{ bottom: keyboardInset }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="card-sheet-handle" />
-            <CockpitComposer
-              input={actionInput}
-              onInputChange={setActionInput}
-              models={models}
-              selectedModel={cockpitModel}
-              onSelectedModelChange={setCockpitModel}
-              onSubmit={() => void submitAction()}
-              busy={submittingAction}
-              autoFocus
-              placeholder='Tell me what you want…'
-              onCancel={() => setCockpitOpen(false)}
-            />
+      <main id="board-main" className="board-main v2-main">
+        {commandError && (
+          <div className="banner" role="alert">
+            <span>{commandError}</span>
+            <button className="ghost" onClick={() => setCommandError(null)}>
+              Dismiss
+            </button>
           </div>
-        </div>
-      )}
+        )}
 
-      {detailActionId !== null && (
-        <ActionDetail
-          actionId={detailActionId}
-          liveStatus={actions.find((a) => a.id === detailActionId)?.status ?? null}
-          liveDetail={actions.find((a) => a.id === detailActionId)?.detail ?? null}
-          isMobile={isMobile}
-          onClose={() => setDetailActionId(null)}
-          onRerun={rerunAction}
-        />
-      )}
+        {selected.size > 1 && (
+          <div className="v2-combine-bar">
+            <span>{selected.size} selected</span>
+            <button className="card-primary" onClick={combineSelected}>
+              Combine
+            </button>
+            <button className="ghost" onClick={() => setSelected(new Set())}>
+              Clear
+            </button>
+          </div>
+        )}
+
+        <section className="v2-cards" aria-label="Work items">
+          {cards.length === 0 && <div className="empty">nothing here — tell DevHub what to do below</div>}
+          {cards.map((card) => (
+            <WorkCard
+              key={card.key}
+              card={card}
+              selected={selected.has(card.key)}
+              onToggleSelect={() => toggleSelect(card.key)}
+              onOpen={() => {
+                if (card.threadId != null) setDetailThreadId(card.threadId);
+              }}
+              onCommandOn={() => setCommand(card.commandMention)}
+            />
+          ))}
+        </section>
+
+        {chipAnswer && (
+          <div className="v2-chips" role="group" aria-label="Clarify command">
+            {chipAnswer.chips.map((chip, ci) => (
+              <div key={ci} className="v2-chip-row">
+                <span className="v2-chip-label">{chip.label}</span>
+                {chip.kind === 'repo-choice' &&
+                  chip.options.map((opt) => (
+                    <button key={opt} className="ghost" onClick={() => void submitCommand({ repoChoice: opt })}>
+                      {opt}
+                    </button>
+                  ))}
+                {chip.kind === 'issue-search' && <IssueSearch issues={issues} onPick={(id) => void submitCommand({ issueId: id })} />}
+              </div>
+            ))}
+            <button className="ghost" onClick={() => setChipAnswer(null)}>
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        <CommandDock value={command} onChange={setCommand} onSubmit={() => void submitCommand()} busy={submitting} />
       </main>
+
+      {detailThreadId !== null && (
+        <ThreadDetail threadId={detailThreadId} onClose={() => setDetailThreadId(null)} onChanged={() => void fetchAll()} />
+      )}
+    </div>
+  );
+}
+
+function IssueSearch({ issues, onPick }: { issues: Issue[]; onPick: (id: number) => void }) {
+  const [q, setQ] = useState('');
+  const hits = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return issues
+      .filter(
+        (i) =>
+          i.state !== 'closed' &&
+          (!needle || `${i.title} ${i.owner}/${i.repo} #${i.number}`.toLowerCase().includes(needle))
+      )
+      .slice(0, 8);
+  }, [issues, q]);
+  return (
+    <div className="v2-issue-search">
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="fuzzy title search…" aria-label="Search work items" />
+      {hits.map((i) => (
+        <button key={i.id} className="ghost" onClick={() => onPick(i.id)}>
+          {i.owner}/{i.repo}#{i.number} {i.title}
+        </button>
+      ))}
     </div>
   );
 }
