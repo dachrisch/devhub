@@ -639,3 +639,22 @@ describe('projects & topics (devhub#167)', () => {
     expect(store.countActiveTopicsForProject(project.id)).toBe(0);
   });
 });
+
+describe('work requests', () => {
+  it('creates local request rows with unique negative numbers and hides them from GitHub issue lists', () => {
+    const a = store.createWorkRequest({ owner: 'dachrisch', repo: 'devhub', title: 'update deps', body: 'update deps' });
+    const b = store.createWorkRequest({ owner: 'dachrisch', repo: 'devhub', title: 'add dark mode', body: 'add dark mode' });
+    expect(a.source).toBe('request');
+    expect(a.number).toBeLessThan(0);
+    expect(b.number).toBeLessThan(0);
+    expect(a.number).not.toBe(b.number);
+    expect(a.state).toBe('backlog');
+
+    const githubList = store.getGithubIssues();
+    expect(githubList.some((i) => i.id === a.id)).toBe(false);
+    expect(githubList.some((i) => i.id === b.id)).toBe(false);
+
+    // The engine can still load them by id.
+    expect(store.getIssue(a.id)?.source).toBe('request');
+  });
+});

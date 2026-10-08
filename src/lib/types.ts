@@ -13,6 +13,11 @@ export function isIssueState(value: unknown): value is IssueState {
   return typeof value === 'string' && (ISSUE_STATES as readonly string[]).includes(value);
 }
 
+// Where a work item came from. `github` rows are mirrored from GitHub issues;
+// `request` rows are local-only work items created from a free-text command
+// (no GitHub issue exists yet). GitHub sync/mirroring must skip `request` rows.
+export type IssueSource = 'github' | 'request';
+
 // Which repos a piece of work touches (decided during refinement).
 export type RepoScope = 'service' | 'infra' | 'both';
 export const REPO_SCOPES: readonly RepoScope[] = ['service', 'infra', 'both'];
@@ -24,7 +29,7 @@ export function isRepoScope(value: unknown): value is RepoScope {
 export type RunRole = 'service' | 'infra';
 export const RUN_ROLES: readonly RunRole[] = ['service', 'infra'];
 
-export type RunState = 'pending' | 'developing' | 'pr' | 'failed' | 'merged' | 'released';
+export type RunState = 'pending' | 'developing' | 'pr' | 'failed' | 'merged' | 'released' | 'resolved';
 export const RUN_STATES: readonly RunState[] = [
   'pending',
   'developing',
@@ -32,6 +37,7 @@ export const RUN_STATES: readonly RunState[] = [
   'failed',
   'merged',
   'released',
+  'resolved',
 ];
 
 export type TopicStatus = 'new' | 'shaping' | 'ready' | 'realizing' | 'shipped' | 'dropped';
@@ -364,6 +370,7 @@ export interface IssueRow {
   topic_id: number | null;
   repo_scope: RepoScope | null;
   infra_first: number;
+  source: IssueSource | null;
   created_at: string;
   updated_at: string;
 }
@@ -409,6 +416,7 @@ export interface Issue {
   topicId?: number | null;
   repoScope?: RepoScope | null;
   infraFirst?: boolean;
+  source?: IssueSource;
   createdAt: string;
   updatedAt: string;
 }
@@ -437,6 +445,7 @@ export function serializeIssue(row: IssueRow): Issue {
     topicId: row.topic_id,
     repoScope: row.repo_scope,
     infraFirst: row.infra_first === 1,
+    source: row.source === 'request' ? 'request' : 'github',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

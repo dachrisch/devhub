@@ -4,6 +4,9 @@ export interface ResolveChip {
   kind: 'repo-choice' | 'issue-search';
   label: string;
   options: string[];
+  // For `issue-search`: the resolved repo scope(s) the hand-select list must
+  // be limited to (empty = no repo known, search across all repos).
+  repos?: string[];
 }
 
 export interface ResolveResult {
@@ -140,7 +143,7 @@ export function resolveCommand(text: string, repoList: string[], opts: ResolveOp
     return {
       intent,
       targets: [],
-      chips: [{ kind: 'issue-search', label: 'Which work item is this about?', options: [] }],
+      chips: [{ kind: 'issue-search', label: 'Which work item is this about?', options: [], repos: [] }],
       issueNumbers,
     };
   }

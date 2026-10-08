@@ -50,6 +50,7 @@ const liveRefinementRuns = new Set<number>();
 // Best-effort mirror of DevHub state/notes onto the GitHub issue (labels +
 // a comment). Failures here must never break the develop run.
 async function mirrorLabels(issue: Issue, state: Issue['state'], token: string): Promise<void> {
+  if (issue.source === 'request') return;
   try {
     await setIssueStateLabels(issue.owner, issue.repo, issue.number, state, token);
   } catch {
@@ -312,13 +313,19 @@ export async function startDevelop(
       const updated = setResult(issue.id, 'closed', null, 'All runs already resolved.');
       if (updated) publishIssue(updated);
       void mirrorLabels(issue, 'closed', token);
+    } else if (finalRuns.length > 0 && finalRuns.every((r) => r.state === 'resolved')) {
+      // Every run decided the work was already done — no PR, no release, so
+      // this is `closed` (hidden), never `rollout`.
+      const updated = setResult(issue.id, 'closed', null, finalRuns[0].resultText?.slice(0, 4000) || 'Already resolved.');
+      if (updated) publishIssue(updated);
+      void mirrorLabels(issue, 'closed', token);
     } else if (prUrls.length === 0) {
       // No run produced a PR and none failed explicitly (e.g. ALREADY
       // RESOLVED without runs): fall back to the legacy single-PR decision.
       const lastText = finalRuns.map((r) => r.resultText ?? '').join('\n');
       const alreadyResolved =
         lastText.includes('ALREADY RESOLVED') ||
-        (await isIssueClosedOnGitHub(issue.owner, issue.repo, issue.number, token)) ||
+        (issue.source !== 'request' && (await isIssueClosedOnGitHub(issue.owner, issue.repo, issue.number, token))) ||
         Boolean(issue.linkedPrUrl);
       if (alreadyResolved) {
         const updated = setResult(issue.id, 'closed', null, lastText.slice(0, 4000) || 'Already resolved.');
@@ -415,10 +422,12 @@ async function runSingleChildRun(
     }
     const alreadyResolved =
       text.includes('ALREADY RESOLVED') ||
-      (await isIssueClosedOnGitHub(run.repoOwner, run.repoName, issue.number, token).catch(() => false)) ||
+      (issue.source !== 'request' && (await isIssueClosedOnGitHub(run.repoOwner, run.repoName, issue.number, token).catch(() => false))) ||
       Boolean(issue.linkedPrUrl);
     if (alreadyResolved) {
-      updateRun(run.id, { state: 'released', resultText: text.slice(0, 8000), blockedReason: null });
+      // `resolved` (not `released`): the run found the work already done, but
+      // no PR + release proves it shipped. It must never surface as `rollout`.
+      updateRun(run.id, { state: 'resolved', resultText: text.slice(0, 8000), blockedReason: null });
       publishRun(run.id, issue.id);
       return;
     }
@@ -517,9 +526,11 @@ async function runRefinementInner(
     }
 
     if (result.improvedBody) {
-      void updateIssueBody(issue.owner, issue.repo, issue.number, result.improvedBody, token).catch((err) => {
-        console.error(`[refine] issue #${issue.id} body write-back failed:`, err instanceof Error ? err.message : err);
-      });
+      if (issue.source !== 'request') {
+        void updateIssueBody(issue.owner, issue.repo, issue.number, result.improvedBody, token).catch((err) => {
+          console.error(`[refine] issue #${issue.id} body write-back failed:`, err instanceof Error ? err.message : err);
+        });
+      }
       setIssueBody(issue.id, result.improvedBody);
       void mirrorComment(issue, 'DevHub refined this issue (added acceptance criteria, clarified scope).', token);
     } else {

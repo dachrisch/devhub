@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getIssue, getIssueByGithub, getIssues, listThreads } from '@/lib/store';
+import { createWorkRequest, getIssue, getIssueByGithub, getIssues, listThreads } from '@/lib/store';
 import { createThread, replyToThread, startStrategyThread, startWorkThread } from '@/lib/threads-run';
 import { resolveCommand } from '@/lib/resolve';
+import { deriveWorkRequestTitle } from '@/lib/work-requests';
 import { canDevelop } from '@/lib/develop';
 import { UnauthorizedError, ForbiddenError, GithubUnavailableError, requireMember } from '@/lib/auth';
 import type { OpencodeModel } from '@/lib/opencode';
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     openThreadId?: unknown;
     repoChoice?: unknown;
     issueId?: unknown;
+    newWork?: unknown;
   };
   const input = typeof body.input === 'string' ? body.input.trim() : '';
   if (!input) return NextResponse.json({ error: 'input is required' }, { status: 400 });
@@ -88,6 +90,31 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const thread = createThread({ kind: 'work', title: input.slice(0, 80) });
     void startWorkThread(thread, issue.id, { text: input, token: session.token, model: selectedModel }).catch((err) => {
       console.error(`[threads] work thread #${thread.id} threw:`, err instanceof Error ? err.message : err);
+    });
+    return NextResponse.json({ ok: true, threadId: thread.id }, { status: 202 });
+  }
+
+  // "Start new work item": no matching issue exists (or the operator chose to
+  // start fresh). Create a local, non-GitHub work request and run the normal
+  // develop pipeline against it — the agent works the free-text request.
+  if (body.newWork === true) {
+    const repo =
+      typeof body.repoChoice === 'string' && repoNames.includes(body.repoChoice)
+        ? body.repoChoice
+        : resolved.targets[0];
+    if (!repo) {
+      return NextResponse.json({
+        needsChoice: true,
+        intent: 'implement',
+        chips: [{ kind: 'repo-choice', label: 'Which repo should this work go to?', options: repoNames }],
+      });
+    }
+    const [owner, name] = repo.split('/');
+    if (!owner || !name) return NextResponse.json({ error: `bad repo "${repo}"` }, { status: 400 });
+    const request = createWorkRequest({ owner, repo: name, title: deriveWorkRequestTitle(input), body: input });
+    const thread = createThread({ kind: 'work', title: input.slice(0, 80) });
+    void startWorkThread(thread, request.id, { text: input, token: session.token, model: selectedModel }).catch((err) => {
+      console.error(`[threads] new work request #${thread.id} threw:`, err instanceof Error ? err.message : err);
     });
     return NextResponse.json({ ok: true, threadId: thread.id }, { status: 202 });
   }
@@ -129,7 +156,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({
       needsChoice: true,
       intent: 'implement',
-      chips: [{ kind: 'issue-search', label: `Which work item in ${resolved.targets[0] ?? 'the repo'}?`, options: [] }],
+      chips: [
+        {
+          kind: 'issue-search',
+          label: `Work on an existing item in ${resolved.targets[0] ?? 'this repo'}, or start something new`,
+          options: [],
+          repos: resolved.targets,
+        },
+      ],
     });
   }
   if (!canDevelop(issue)) {

@@ -22,6 +22,8 @@
 //   S9  strategy        command → strategy thread → split proposal → chip
 //                       confirm gate (no auto-create) → real issues → serial
 //                       queue → pr
+//   S10 start-new       repo-resolved no-# command → scoped hand-select chip;
+//                       newWork:true → local work request (no GitHub issue) → pr
 //   guard               no `blocked` issue state; batch-advance route is gone;
 //                       (DOM mode) no board columns, dock present
 //
@@ -662,6 +664,40 @@ async function main() {
       assert(terminal.state === 'pr' || terminal.state === 'rollout', `card ${issueId} worked (${terminal.state})`);
     }
     await screenshot(cdp, domSessionId, 's9-strategy-thread');
+
+    // ── S10: start new work with no issue (local work request) ──────────
+    console.log('\nS10: "start new" runs a local work request with no GitHub issue');
+    await setScenario({ refine: 'ready', develop: 'pr' });
+    const scoped = await api('/api/threads', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ input: 'update dependencies in dachrisch/devhub project' }),
+    });
+    assert(
+      scoped.needsChoice &&
+        scoped.chips?.some((c) => c.kind === 'issue-search' && (c.repos ?? []).includes('dachrisch/devhub')),
+      'repo-resolved hand-select chip is scoped to the resolved repo'
+    );
+    const newWork = await command('update dependencies in devhub project', {
+      newWork: true,
+      repoChoice: 'dachrisch/devhub',
+    });
+    const newDetail = await api(`/api/threads/${newWork.threadId}`);
+    const reqIssue = newDetail.issues?.[0];
+    assert(
+      reqIssue && reqIssue.source === 'request' && reqIssue.number < 0,
+      `start-new created a local work request (${reqIssue ? `${reqIssue.owner}/${reqIssue.repo}#${reqIssue.number}` : 'none'})`
+    );
+    const worked = await waitForIssueState(
+      'dachrisch',
+      'devhub',
+      reqIssue.number,
+      (i) => i.state === 'pr',
+      'request → pr',
+      90000
+    );
+    assert(worked.state === 'pr', 'request work reached pr without a GitHub issue');
+    await screenshot(cdp, domSessionId, 's10-new-work-request');
 
     if (cdp) cdp.close();
     console.log('\n────────────────────────────────────────────');

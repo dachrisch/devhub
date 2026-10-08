@@ -1,7 +1,7 @@
 import {
   appendThreadEvent,
   createThread,
-  getIssues,
+  getGithubIssues,
   getThread,
   getThreadEvents,
   updateThread,
@@ -156,7 +156,7 @@ export async function startStrategyThread(
   command: ThreadCommand
 ): Promise<void> {
   appendThreadEvent(thread.id, 'user', command.text);
-  const issues = getIssues().filter((i) => targets.includes(`${i.owner}/${i.repo}`));
+  const issues = getGithubIssues().filter((i) => targets.includes(`${i.owner}/${i.repo}`));
   const brief = buildContextBrief(issues);
   const prompt = buildPlannerPrompt(brief, command.text);
   const models = sanitizeModels(resolveModels(command.model ?? null), await getAvailableModels());
@@ -188,7 +188,7 @@ export async function replyToThread(thread: Thread, text: string, command: Threa
   publishThreadEvent(thread.id);
   updateThread(thread.id, { state: thread.kind === 'strategy' ? 'planning' : 'refining' });
   if (thread.kind === 'strategy') {
-    const targets = [...new Set(getIssues().filter((i) => thread.issueIds.includes(i.id)).map((i) => `${i.owner}/${i.repo}`))];
+    const targets = [...new Set(getGithubIssues().filter((i) => thread.issueIds.includes(i.id)).map((i) => `${i.owner}/${i.repo}`))];
     await startStrategyThread(thread, targets, { ...command, text });
     return;
   }

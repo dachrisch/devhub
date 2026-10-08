@@ -47,10 +47,19 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
 
 - `src/lib/store.ts` — SQLite (`issues`, `events`). `upsertIssue` only writes metadata when a
   row is `backlog` or `closed`; it never clobbers `refinement`/`developing`/`pr`/`rollout`.
+  `issues.source` is `github` (mirrored) or `request` (local, no GitHub issue — see work
+  requests below). `getGithubIssues()` excludes request rows for sync/sweep/reconcile;
+  `createWorkRequest` inserts a request with a unique negative `number`. `upsertIssue` on a
+  dirty DB; tests use per-run temp files.
 - `src/lib/github.ts` — `POST /api/issues` (refresh) ingests open issues from `dachrisch` +
   `bumbleflies`, filtered by `GITHUB_TOPICS`, skipping PRs. It also runs `sweepRollouts`,
   which advances `pr` cards to the terminal `rollout` state once their PR is merged **and** a
-  release tag contains the merge commit (`GET /pulls/{n}` merged + `GET /tags` + compare).
+  release tag contains the merge commit (`GET /pulls/{n}` merged + `findReleaseTag`). Release
+  detection checks the newest GitHub Release first (`GET /releases/latest`,
+  annotated-tag peeled), then falls back to a **paginated** `/tags` scan (≤3 pages) — the old
+  `per_page=20` missed tags past page 1 and stranded merged PRs in `pr`. A run that ends
+  `ALREADY RESOLVED` is stored as run state `resolved` (never `released`), so it can never
+  reach `rollout`: it closes the issue instead.
   Manual board moves are restricted to `backlog → refinement` / `refinement → backlog`
   (`src/lib/transitions.ts`, `POST /api/issues/[id]/transition`).
   `reconcileClosedIssues` rechecks `backlog/refinement/pr/rollout/closed` against GitHub:
@@ -80,6 +89,13 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
   **Never re-develop an issue in `pr`/`rollout`/`closed`, and never re-develop a `developing`
   card whose run is live** (`canDevelop` allows `backlog`/`refinement`, plus `developing`
   only when `blocked_reason` is set).
+- Work requests (`store.createWorkRequest`, `POST /api/threads` with `newWork:true`) — a
+  free-text command against a resolved repo with no matching issue starts work with **no
+  linked GitHub issue**. It creates a local `issues` row (`source='request'`, unique negative
+  `number`) and runs the same #132 flow; every GitHub call is skipped for request rows
+  (`mirrorLabels`/`mirrorComment`, issue-body write-back, sweep/reconcile), and
+  `buildDevelopPrompt`/`buildRefinePrompt` drop the `gh issue view` + `Fixes #N` contract.
+  Cards render `work (m) - (n)` (m = linked GitHub issues, n = PRs; both may be 0).
 - v2 command-first (`src/lib/resolve.ts`, `src/lib/plan.ts`, `src/lib/threads-run.ts`,
   `src/app/api/threads/**`) — every dock/mic submission goes through one pipeline:
   parse intent (`implement`/`strategy`/`question`) → resolve repos against the fetched
@@ -121,12 +137,18 @@ One screen, one input (bottom dock + mic). Every submission POSTs to
 
 - **Implement**: `Implement owner/repo#123` (or tap "Work on this" on a card to
   prefill + focus the dock) → work thread → #132 flow. Bare `#123` without a repo asks for
-  hand-select (issue-search chip) — never guessed.
+  hand-select (issue-search chip) — never guessed. When a repo resolves but no issue does,
+  the chip lists only that repo's **workable** issues (backlog/refinement/developing,
+  `src/lib/issue-search.ts`) plus a **"＋ Start new work item"** action that starts work with
+  no GitHub issue (see work requests above).
 - **Strategy**: multi-target asks ("combined strategy for XY and warehouse")
   → strategy thread → planner → split-proposal chips → confirm (≤10) →
   serial work queue.
 - **Question**: follow-ups route into the open thread and resume the run.
 - Unknown/ambiguous repos yield repo-choice chips, not guesses.
+
+Clarification chips render in a panel **pinned directly above the fixed dock** (not in
+document flow), so the question is always visible next to the input.
 
 Card interaction split: **click = read, button = act**. Clicking a card opens
 `ThreadDetail` when it has a thread, otherwise the issue-only `IssueDetail`

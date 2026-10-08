@@ -24,16 +24,19 @@ export function buildRefinePrompt(issue: Issue, project?: { name: string; config
   const projectBlock = project
     ? [`## Project context`, `Project: ${project.name}`, `Config: ${JSON.stringify(project.config ?? {})}`, ``]
     : [];
+  const isRequest = issue.source === 'request';
   return [
-    `You are refining a GitHub issue for readiness on a personal dev command board (DevHub).`,
-    `Assess the issue AND produce an improved version if possible.`,
+    isRequest
+      ? `You are refining a work request for readiness on a personal dev command board (DevHub).`
+      : `You are refining a GitHub issue for readiness on a personal dev command board (DevHub).`,
+    `Assess the ${isRequest ? 'request' : 'issue'} AND produce an improved version if possible.`,
     ``,
     `## Repository`,
     `Repository path: ${repoPath}`,
-    `Owner: ${issue.owner}   Repo: ${issue.repo}   Issue #${issue.number}`,
-    `Issue URL: ${issue.htmlUrl}`,
+    `Owner: ${issue.owner}   Repo: ${issue.repo}${isRequest ? '' : `   Issue #${issue.number}`}`,
+    ...(isRequest ? [] : [`Issue URL: ${issue.htmlUrl}`]),
     ``,
-    `## Issue`,
+    isRequest ? `## Work request` : `## Issue`,
     `Title: ${issue.title}`,
     `Body:`,
     issue.body?.trim() || '(no description)',

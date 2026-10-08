@@ -300,6 +300,11 @@ function migrate(database: Database.Database): void {
   if (!hasColumn('infra_first')) {
     database.exec(`ALTER TABLE issues ADD COLUMN infra_first INTEGER NOT NULL DEFAULT 0`);
   }
+  // Where the work item came from: `github` (mirrored issue) or `request`
+  // (local, free-text work started with no linked GitHub issue).
+  if (!hasColumn('source')) {
+    database.exec(`ALTER TABLE issues ADD COLUMN source TEXT NOT NULL DEFAULT 'github'`);
+  }
 
   // Ideas-first Realize flow (devhub#171 Phase 1): topic shaping columns +
   // per-project auto-merge opt-out. Idempotent ADD COLUMN guards.
@@ -450,6 +455,16 @@ export function getIssues(): Issue[] {
   return rows.map(serializeIssue);
 }
 
+// Only the GitHub-backed issues (comfortably excludes local `request` rows).
+// Used by sync/sweep/reconcile and any user-facing list that must not surface
+// a request anchor as a standalone issue.
+export function getGithubIssues(): Issue[] {
+  const rows = getDb()
+    .prepare(`SELECT * FROM issues WHERE COALESCE(source, 'github') <> 'request' ORDER BY updated_at DESC, id DESC`)
+    .all() as IssueRow[];
+  return rows.map(serializeIssue);
+}
+
 export function getIssue(id: number): Issue | null {
   const row = getDb().prepare('SELECT * FROM issues WHERE id = ?').get(id) as IssueRow | undefined;
   return row ? serializeIssue(row) : null;
@@ -468,6 +483,40 @@ export function deleteIssueByGithub(owner: string, repo: string, number: number)
     .get(owner, repo, number) as { topic_id: number | null } | undefined;
   getDb().prepare('DELETE FROM issues WHERE owner = ? AND repo = ? AND number = ?').run(owner, repo, number);
   if (linked?.topic_id != null) refreshTopicStatus(linked.topic_id);
+}
+
+// Local-only work item for a free-text command against a resolved repo. No
+// GitHub issue exists yet (and may never): the develop pipeline runs against
+// this row exactly like a mirrored issue, but every GitHub call is skipped by
+// the `source === 'request'` guards. `number` is a unique negative sentinel so
+// it can never collide with a real GitHub issue number.
+export interface WorkRequestInput {
+  owner: string;
+  repo: string;
+  title: string;
+  body: string;
+}
+
+export function createWorkRequest(input: WorkRequestInput): Issue {
+  const db = getDb();
+  const next = (
+    db.prepare(`SELECT COALESCE(MIN(number), 0) - 1 AS n FROM issues WHERE source = 'request'`).get() as { n: number }
+  ).n;
+  const info = db
+    .prepare(
+      `INSERT INTO issues (github_issue_id, owner, repo, number, title, body, html_url, state, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'backlog', 'request')`
+    )
+    .run(
+      -Date.now(),
+      input.owner,
+      input.repo,
+      next,
+      input.title,
+      input.body,
+      `https://github.com/${input.owner}/${input.repo}`
+    );
+  return getIssue(Number(info.lastInsertRowid))!;
 }
 
 export function setIssueState(id: number, state: IssueState): Issue | null {

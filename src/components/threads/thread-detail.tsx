@@ -139,7 +139,8 @@ export function ThreadDetail({ threadId, onClose, onChanged }: ThreadDetailProps
         {data?.issues.map((issue) => (
           <section key={issue.id} className="v2-detail-issue">
             <div className="v2-card-repo">
-              {issue.owner}/{issue.repo}#{issue.number}
+              {issue.owner}/{issue.repo}
+              {issue.source === 'request' ? '' : `#${issue.number}`}
             </div>
             <h3>{issue.title}</h3>
             {issue.body && <MarkdownBody text={issue.body.slice(0, 2000)} />}
@@ -150,9 +151,11 @@ export function ThreadDetail({ threadId, onClose, onChanged }: ThreadDetailProps
               </div>
             )}
             <div className="v2-card-actions">
-              <a className="v2-link-chip" href={issue.htmlUrl} target="_blank" rel="noreferrer">
-                GitHub ↗
-              </a>
+              {issue.source !== 'request' && (
+                <a className="v2-link-chip" href={issue.htmlUrl} target="_blank" rel="noreferrer">
+                  GitHub ↗
+                </a>
+              )}
             </div>
           </section>
         ))}

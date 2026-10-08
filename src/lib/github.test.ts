@@ -314,6 +314,70 @@ describe('sweepRollouts', () => {
     expect(await sweepRollouts('token-abc', fetchFn)).toBe(1);
     expect(store.getIssue(id)?.state).toBe('rollout');
   });
+
+  it('detects release via the latest GitHub Release (fast path)', async () => {
+    const id = makePrIssue();
+    const fetchFn = (async (url: string) => {
+      if (url.includes('/pulls/42')) return ghResponse({ merged: true, merge_commit_sha: 'abc123' })();
+      if (url.includes('/releases/latest')) return ghResponse({ tag_name: 'v9.0.0' })();
+      if (url.includes('/git/ref/tags/v9.0.0')) {
+        return ghResponse({ object: { sha: 'relsha', type: 'commit' } })();
+      }
+      if (url.includes('/compare/abc123...relsha')) return ghResponse({ status: 'ahead' })();
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+
+    expect(await sweepRollouts('token-abc', fetchFn)).toBe(1);
+    const updated = store.getIssue(id);
+    expect(updated?.state).toBe('rollout');
+    expect(updated?.releaseTag).toBe('v9.0.0');
+  });
+
+  it('finds a release tag beyond the first /tags page', async () => {
+    const id = makePrIssue();
+    // 100 decoy tags on page 1, the matching tag alone on page 2.
+    const decoys = Array.from({ length: 100 }, (_, i) => ({ name: `v1.0.${i}`, commit: { sha: `old${i}` } }));
+    const fetchFn = (async (url: string) => {
+      if (url.includes('/pulls/42')) return ghResponse({ merged: true, merge_commit_sha: 'abc123' })();
+      if (url.includes('/releases/latest')) {
+        return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}) } as unknown as Response;
+      }
+      if (url.includes('/tags') && url.includes('page=2')) {
+        return ghResponse([{ name: 'v2.0.0', commit: { sha: 'hit' } }])();
+      }
+      if (url.includes('/tags')) return ghResponse(decoys)();
+      if (url.includes('/compare/abc123...hit')) return ghResponse({ status: 'identical' })();
+      if (url.includes('/compare/')) return ghResponse({ status: 'behind' })();
+      return ghResponse([])();
+    }) as unknown as typeof fetch;
+
+    expect(await sweepRollouts('token-abc', fetchFn)).toBe(1);
+    const updated = store.getIssue(id);
+    expect(updated?.state).toBe('rollout');
+    expect(updated?.releaseTag).toBe('v2.0.0');
+  });
+
+  it('never rolls out an already-resolved run (no PR, no release)', async () => {
+    store.upsertIssue({
+      githubIssueId: 900,
+      owner: 'dachrisch',
+      repo: 'matched',
+      number: 41,
+      title: 'already done elsewhere',
+      body: null,
+      htmlUrl: 'https://github.com/dachrisch/matched/issues/41',
+    });
+    const id = store.getIssueByGithub('dachrisch', 'matched', 41)!.id;
+    store.ensureRuns(id, [{ role: 'service', repoOwner: 'dachrisch', repoName: 'matched' }]);
+    const run = store.getRunsForIssue(id)[0];
+    store.updateRun(run.id, { state: 'resolved', resultText: 'ALREADY RESOLVED' });
+    store.setResult(id, 'closed', null, 'ALREADY RESOLVED');
+
+    const fetchFn = (async () => ghResponse([])()) as unknown as typeof fetch;
+    expect(await sweepRollouts('token-abc', fetchFn)).toBe(0);
+    expect(store.getIssue(id)?.state).toBe('closed');
+    expect(store.getRunsForIssue(id)[0].state).toBe('resolved');
+  });
 });
 
 describe('reconcileClosedIssues', () => {

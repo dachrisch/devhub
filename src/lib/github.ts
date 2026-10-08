@@ -1,5 +1,5 @@
 import { ENV } from './env';
-import { appendEvent, assignIssue, backfillTopicForIssue, deleteIssueByGithub, ensureProjectForRepo, getIssue, getIssueByGithub, getIssues, getProject, getRunsForIssue, refreshTopicStatus, reopenIssue, setClosed, setLinkedPrUrl, setProjectShipped, setRollout, updateRun, upsertIssue } from './store';
+import { appendEvent, assignIssue, backfillTopicForIssue, deleteIssueByGithub, ensureProjectForRepo, getIssue, getIssueByGithub, getGithubIssues, getProject, getRunsForIssue, refreshTopicStatus, reopenIssue, setClosed, setLinkedPrUrl, setProjectShipped, setRollout, updateRun, upsertIssue } from './store';
 import type { UpsertIssueInput } from './store';
 import { publishIssue, publishRun } from './sse';
 import type { Issue, IssueState } from './types';
@@ -211,20 +211,104 @@ async function tagContainsCommit(
 
 // Returns the first release tag whose commit contains the PR's merge commit,
 // or null when the PR is merged but not yet released.
-async function findReleaseTag(
+//
+// Fast path: the newest GitHub Release. Release histories are cumulative on
+// the default branch, so a merged commit is released iff it is contained in the
+// latest release — no need to walk every tag. Repos without Releases fall back
+// to a bounded, paginated `/tags` scan (the old `per_page=20` missed any tag
+// past the first page, stranding merged PRs in `pr` forever).
+async function getLatestReleaseTag(
+  owner: string,
+  repo: string,
+  token: string,
+  fetchFn: FetchFn
+): Promise<string | null> {
+  try {
+    const rel = await ghGetJson<{ tag_name?: string }>(
+      `https://api.github.com/repos/${owner}/${repo}/releases/latest`,
+      token,
+      fetchFn
+    );
+    return typeof rel.tag_name === 'string' && rel.tag_name ? rel.tag_name : null;
+  } catch {
+    return null;
+  }
+}
+
+// Resolves a tag name to the commit it points at, peeling annotated tags.
+async function resolveTagCommit(
+  owner: string,
+  repo: string,
+  tagName: string,
+  token: string,
+  fetchFn: FetchFn
+): Promise<string | null> {
+  try {
+    const ref = await ghGetJson<{ object?: { sha?: string; type?: string } }>(
+      `https://api.github.com/repos/${owner}/${repo}/git/ref/tags/${encodeURIComponent(tagName)}`,
+      token,
+      fetchFn
+    );
+    const obj = ref.object;
+    if (!obj?.sha) return null;
+    if (obj.type === 'tag') {
+      const annotated = await ghGetJson<{ object?: { sha?: string } }>(
+        `https://api.github.com/repos/${owner}/${repo}/git/tags/${obj.sha}`,
+        token,
+        fetchFn
+      );
+      return annotated.object?.sha ?? null;
+    }
+    return obj.sha;
+  } catch {
+    return null;
+  }
+}
+
+const TAG_PAGE_CAP = 3;
+
+export async function findReleaseTag(
   owner: string,
   repo: string,
   mergeSha: string,
   token: string,
-  fetchFn: FetchFn
+  fetchFn: FetchFn = fetch
 ): Promise<string | null> {
-  const tags = await ghGetJson<GhTag[]>(`https://api.github.com/repos/${owner}/${repo}/tags?per_page=20`, token, fetchFn);
-  for (const tag of tags) {
-    try {
-      if (await tagContainsCommit(owner, repo, mergeSha, tag, token, fetchFn)) return tag.name;
-    } catch {
-      // skip tags the compare endpoint can't resolve
+  const latest = await getLatestReleaseTag(owner, repo, token, fetchFn);
+  if (latest) {
+    const sha = await resolveTagCommit(owner, repo, latest, token, fetchFn);
+    if (sha) {
+      try {
+        if (await tagContainsCommit(owner, repo, mergeSha, { name: latest, commit: { sha } }, token, fetchFn)) {
+          return latest;
+        }
+      } catch {
+        // fall through to the tag scan
+      }
     }
+  }
+  // No Releases (or the latest release couldn't be resolved): scan tags across
+  // pages, bounded so a huge tag list can't stall refresh.
+  for (let page = 1; page <= TAG_PAGE_CAP; page++) {
+    let tags: GhTag[];
+    try {
+      tags = await ghGetJson<GhTag[]>(
+        `https://api.github.com/repos/${owner}/${repo}/tags?per_page=100&page=${page}`,
+        token,
+        fetchFn
+      );
+    } catch {
+      break;
+    }
+    if (tags.length === 0) break;
+    for (const tag of tags) {
+      try {
+        if (await tagContainsCommit(owner, repo, mergeSha, tag, token, fetchFn)) return tag.name;
+      } catch {
+        // skip tags the compare endpoint can't resolve
+      }
+    }
+    if (tags.length < 100) break;
   }
   return null;
 }
@@ -239,7 +323,7 @@ async function findReleaseTag(
 // `release_mode`); the issue reaches `rollout` only when ALL runs are
 // `released`. Issues without runs keep the legacy single-PR path below.
 export async function sweepRollouts(token: string, fetchFn: FetchFn = fetch): Promise<number> {
-  const candidates = getIssues().filter((i) => i.state === 'pr' || i.state === 'closed');
+  const candidates = getGithubIssues().filter((i) => i.state === 'pr' || i.state === 'closed');
   let rolledOut = 0;
   for (const issue of candidates) {
     const runs = getRunsForIssue(issue.id);
@@ -468,7 +552,7 @@ const RECONCILE_STATES = ['backlog', 'refinement', 'pr', 'rollout', 'closed'] as
 // Runs after sweepRollouts so merged+tagged PRs become `rollout` first.
 // Returns the number of cards reconciled.
 export async function reconcileClosedIssues(token: string, fetchFn: FetchFn = fetch): Promise<number> {
-  const candidates = getIssues().filter((i) => (RECONCILE_STATES as readonly string[]).includes(i.state));
+  const candidates = getGithubIssues().filter((i) => (RECONCILE_STATES as readonly string[]).includes(i.state));
   let reconciled = 0;
   for (const issue of candidates) {
     try {

@@ -10,6 +10,7 @@ import { ThreadDetail } from '@/components/threads/thread-detail';
 import { IssueDetail } from '@/components/threads/issue-detail';
 import { WorkCard, cardForIssue, cardForThread, cardRank, type CardItem } from '@/components/threads/work-card';
 import type { ResolveChip } from '@/lib/resolve';
+import { filterIssueCandidates } from '@/lib/issue-search';
 
 // v2 command-first home: one screen, one input. No columns, no board, no
 // separate intake modes. Work-item cards top of page (single column, active
@@ -118,9 +119,10 @@ export default function HomePage() {
       for (const id of t.issueIds) linkedIds.add(id);
       return cardForThread(t, issues.filter((i) => t.issueIds.includes(i.id)));
     });
-    const all = [...threadCards, ...issues.filter((i) => !linkedIds.has(i.id)).map(cardForIssue)].sort(
-      (a, b) => cardRank(a) - cardRank(b)
-    );
+    const all = [
+      ...threadCards,
+      ...issues.filter((i) => i.source !== 'request' && !linkedIds.has(i.id)).map(cardForIssue),
+    ].sort((a, b) => cardRank(a) - cardRank(b));
     const isDone = (c: CardItem) => c.statusKey === 'closed' || c.statusKey === 'done';
     return {
       activeCards: all.filter((c) => !isDone(c)),
@@ -138,7 +140,7 @@ export default function HomePage() {
   }, []);
 
   const submitCommand = useCallback(
-    async (extra?: { repoChoice?: string; issueId?: number }) => {
+    async (extra?: { repoChoice?: string; issueId?: number; newWork?: boolean }) => {
       const input = command.trim();
       if (!input || submitting) return;
       setSubmitting(true);
@@ -346,7 +348,18 @@ export default function HomePage() {
                       {opt}
                     </button>
                   ))}
-                {chip.kind === 'issue-search' && <IssueSearch issues={issues} onPick={(id) => void submitCommand({ issueId: id })} />}
+                {chip.kind === 'issue-search' && (
+                  <>
+                    <button
+                      type="button"
+                      className="card-primary"
+                      onClick={() => void submitCommand({ newWork: true, repoChoice: chip.repos?.[0] })}
+                    >
+                      ＋ Start new work item
+                    </button>
+                    <IssueSearch issues={issues} repos={chip.repos ?? []} onPick={(id) => void submitCommand({ issueId: id })} />
+                  </>
+                )}
               </div>
             ))}
             <button className="ghost" onClick={() => setChipAnswer(null)}>
@@ -375,21 +388,21 @@ export default function HomePage() {
   );
 }
 
-function IssueSearch({ issues, onPick }: { issues: Issue[]; onPick: (id: number) => void }) {
+function IssueSearch({
+  issues,
+  repos,
+  onPick,
+}: {
+  issues: Issue[];
+  repos: string[];
+  onPick: (id: number) => void;
+}) {
   const [q, setQ] = useState('');
-  const hits = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return issues
-      .filter(
-        (i) =>
-          i.state !== 'closed' &&
-          (!needle || `${i.title} ${i.owner}/${i.repo} #${i.number}`.toLowerCase().includes(needle))
-      )
-      .slice(0, 8);
-  }, [issues, q]);
+  const hits = useMemo(() => filterIssueCandidates(issues, repos, q), [issues, repos, q]);
   return (
     <div className="v2-issue-search">
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="fuzzy title search…" aria-label="Search work items" />
+      {hits.length === 0 && <span className="v2-issue-search-empty">no matching work items</span>}
       {hits.map((i) => (
         <button key={i.id} className="ghost" onClick={() => onPick(i.id)}>
           {i.owner}/{i.repo}#{i.number} {i.title}

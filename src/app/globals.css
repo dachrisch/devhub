@@ -23,6 +23,9 @@
   --z-modal: 50;
   --z-sheet: 200;
   --z-toast: 300;
+  /* Bottom dock height: 10px pad + 44px input + 10px pad (excluding safe area).
+     Clarification chips anchor directly above it. */
+  --v2-dock-h: 64px;
 }
 
 * {
@@ -4428,6 +4431,13 @@ button.recap-link {
   color: var(--muted);
 }
 
+.v2-card-counts {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  opacity: 0.85;
+}
+
 .v2-detail-issue .v2-card-repo,
 .v2-split-card .v2-card-repo {
   font-size: 12.5px;
@@ -4641,15 +4651,41 @@ button.recap-link {
   opacity: 0.4;
 }
 
-/* Clarification chips above the dock. */
+/* Clarification chips: pinned directly above the fixed command dock so the
+   question is always visible next to the input that triggered it, regardless
+   of scroll position. */
 .v2-chips {
-  margin: 0 16px;
-  padding: 10px 12px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--v2-dock-h) + env(safe-area-inset-bottom) + 10px);
+  width: min(688px, calc(100vw - 32px));
+  max-height: min(60dvh, 520px);
+  overflow-y: auto;
+  z-index: var(--z-sheet);
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow-tinted);
   display: flex;
   flex-direction: column;
   gap: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.v2-chips::-webkit-scrollbar {
+  width: 8px;
+}
+
+.v2-chips::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.v2-chips::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .v2-chip-row {
@@ -4680,6 +4716,17 @@ button.recap-link {
   background: var(--panel-2);
   color: var(--text);
   font-size: 14px;
+}
+
+.v2-issue-search-empty {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* The "Start new work item" primary action inside the clarification panel. */
+.v2-chips .card-primary {
+  align-self: stretch;
+  width: 100%;
 }
 
 /* Detail overlay: dimmed page backdrop with a centered column (v3). The
