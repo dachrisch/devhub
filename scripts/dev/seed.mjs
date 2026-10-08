@@ -57,7 +57,7 @@ const ISSUES = [
   { owner: 'dachrisch', repo: 'devhub', number: 104, title: 'Improve SSE reconnect backoff', state: 'developing', session: 'dev-mock-session' },
   // devhub#132: failed develop runs stay in `developing` with a reason — this
   // row is the "Work retries a failed run" fixture.
-  { owner: 'dachrisch', repo: 'devhub', number: 105, title: 'Trim log noise in develop runs', state: 'developing', blockedReason: 'CANNOT FULFILL: simulated previous run failure (seeded retry fixture)' },
+  { owner: 'dachrisch', repo: 'devhub', number: 105, title: 'Trim log noise in develop runs', state: 'developing', blockedReason: 'CANNOT FULFILL: simulated previous run failure (seeded retry fixture)', body: '`./servyy.sh` emits warnings.\n\n## Findings\n### 1. Python interpreter\n```\n[WARNING] discovered interpreter\n```\n- **Fix:** pin `ansible_python_interpreter`\n- See [docs](https://docs.ansible.com)\n' },
   { owner: 'dachrisch', repo: 'devhub', number: 106, title: 'Support repo filter on mobile search', state: 'pr', pr: 'https://github.com/dachrisch/devhub/pull/206', resultText: 'All done. Let me provide the summary.\n\n## Summary\n\nImplemented the repo filter for mobile search:\n\n- **`src/components/board/mobile-search-sheet.tsx`** — new `repo:` token in the query parser\n- **`src/lib/board-ui.ts`** — `matchesIssue` now filters on `issue.repo`\n\n```ts\nconst repos = new Set(issues.map((i) => `${i.owner}/${i.repo}`));\n```\n\nOpened PR #206: https://github.com/dachrisch/devhub/pull/206' },
   { owner: 'dachrisch', repo: 'devhub', number: 99, title: 'Ship WAL checkpoint tuning', state: 'rollout', releaseTag: 'v1.11.0', resultText: '## Released\n\nWAL checkpoint tuning shipped in **v1.11.0**:\n\n1. Lower `wal_autocheckpoint` to 512 pages\n2. Run `PRAGMA wal_checkpoint(TRUNCATE)` on a timer' },
   { owner: 'bumbleflies', repo: 'warehouse', number: 101, title: 'Polish board card hover states', state: 'backlog' },
@@ -104,7 +104,7 @@ export function seedDevDb(dbPath) {
         repo: i.repo,
         number: i.number,
         title: i.title,
-        body: 'Generic mock issue body for local development.',
+        body: i.body ?? 'Generic mock issue body for local development.',
         htmlUrl: `https://github.com/${i.owner}/${i.repo}/issues/${i.number}`,
         state: i.state,
         sessionId: i.session ?? null,

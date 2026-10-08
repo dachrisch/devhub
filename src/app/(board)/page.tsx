@@ -39,7 +39,6 @@ export default function HomePage() {
   const [commandError, setCommandError] = useState<string | null>(null);
   const [detailThreadId, setDetailThreadId] = useState<number | null>(null);
   const [detailIssueId, setDetailIssueId] = useState<number | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const dockInputRef = useRef<HTMLInputElement | null>(null);
@@ -171,29 +170,107 @@ export default function HomePage() {
     [command, submitting, fetchAll]
   );
 
-  const toggleSelect = useCallback((key: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  // Detail open/close is mirrored into `?card=`: opening pushes a history
+  // entry (browser back closes the detail), closing replaces the entry so the
+  // param doesn't re-open on a stale history step.
+  const syncCardUrl = useCallback((kind: 'thread' | 'issue' | null, id?: number) => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (kind && Number.isInteger(id)) {
+      url.searchParams.set('card', `${kind}-${id}`);
+      history.pushState(null, '', `${url.pathname}${url.search}`);
+    } else {
+      url.searchParams.delete('card');
+      history.replaceState(null, '', `${url.pathname}${url.search}`);
+    }
   }, []);
 
-  const combineSelected = useCallback(() => {
-    const mentions = activeCards
-      .filter((c) => selected.has(c.key) && c.issueId != null)
-      .map((c) => c.commandMention);
-    if (mentions.length === 0) return;
-    setCommand(`Come up with a combined strategy for ${mentions.join(', ')}`);
-    setSelected(new Set());
-    dockInputRef.current?.focus();
-  }, [activeCards, selected]);
+  const showThread = useCallback(
+    (threadId: number) => {
+      setDetailIssueId(null);
+      setDetailThreadId(threadId);
+      syncCardUrl('thread', threadId);
+    },
+    [syncCardUrl]
+  );
 
-  const openCard = useCallback((card: CardItem) => {
-    if (card.threadId != null) setDetailThreadId(card.threadId);
-    else if (card.issueId != null) setDetailIssueId(card.issueId);
+  const showIssue = useCallback(
+    (issueId: number) => {
+      setDetailThreadId(null);
+      setDetailIssueId(issueId);
+      syncCardUrl('issue', issueId);
+    },
+    [syncCardUrl]
+  );
+
+  const closeDetail = useCallback(() => {
+    setDetailThreadId(null);
+    setDetailIssueId(null);
+    syncCardUrl(null);
+  }, [syncCardUrl]);
+
+  // Mount hydration: an incoming `?card=` opens the detail directly (fresh
+  // entry — mark it current with replaceState so back exits the page wholly).
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get('card') ?? '';
+    let hydrated = false;
+    if (raw.startsWith('thread-')) {
+      const id = Number(raw.slice('thread-'.length));
+      if (Number.isInteger(id)) {
+        // Hydrating from an external system (URL) — not a sync cascade.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setDetailIssueId(null);
+        setDetailThreadId(id);
+        hydrated = true;
+      }
+    } else if (raw.startsWith('issue-')) {
+      const id = Number(raw.slice('issue-'.length));
+      if (Number.isInteger(id)) {
+        setDetailThreadId(null);
+        setDetailIssueId(id);
+        hydrated = true;
+      }
+    }
+    if (hydrated) {
+      const url = new URL(window.location.href);
+      history.replaceState(null, '', `${url.pathname}${url.search}`);
+    }
   }, []);
+
+  // Back-gesture / history walk: re-read and follow.
+  useEffect(() => {
+    const readCard = () => {
+      const raw = new URLSearchParams(window.location.search).get('card') ?? '';
+      if (raw.startsWith('thread-')) {
+        const id = Number(raw.slice('thread-'.length));
+        if (Number.isInteger(id)) {
+          setDetailIssueId(null);
+          setDetailThreadId(id);
+          return;
+        }
+      }
+      if (raw.startsWith('issue-')) {
+        const id = Number(raw.slice('issue-'.length));
+        if (Number.isInteger(id)) {
+          setDetailThreadId(null);
+          setDetailIssueId(id);
+          return;
+        }
+      }
+      setDetailThreadId(null);
+      setDetailIssueId(null);
+    };
+    window.addEventListener('popstate', readCard);
+    return () => window.removeEventListener('popstate', readCard);
+  }, []);
+
+  const openCard = useCallback(
+    (card: CardItem) => {
+      if (card.threadId != null) showThread(card.threadId);
+      else if (card.issueId != null) showIssue(card.issueId);
+    },
+    [showThread, showIssue]
+  );
 
   if (!signedIn) {
     return (
@@ -238,29 +315,10 @@ export default function HomePage() {
           </div>
         )}
 
-        {selected.size > 1 && (
-          <div className="v2-combine-bar">
-            <span>{selected.size} selected</span>
-            <button className="card-primary" onClick={combineSelected}>
-              Combine
-            </button>
-            <button className="ghost" onClick={() => setSelected(new Set())}>
-              Clear
-            </button>
-          </div>
-        )}
-
         <section className="v2-cards" aria-label="Work items">
           {activeCards.length === 0 && <div className="empty">nothing here — tell DevHub what to do below</div>}
           {activeCards.map((card) => (
-            <WorkCard
-              key={card.key}
-              card={card}
-              selected={selected.has(card.key)}
-              onToggleSelect={() => toggleSelect(card.key)}
-              onOpen={() => openCard(card)}
-              onCommandOn={() => stageCommand(card.commandMention)}
-            />
+            <WorkCard key={card.key} card={card} onOpen={() => openCard(card)} onCommandOn={() => stageCommand(card.commandMention)} />
           ))}
         </section>
 
@@ -303,16 +361,16 @@ export default function HomePage() {
       {detailIssue && (
         <IssueDetail
           issue={detailIssue}
-          onClose={() => setDetailIssueId(null)}
+          onClose={closeDetail}
           onWorked={(threadId) => {
             setDetailIssueId(null);
-            setDetailThreadId(threadId);
+            showThread(threadId);
             void fetchAll();
           }}
         />
       )}
 
-      {detailThreadId !== null && <ThreadDetail threadId={detailThreadId} onClose={() => setDetailThreadId(null)} onChanged={() => void fetchAll()} />}
+      {detailThreadId !== null && <ThreadDetail threadId={detailThreadId} onClose={closeDetail} onChanged={() => void fetchAll()} />}
     </div>
   );
 }

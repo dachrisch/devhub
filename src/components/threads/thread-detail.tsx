@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Issue, Thread, ThreadEvent } from '@/lib/types';
 import type { SplitItem } from '@/lib/plan';
+import { DetailShell } from './detail-shell';
+import { MarkdownBody } from './markdown-body';
+import { ActivityTimeline, type ActivityRow } from './activity-timeline';
 
 // Card tap → detail view (full-screen). Work thread: issue body, live agent
 // progress, question-banner with reply field (reply resumes the run).
@@ -113,16 +116,10 @@ export function ThreadDetail({ threadId, onClose, onChanged }: ThreadDetailProps
   };
 
   return (
-    <div className="v2-detail" role="dialog" aria-modal="true" aria-label="Thread detail">
-      <div className="v2-detail-head">
-        <button type="button" className="ghost" onClick={onClose} aria-label="Back to list">
-          ← Back
-        </button>
-        <span className="v2-detail-title">{data?.thread.title ?? 'Loading…'}</span>
+    <DetailShell title={data?.thread.title ?? 'Thread'} onClose={onClose}>
+      <div className="v2-detail-head-state">
         {data && <span className={`v2-chip v2-chip-${data.thread.state}`}>{data.thread.state}</span>}
       </div>
-
-      <div className="v2-detail-body">
         {error && (
           <div className="banner" role="alert">
             <span>{error}</span>
@@ -142,19 +139,21 @@ export function ThreadDetail({ threadId, onClose, onChanged }: ThreadDetailProps
         {data?.issues.map((issue) => (
           <section key={issue.id} className="v2-detail-issue">
             <div className="v2-card-repo">
-              {issue.owner}/{issue.repo}#{issue.number} · {issue.state}
+              {issue.owner}/{issue.repo}#{issue.number}
             </div>
             <h3>{issue.title}</h3>
-            {issue.body && <p className="v2-detail-body-text">{issue.body.slice(0, 2000)}</p>}
+            {issue.body && <MarkdownBody text={issue.body.slice(0, 2000)} />}
             {issue.blockedReason && (
               <div className="card-blocked v2-needs-input" role="alert">
                 <strong>Needs input</strong>
                 <span>{issue.blockedReason}</span>
               </div>
             )}
-            <a className="ghost" href={issue.htmlUrl} target="_blank" rel="noreferrer">
-              GitHub ↗
-            </a>
+            <div className="v2-card-actions">
+              <a className="v2-link-chip" href={issue.htmlUrl} target="_blank" rel="noreferrer">
+                GitHub ↗
+              </a>
+            </div>
           </section>
         ))}
 
@@ -163,10 +162,14 @@ export function ThreadDetail({ threadId, onClose, onChanged }: ThreadDetailProps
             {data.events.map((ev) => (
               <div key={ev.id} className={`v2-chat-msg v2-chat-${ev.kind}`}>
                 <span className="v2-chat-role">{ev.kind}</span>
-                <p>{ev.text.slice(0, 4000)}</p>
+                <MarkdownBody text={ev.text.slice(0, 4000)} className="v2-chat-text" />
               </div>
             ))}
           </section>
+        )}
+
+        {data && data.thread.kind === 'work' && (
+          <ActivityTimeline rows={threadActivityRows(data.events)} defaultOpen={true} />
         )}
 
         {data && data.splitProposal.length > 0 && (
@@ -205,7 +208,6 @@ export function ThreadDetail({ threadId, onClose, onChanged }: ThreadDetailProps
             </button>
           </section>
         )}
-      </div>
 
       <div className="v2-detail-reply">
         <input
@@ -222,6 +224,10 @@ export function ThreadDetail({ threadId, onClose, onChanged }: ThreadDetailProps
           {sending ? '…' : '➤'}
         </button>
       </div>
-    </div>
+    </DetailShell>
   );
+}
+
+function threadActivityRows(events: ThreadEvent[]): ActivityRow[] {
+  return events.map((e) => ({ id: String(e.id), kind: e.kind, ts: e.ts, text: e.text }));
 }

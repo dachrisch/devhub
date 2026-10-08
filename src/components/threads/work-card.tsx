@@ -84,23 +84,14 @@ export function cardRank(card: CardItem): number {
 
 interface WorkCardProps {
   card: CardItem;
-  selected: boolean;
-  onToggleSelect: () => void;
   onOpen: () => void;
   onCommandOn: () => void;
 }
 
-export function WorkCard({ card, selected, onToggleSelect, onOpen, onCommandOn }: WorkCardProps) {
+export function WorkCard({ card, onOpen, onCommandOn }: WorkCardProps) {
   return (
-    <article className={`card v2-card${selected ? ' v2-card-selected' : ''}`} data-card={card.key}>
+    <article className="card v2-card" data-card={card.key}>
       <div className="v2-card-top">
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggleSelect}
-          aria-label={`Select ${card.title}`}
-          className="v2-card-check"
-        />
         <button type="button" className="v2-card-main" onClick={onOpen} aria-label={`Open ${card.title}`}>
           <span className="v2-card-title">{card.title}</span>
           <span className="v2-card-repo">{card.repo}</span>
