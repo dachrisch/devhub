@@ -15,6 +15,10 @@ export type ServerEvent =
   // thread via GET /api/topics/[id]/messages on these notifications.
   | { type: 'idea-message'; topicId: number; messageId: number }
   | { type: 'idea-status'; topicId: number; status: TopicStatus }
+  // Command-first threads (v2): id-notifications, mirroring the `action`
+  // pattern — the client hydrates via GET /api/threads[/id].
+  | { type: 'thread'; threadId: number }
+  | { type: 'thread-event'; threadId: number }
   | { type: 'hello'; now: string };
 
 type Listener = (event: ServerEvent) => void;
@@ -74,4 +78,12 @@ export function publishIdeaStatus(topicId: number, status: TopicStatus): void {
 
 export function publishRun(runId: number, issueId: number): void {
   broadcaster.publish({ type: 'run', runId, issueId });
+}
+
+export function publishThread(threadId: number): void {
+  broadcaster.publish({ type: 'thread', threadId });
+}
+
+export function publishThreadEvent(threadId: number): void {
+  broadcaster.publish({ type: 'thread-event', threadId });
 }
