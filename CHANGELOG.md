@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.0.0](https://github.com/dachrisch/devhub/compare/v1.30.6...v2.0.0) (2026-10-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **v2:** delete v1 board shell (one cut, schema additive)
+
+### Features
+
+* **v2:** command resolve — intent, repo mapping, chips ([08b4a52](https://github.com/dachrisch/devhub/commit/08b4a52a5c3562ed4abe2a04c436c1c6cad1aabc))
+* **v2:** command-first UI — cards, dock, detail, mic ([8683335](https://github.com/dachrisch/devhub/commit/868333574a056e49592c3ab2c61489a143217367))
+* **v2:** delete v1 board shell (one cut, schema additive) ([d5639c3](https://github.com/dachrisch/devhub/commit/d5639c360002c40e219005a3b5facbe4a59b4efc))
+* **v2:** plan library — context brief, split parse + cap ([5972dba](https://github.com/dachrisch/devhub/commit/5972dbae0bf1d4cbae8e1d42d38a00fe6a898b9b))
+* **v2:** thread API routes + SSE ([6b919f4](https://github.com/dachrisch/devhub/commit/6b919f4054e1e474a7eb9d45cd26aa9aa320c6f2))
+* **v2:** thread lifecycle + serial work queue ([16023b0](https://github.com/dachrisch/devhub/commit/16023b01b8205d6ec3e9a423fabcb47ed606f7b6))
+* **v2:** threads and thread_events schema + CRUD ([711cefb](https://github.com/dachrisch/devhub/commit/711cefbb430da88cae8e83c30183e80bf6865363))
+
 ## [1.30.6](https://github.com/dachrisch/devhub/compare/v1.30.5...v1.30.6) (2026-10-07)
 
 
