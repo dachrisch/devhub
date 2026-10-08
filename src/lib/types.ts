@@ -131,6 +131,107 @@ export const TOPIC_STATUS_LABELS: Record<TopicStatus, string> = {
 export type ProjectStatus = 'healthy' | 'in-flight' | 'stale';
 export const PROJECT_STATUSES: readonly ProjectStatus[] = ['healthy', 'in-flight', 'stale'];
 
+// Command-first threads (v2): a work thread drives one implement run, a
+// strategy thread drives a multi-target planner run. `issue_ids` links the
+// work items the thread produced or follows.
+export type ThreadKind = 'work' | 'strategy';
+export const THREAD_KINDS: readonly ThreadKind[] = ['work', 'strategy'];
+
+export type ThreadState = 'refining' | 'planning' | 'developing' | 'ready' | 'blocked' | 'done';
+export const THREAD_STATES: readonly ThreadState[] = [
+  'refining',
+  'planning',
+  'developing',
+  'ready',
+  'blocked',
+  'done',
+];
+
+export function isThreadState(value: unknown): value is ThreadState {
+  return typeof value === 'string' && (THREAD_STATES as readonly string[]).includes(value);
+}
+
+export interface ThreadRow {
+  id: number;
+  kind: ThreadKind;
+  issue_ids: string;
+  title: string;
+  state: ThreadState;
+  session_id: string | null;
+  summary_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Thread {
+  id: number;
+  kind: ThreadKind;
+  issueIds: number[];
+  title: string;
+  state: ThreadState;
+  sessionId: string | null;
+  summary: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function serializeThread(row: ThreadRow): Thread {
+  let issueIds: number[] = [];
+  try {
+    const parsed: unknown = JSON.parse(row.issue_ids);
+    if (Array.isArray(parsed)) issueIds = parsed.filter((n): n is number => typeof n === 'number');
+  } catch {
+    issueIds = [];
+  }
+  let summary: unknown = null;
+  if (row.summary_json) {
+    try {
+      summary = JSON.parse(row.summary_json);
+    } catch {
+      summary = null;
+    }
+  }
+  return {
+    id: row.id,
+    kind: row.kind,
+    issueIds,
+    title: row.title,
+    state: row.state,
+    sessionId: row.session_id,
+    summary,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export type ThreadEventKind = 'user' | 'agent' | 'system';
+
+export interface ThreadEventRow {
+  id: number;
+  thread_id: number;
+  kind: ThreadEventKind;
+  text: string;
+  ts: string;
+}
+
+export interface ThreadEvent {
+  id: number;
+  threadId: number;
+  kind: ThreadEventKind;
+  text: string;
+  ts: string;
+}
+
+export function serializeThreadEvent(row: ThreadEventRow): ThreadEvent {
+  return {
+    id: row.id,
+    threadId: row.thread_id,
+    kind: row.kind,
+    text: row.text,
+    ts: row.ts,
+  };
+}
+
 export type ReleaseMode = 'tag' | 'manual';
 
 export interface ModelOption {
