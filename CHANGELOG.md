@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/dachrisch/devhub/compare/v2.2.1...v2.3.0) (2026-10-08)
+
+
+### Features
+
+* **v2:** unlinked work requests, scoped hand-select, reliable rollout detection ([bc4c9ae](https://github.com/dachrisch/devhub/commit/bc4c9aee0a05e703d8dd5e7b1353da8ad18e6d25))
+
 ## [2.2.1](https://github.com/dachrisch/devhub/compare/v2.2.0...v2.2.1) (2026-10-08)
 
 
