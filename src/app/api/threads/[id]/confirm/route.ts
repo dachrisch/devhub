@@ -62,6 +62,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // The operator's topic tag so the next sync already finds these issues.
   const topicTag = ENV.githubTopics[0] ?? 'devhub';
+  // Serial-queue runner bound to this operator token (see POST /api/threads).
+  // Installed BEFORE confirmSplit: its trailing pump must see the runner or
+  // the queue never starts.
+  setWorkRunner(async (issueId: number) => {
+    try {
+      const queued = getIssue(issueId);
+      if (!queued || !canDevelop(queued)) return;
+      await startWork(queued, `Continuing confirmed split card: ${queued.title}`, session.token, selectedModel);
+    } finally {
+      const { pumpWorkQueue } = await import('@/lib/threads-run');
+      void pumpWorkQueue();
+    }
+  });
   try {
     const ids = await confirmSplit(threadId, accepted, {
       createIssue: async (item) => {
@@ -85,17 +98,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         });
         return stored.id;
       },
-    });
-    // Serial-queue runner bound to this operator token (see POST /api/threads).
-    setWorkRunner(async (issueId: number) => {
-      try {
-        const queued = getIssue(issueId);
-        if (!queued || !canDevelop(queued)) return;
-        await startWork(queued, `Continuing confirmed split card: ${queued.title}`, session.token, selectedModel);
-      } finally {
-        const { pumpWorkQueue } = await import('@/lib/threads-run');
-        void pumpWorkQueue();
-      }
     });
     return NextResponse.json({ ok: true, threadId, issueIds: ids });
   } catch (err) {

@@ -68,32 +68,38 @@ describe('serial work queue', () => {
     expect(runs.getQueuePosition(999)).toBeNull();
   });
 
-  test('pump runs one issue at a time in order', async () => {
+  test('one pump drains the queue in order, strictly serially', async () => {
     const started: number[] = [];
-    const finishers: Array<() => void> = [];
+    const finished: number[] = [];
+    const gates: Array<() => void> = [];
     runs.setWorkRunner(async (issueId: number) => {
       started.push(issueId);
       await new Promise<void>((resolve) => {
-        finishers.push(resolve);
+        gates.push(resolve);
       });
+      finished.push(issueId);
     });
     runs.enqueueWork([5, 6]);
-    const first = runs.pumpWorkQueue();
+    const draining = runs.pumpWorkQueue();
     await Promise.resolve();
     await Promise.resolve();
+    // Only the first run is live; the second has not started.
     expect(started).toEqual([5]);
     expect(runs.getQueuePosition(5)).toBe('live');
-    // Second pump while live is a no-op — still only one live run.
-    await runs.pumpWorkQueue();
-    expect(started).toEqual([5]);
-    // Finishing the first run lets the second start.
-    finishers[0]();
-    await first;
-    // Fire-and-forget: this pump's runner never finishes inside the test.
+    // A concurrent pump while draining is a no-op.
     void runs.pumpWorkQueue();
+    expect(started).toEqual([5]);
+    // Releasing the first gate lets the second start — never overlapping.
+    gates[0]();
     await Promise.resolve();
     await Promise.resolve();
     expect(started).toEqual([5, 6]);
+    expect(finished).toEqual([5]);
+    gates[1]();
+    await draining;
+    expect(finished).toEqual([5, 6]);
+    expect(runs.getQueuePosition(5)).toBeNull();
+    expect(runs.getQueuePosition(6)).toBeNull();
   });
 
   test('failed runs do not stall the queue', async () => {

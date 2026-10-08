@@ -105,18 +105,23 @@ export function getQueuePosition(issueId: number): number | 'live' | null {
   return idx + 1 + (liveWorkIssueId != null ? 1 : 0);
 }
 
-// Starts the next queued run when none is live. Failures never stall the
-// queue — the card keeps its blocked_reason and the next item proceeds.
+// Starts queued runs when none is live and drains the queue one run at a
+// time. Failures never stall the queue — the card keeps its blocked_reason
+// and the next item proceeds. Re-entrant pumps while a drain is in flight
+// are no-ops (the live flag guards them).
 export async function pumpWorkQueue(): Promise<void> {
-  if (liveWorkIssueId != null || workQueue.length === 0 || !workRunner) return;
-  const next = workQueue.shift()!;
-  liveWorkIssueId = next;
-  try {
-    await workRunner(next);
-  } catch {
-    // The runner surfaces failures on the card; the queue moves on.
-  } finally {
-    liveWorkIssueId = null;
+  if (liveWorkIssueId != null || !workRunner) return;
+  while (workQueue.length > 0) {
+    if (liveWorkIssueId != null) return;
+    const next = workQueue.shift()!;
+    liveWorkIssueId = next;
+    try {
+      await workRunner(next);
+    } catch {
+      // The runner surfaces failures on the card; the queue moves on.
+    } finally {
+      liveWorkIssueId = null;
+    }
   }
 }
 

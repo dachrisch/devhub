@@ -13,7 +13,7 @@
 //
 // Canned replies are chosen per prompt type ("You are refining" vs "You are
 // implementing") from the current scenario, controllable mid-run:
-//   POST /__mock/scenario  {"refine":"ready|improve|blocked","develop":"pr|cannot"}
+//   POST /__mock/scenario  {"refine":"ready|improve|blocked","develop":"pr|cannot","planner":"split|empty"}
 //   GET  /__mock/scenario
 'use strict';
 
@@ -72,7 +72,19 @@ const SHAPE_REPLIES = {
   failure: 'CANNOT FULFILL: simulated shaping failure (mock-opencode)',
 };
 
-let scenario = { refine: 'ready', develop: 'pr', shape: 'options', verify: 'pass' };
+const PLANNER_REPLIES = {
+  split: `Combined strategy across the repos: ship the devhub surface first, then the warehouse adapter.
+
+\`\`\`json
+[
+  {"repo":"dachrisch/devhub","title":"E2E split card one","body":"First card body","why":"Covers the devhub side"},
+  {"repo":"bumbleflies/warehouse","title":"E2E split card two","body":"Second card body","why":"Covers the warehouse side"}
+]
+\`\`\``,
+  empty: 'Still thinking — no concrete proposal yet, ask me to dig deeper.',
+};
+
+let scenario = { refine: 'ready', develop: 'pr', shape: 'options', verify: 'pass', planner: 'split' };
 let sessionCounter = 0;
 /** sessionId -> { kind: 'refine'|'develop', text } */
 const pending = new Map();
@@ -94,6 +106,7 @@ function verifyReply(prompt, mode) {
 }
 
 function classify(prompt) {
+  if (typeof prompt === 'string' && prompt.includes('implementation strategist')) return 'planner';
   if (typeof prompt === 'string' && prompt.includes('You are shaping an idea')) return 'shape';
   if (typeof prompt === 'string' && prompt.includes('You are refining')) return 'refine';
   if (typeof prompt === 'string' && prompt.includes('You are reviewing')) return 'verify';
@@ -124,6 +137,7 @@ export function startMockOpencode(port) {
         develop: DEVELOP_REPLIES[body.develop] ? body.develop : scenario.develop,
         shape: SHAPE_REPLIES[body.shape] ? body.shape : scenario.shape,
         verify: VERIFY_SCENARIOS.has(body.verify) ? body.verify : scenario.verify,
+        planner: PLANNER_REPLIES[body.planner] ? body.planner : scenario.planner,
       };
       return json(res, { ok: true, scenario });
     }
@@ -157,7 +171,9 @@ export function startMockOpencode(port) {
             ? SHAPE_REPLIES[scenario.shape]
             : kind === 'verify'
               ? verifyReply(prompt, scenario.verify)
-              : DEVELOP_REPLIES[scenario.develop];
+              : kind === 'planner'
+                ? PLANNER_REPLIES[scenario.planner]
+                : DEVELOP_REPLIES[scenario.develop];
       pending.set(m[1], { kind, text });
       return json(res, { data: { id: `msg_mock_${m[1]}` } });
     }

@@ -18,6 +18,9 @@
 //                       rollout → shipped → Delivered (devhub#171 Phase 3)
 //   S8  auto-merge      realize → worker merges green PR + cuts tag → rollout
 //                       → shipped, no steering (devhub#171 Phase 4)
+//   S9  strategy      command → strategy thread → split proposal → chip
+//                       confirm gate (no auto-create) → real issues → serial
+//                       queue → pr (v2 command-first, API-level)
 //   guard               no `blocked` column exists anywhere on the board
 //
 // The flat board is gone (devhub#167): S1-S4 drive the per-project boards at
@@ -690,6 +693,62 @@ async function main() {
     );
     assert(s8dom.includes('Delivered'), 'idea page shows Delivered after worker merge');
     await screenshot(cdp, sessionId, 's8-auto-merge');
+
+    // ── S9: strategy thread (v2 command-first) ───────────────────────────
+    // command → strategy thread → split proposal waits for the chip-confirm
+    // gate (nothing auto-created) → confirm → real GitHub issues → serial
+    // auto-Work queue → pr. API-level: no DOM dependency.
+    console.log('\nS9: strategy thread → chip gate → confirm → serial queue → pr');
+    await setScenario({ planner: 'split', refine: 'ready', develop: 'pr' });
+    const beforeCount = (await allIssues()).length;
+    const cmd = await api('/api/threads', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        input: 'look at the recent tickets in dachrisch/devhub and bumbleflies/warehouse and come up with a combined strategy',
+      }),
+    });
+    assert(typeof cmd.threadId === 'number', `strategy thread created (#${cmd.threadId})`);
+
+    async function waitForSplit(threadId, count, label, timeoutMs = 60000) {
+      const deadline = Date.now() + timeoutMs;
+      let last = null;
+      while (Date.now() < deadline) {
+        last = await api(`/api/threads/${threadId}`);
+        if ((last.splitProposal?.length ?? 0) >= count) return last;
+        await wait(500);
+      }
+      throw new Error(`timeout waiting for ${label}; last=${JSON.stringify(last?.splitProposal)}`);
+    }
+    const proposed = await waitForSplit(cmd.threadId, 2, 'planner split proposal');
+    assert(proposed.thread?.kind === 'strategy', 'thread is a strategy thread');
+    assert(
+      (await allIssues()).length === beforeCount,
+      'chip-confirm gate: planner output created no issues by itself'
+    );
+
+    const conf = await api(`/api/threads/${cmd.threadId}/confirm`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accepted: [0, 1] }),
+    });
+    assert(conf.issueIds?.length === 2, `confirm created 2 cards (${JSON.stringify(conf.issueIds)})`);
+    const doneThread = await api(`/api/threads/${cmd.threadId}`);
+    assert(doneThread.thread?.state === 'done', 'thread is done after confirm');
+
+    // Serial auto-Work queue drains both confirmed cards to pr (mock
+    // merge/tag state from S7/S8 may roll them straight to rollout — accept
+    // either terminal-ish state, as S8 does for the worker path).
+    for (const issueId of conf.issueIds) {
+      const created = (await allIssues()).find((i) => i.id === issueId);
+      assert(created, `confirmed card ${issueId} exists`);
+      const terminal = await waitForIssueState(
+        created.owner, created.repo, created.number,
+        (i) => i.state === 'pr' || i.state === 'rollout', `confirmed card ${issueId} → pr`, 90000
+      );
+      assert(terminal.state === 'pr' || terminal.state === 'rollout', `card ${issueId} worked (${terminal.state})`);
+    }
+    await screenshot(cdp, sessionId, 's9-strategy-thread');
 
     cdp.close();
     console.log('\n────────────────────────────────────────────');

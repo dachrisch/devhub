@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getIssue, getIssueByGithub, getIssues, listThreads } from '@/lib/store';
-import { createThread, replyToThread, setWorkRunner, startStrategyThread, startWorkThread } from '@/lib/threads-run';
+import { createThread, replyToThread, startStrategyThread, startWorkThread } from '@/lib/threads-run';
 import { resolveCommand } from '@/lib/resolve';
-import { canDevelop, startWork } from '@/lib/develop';
+import { canDevelop } from '@/lib/develop';
 import { UnauthorizedError, ForbiddenError, GithubUnavailableError, requireMember } from '@/lib/auth';
 import type { OpencodeModel } from '@/lib/opencode';
 
@@ -138,19 +138,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const thread = createThread({ kind: 'work', title: input.slice(0, 80) });
   void startWorkThread(thread, issue.id, { text: input, token: session.token, model: selectedModel }).catch((err) => {
     console.error(`[threads] work thread #${thread.id} threw:`, err instanceof Error ? err.message : err);
-  });
-  // Install the serial-queue runner bound to this operator token (single-user
-  // board: last writer wins). The runner chains pump→run→pump so confirmed
-  // split cards drain one developing run at a time.
-  setWorkRunner(async (issueId: number) => {
-    try {
-      const queued = getIssue(issueId);
-      if (!queued) return;
-      await startWork(queued, `Continuing confirmed split card: ${queued.title}`, session.token, selectedModel);
-    } finally {
-      const { pumpWorkQueue } = await import('@/lib/threads-run');
-      void pumpWorkQueue();
-    }
   });
   return NextResponse.json({ ok: true, threadId: thread.id }, { status: 202 });
 }
