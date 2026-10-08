@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0](https://github.com/dachrisch/devhub/compare/v2.1.0...v2.2.0) (2026-10-08)
+
+
+### Features
+
+* **v2:** details card v3 (markdown detail, activity timeline, read-first shell) ([ec38cec](https://github.com/dachrisch/devhub/commit/ec38cec0a362a5add234fdeb4c8ae3d3ccbe9408))
+* **v2:** details card v3 (markdown detail, activity timeline, read-first shell) ([cad4da3](https://github.com/dachrisch/devhub/commit/cad4da301ef477cb351121ae8c961ff8121e608f))
+
 ## [2.1.0](https://github.com/dachrisch/devhub/compare/v2.0.0...v2.1.0) (2026-10-08)
 
 
