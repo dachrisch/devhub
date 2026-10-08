@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/dachrisch/devhub/compare/v2.2.0...v2.2.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* **v2:** stop dock clipping detail panel, theme detail scrollbar ([9aa3237](https://github.com/dachrisch/devhub/commit/9aa3237cbce87d3189a0a1be7274950a27b07522))
+
 ## [2.2.0](https://github.com/dachrisch/devhub/compare/v2.1.0...v2.2.0) (2026-10-08)
 
 
