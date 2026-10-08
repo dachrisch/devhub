@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.1](https://github.com/dachrisch/devhub/compare/v2.3.0...v2.3.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* **v2:** real card titles, localized timestamps, working/queue badges ([14f9f43](https://github.com/dachrisch/devhub/commit/14f9f439480c361a147defea362d7f47271c1dce))
+
 ## [2.3.0](https://github.com/dachrisch/devhub/compare/v2.2.1...v2.3.0) (2026-10-08)
 
 
