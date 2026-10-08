@@ -9,9 +9,9 @@ export const dynamic = 'force-dynamic';
 // `services` table stays in place, unused, until a later cleanup. New clients
 // should use GET /api/projects.
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  let session;
   try {
-    session = await requireMember(req);
+    // Auth side-effect only: requireMember throws for no-session/non-members.
+    await requireMember(req);
   } catch (err) {
     if (err instanceof UnauthorizedError) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
     if (err instanceof ForbiddenError) return NextResponse.json({ error: 'not a bumbleflies member' }, { status: 403 });

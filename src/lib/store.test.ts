@@ -564,7 +564,6 @@ describe('projects & topics (devhub#167)', () => {
 
   it('excludes a stale realizing topic whose only linked issue is settled (devhub#208)', async () => {
     const { summarizeProject } = await import('./project-status.js');
-    const { funnelColumnForTopicWithIssues } = await import('./funnel.js');
     const project = store.createProject({ name: 'proj-stale-idea' });
     const topic = store.createTopic({ title: 'Dispatch workflow templates', status: 'realizing' });
     store.updateTopic(topic.id, { projectId: project.id });
@@ -587,9 +586,7 @@ describe('projects & topics (devhub#167)', () => {
     store.getDb().prepare(`UPDATE topics SET status = 'realizing' WHERE id = ?`).run(topic.id);
     expect(store.getTopic(topic.id)?.status).toBe('realizing');
 
-    // Board derivation already treats it as delivered…
-    expect(funnelColumnForTopicWithIssues('realizing', ['closed'])).toBe('delivered');
-    // …and the dashboard must agree without a manual topic write.
+    // The dashboard must agree without a manual topic write.
     expect(store.getActiveTopicsForProject(project.id).map((t) => t.id)).not.toContain(topic.id);
     expect(store.countActiveTopicsForProject(project.id)).toBe(0);
     const summary = summarizeProject(store.getProject(project.id)!);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export interface MeUser {
   login: string;
@@ -35,11 +36,14 @@ export function useAuth() {
     void reload();
   }, [reload]);
 
+  const router = useRouter();
+
   const logout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     setUser(null);
-    window.location.href = '/';
-  }, []);
+    // Full client-side nav resets app state; useAuth re-fetches fresh on mount.
+    router.push('/');
+  }, [router]);
 
   return { user, loading: user === undefined, denied, logout, reload };
 }

@@ -5,6 +5,8 @@ import {
   serializeIssue,
   serializeProject,
   serializeRun,
+  serializeThread,
+  serializeThreadEvent,
   serializeTopic,
   type DevelopRun,
   type DevelopRunRow,
@@ -23,6 +25,13 @@ import {
   type RepoScope,
   type RunRole,
   type RunState,
+  type Thread,
+  type ThreadEvent,
+  type ThreadEventKind,
+  type ThreadEventRow,
+  type ThreadKind,
+  type ThreadRow,
+  type ThreadState,
   type Topic,
   type TopicRow,
   type TopicStatus,
@@ -41,6 +50,11 @@ export type {
   RepoScope,
   RunRole,
   RunState,
+  Thread,
+  ThreadEvent,
+  ThreadEventKind,
+  ThreadKind,
+  ThreadState,
   Topic,
   TopicStatus,
   ReleaseMode,
@@ -186,6 +200,25 @@ function migrate(database: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_develop_runs_issue ON develop_runs(issue_id);
+    CREATE TABLE IF NOT EXISTS threads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      issue_ids TEXT NOT NULL DEFAULT '[]',
+      title TEXT NOT NULL,
+      state TEXT NOT NULL,
+      session_id TEXT,
+      summary_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS thread_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      thread_id INTEGER NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      text TEXT NOT NULL DEFAULT '',
+      ts TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_thread_events_thread ON thread_events(thread_id);
   `);
 
   // One-time migration: rollout metadata for the terminal "released" state.
@@ -1331,4 +1364,73 @@ export function setIssueScope(id: number, scope: RepoScope, infraFirst: boolean)
     .prepare(`UPDATE issues SET repo_scope = ?, infra_first = ?, updated_at = datetime('now') WHERE id = ?`)
     .run(scope, infraFirst ? 1 : 0, id);
   return getIssue(id);
+}
+
+// ---------------------------------------------------------------------------
+// Command-first threads (v2)
+// ---------------------------------------------------------------------------
+
+export function createThread(input: { kind: ThreadKind; title: string; issueIds?: number[] }): Thread {
+  const state: ThreadState = input.kind === 'strategy' ? 'planning' : 'refining';
+  const info = getDb()
+    .prepare(`INSERT INTO threads (kind, issue_ids, title, state) VALUES (?, ?, ?, ?)`)
+    .run(input.kind, JSON.stringify(input.issueIds ?? []), input.title, state);
+  return getThread(Number(info.lastInsertRowid))!;
+}
+
+export function getThread(id: number): Thread | null {
+  const row = getDb().prepare('SELECT * FROM threads WHERE id = ?').get(id) as ThreadRow | undefined;
+  return row ? serializeThread(row) : null;
+}
+
+export function listThreads(limit = 50): Thread[] {
+  const rows = getDb()
+    .prepare('SELECT * FROM threads ORDER BY updated_at DESC, id DESC LIMIT ?')
+    .all(limit) as ThreadRow[];
+  return rows.map(serializeThread);
+}
+
+export interface ThreadPatch {
+  title?: string;
+  state?: ThreadState;
+  issueIds?: number[];
+  sessionId?: string | null;
+  summary?: unknown;
+}
+
+export function updateThread(id: number, patch: ThreadPatch): Thread | null {
+  const sets: string[] = ["updated_at = datetime('now')"];
+  const args: (string | null)[] = [];
+  if (patch.title !== undefined) { sets.push('title = ?'); args.push(patch.title); }
+  if (patch.state !== undefined) { sets.push('state = ?'); args.push(patch.state); }
+  if (patch.issueIds !== undefined) { sets.push('issue_ids = ?'); args.push(JSON.stringify(patch.issueIds)); }
+  if (patch.sessionId !== undefined) { sets.push('session_id = ?'); args.push(patch.sessionId); }
+  if (patch.summary !== undefined) {
+    sets.push('summary_json = ?');
+    args.push(patch.summary == null ? null : JSON.stringify(patch.summary));
+  }
+  args.push(String(id));
+  getDb().prepare(`UPDATE threads SET ${sets.join(', ')} WHERE id = ?`).run(...args);
+  return getThread(id);
+}
+
+export function deleteThread(id: number): void {
+  getDb().prepare('DELETE FROM thread_events WHERE thread_id = ?').run(id);
+  getDb().prepare('DELETE FROM threads WHERE id = ?').run(id);
+}
+
+export function appendThreadEvent(threadId: number, kind: ThreadEventKind, text: string): ThreadEvent {
+  const info = getDb()
+    .prepare(`INSERT INTO thread_events (thread_id, kind, text) VALUES (?, ?, ?)`)
+    .run(threadId, kind, text);
+  getDb().prepare(`UPDATE threads SET updated_at = datetime('now') WHERE id = ?`).run(threadId);
+  const row = getDb().prepare('SELECT * FROM thread_events WHERE id = ?').get(info.lastInsertRowid) as ThreadEventRow;
+  return serializeThreadEvent(row);
+}
+
+export function getThreadEvents(threadId: number): ThreadEvent[] {
+  const rows = getDb()
+    .prepare('SELECT * FROM thread_events WHERE thread_id = ? ORDER BY id ASC')
+    .all(threadId) as ThreadEventRow[];
+  return rows.map(serializeThreadEvent);
 }
