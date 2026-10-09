@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.2](https://github.com/dachrisch/devhub/compare/v2.3.1...v2.3.2) (2026-10-09)
+
+
+### Bug Fixes
+
+* **v2:** true working badge and converge refinement replies ([7686a11](https://github.com/dachrisch/devhub/commit/7686a115d3c77a399efad28369a9c836afb37e5d))
+* **v2:** true working badge and converge refinement replies ([6624b9d](https://github.com/dachrisch/devhub/commit/6624b9d4f75f5cbc352f373da9137c6475be5dc7))
+
 ## [2.3.1](https://github.com/dachrisch/devhub/compare/v2.3.0...v2.3.1) (2026-10-08)
 
 
