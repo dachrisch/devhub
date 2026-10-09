@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import type { Issue, Thread } from '@/lib/types';
 import { useAuth } from '@/components/use-auth';
 import { WelcomeScreen } from '@/components/auth-ui';
@@ -305,6 +306,11 @@ export default function HomePage() {
         title="DevHub"
         connection={{ connected }}
         user={user ? { login: user.login, avatarUrl: user.avatarUrl, onLogout: logout } : undefined}
+        nav={
+          <Link href="/activity" className="app-nav-link">
+            Activity
+          </Link>
+        }
         controls={
           <button className="ghost" onClick={() => void handleRefresh()} disabled={syncing}>
             {syncing ? 'Syncing…' : 'Refresh'}
