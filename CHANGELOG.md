@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.0](https://github.com/dachrisch/devhub/compare/v2.4.1...v2.5.0) (2026-10-09)
+
+
+### Features
+
+* **activity:** live timeline with session titles ([1867b63](https://github.com/dachrisch/devhub/commit/1867b6334dfbf833a80c6fc70544a7046fa7e953))
+* **v2:** whole-board command scope, board-derived repo resolution ([e541006](https://github.com/dachrisch/devhub/commit/e541006af1ca0f9ac8ccb26ef5b659a6dd665239))
+
 ## [2.4.1](https://github.com/dachrisch/devhub/compare/v2.4.0...v2.4.1) (2026-10-09)
 
 
