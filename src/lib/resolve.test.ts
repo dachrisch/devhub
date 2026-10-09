@@ -21,6 +21,14 @@ describe('parseIntent', () => {
   test('follow-up without an open thread is not a question', () => {
     expect(parseIntent('actually make it cheaper', false)).toBe('implement');
   });
+
+  test('an open-ended ask with no target is whole-board strategy', () => {
+    expect(parseIntent('which low hanging fruits next?', false)).toBe('strategy');
+  });
+
+  test('an imperative with no target is still implement', () => {
+    expect(parseIntent('implement dark mode', false)).toBe('implement');
+  });
 });
 
 describe('mapRepos', () => {
@@ -40,6 +48,14 @@ describe('mapRepos', () => {
     expect(r.matched).toEqual([]);
     expect(r.chips).toHaveLength(1);
     expect(r.chips[0].kind).toBe('repo-choice');
+    // Restricted to the board — never the whole GitHub registry.
+    expect(r.chips[0].options).toEqual(REPOS);
+  });
+
+  test('generic prose words never produce a repo chip', () => {
+    const r = mapRepos('which low hanging fruits next?', REPOS);
+    expect(r.matched).toEqual([]);
+    expect(r.chips).toEqual([]);
   });
 
   test('ambiguous shorthand yields a choose-one chip', () => {
@@ -87,6 +103,20 @@ describe('resolveCommand', () => {
     expect(r.targets).toEqual(['dachrisch/devhub']);
     expect(r.chips).toEqual([]);
     expect(r.issueNumbers).toEqual([102]);
+  });
+
+  test('whole-board question resolves to scope board with no chips', () => {
+    const r = resolveCommand('which low hanging fruits next?', REPOS, { openThread: false });
+    expect(r.intent).toBe('strategy');
+    expect(r.scope).toBe('board');
+    expect(r.targets).toEqual([]);
+    expect(r.chips).toEqual([]);
+  });
+
+  test('an explicit dangling repo is scope dangling with a board-restricted chip', () => {
+    const r = resolveCommand('implement login in ZZZ', REPOS, { openThread: false });
+    expect(r.scope).toBe('dangling');
+    expect(r.chips[0].options).toEqual(REPOS);
   });
 });
 

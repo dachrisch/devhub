@@ -160,6 +160,14 @@ export async function startWorkThread(thread: Thread, issueId: number, command: 
   await startWork(issue, command.text, command.token, command.model ?? null);
 }
 
+// Scope the planner context: named targets filter the board; an empty target
+// list means the whole board. The board is the synced issues we already see in
+// DevHub — never the /user/repos registry.
+export function buildScopeBrief(issues: Issue[], targets: string[]): Issue[] {
+  if (targets.length === 0) return issues;
+  return issues.filter((i) => targets.includes(`${i.owner}/${i.repo}`));
+}
+
 // Strategy thread: context brief + planner run at ~2× the refinement poll
 // budget. Streams into the detail view; split proposals wait for confirm.
 export async function startStrategyThread(
@@ -168,9 +176,9 @@ export async function startStrategyThread(
   command: ThreadCommand
 ): Promise<void> {
   appendThreadEvent(thread.id, 'user', command.text);
-  const issues = getGithubIssues().filter((i) => targets.includes(`${i.owner}/${i.repo}`));
-  const brief = buildContextBrief(issues);
-  const prompt = buildPlannerPrompt(brief, command.text);
+  const scoped = buildScopeBrief(getGithubIssues(), targets);
+  const brief = buildContextBrief(scoped);
+  const prompt = buildPlannerPrompt(brief, command.text, targets.length === 0);
   const models = sanitizeModels(resolveModels(command.model ?? null), await getAvailableModels());
   updateThread(thread.id, { state: 'planning' });
   try {

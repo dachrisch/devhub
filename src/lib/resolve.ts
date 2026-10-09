@@ -1,5 +1,9 @@
 export type CommandIntent = 'implement' | 'strategy' | 'question';
 
+// `board` = the whole synced board (all repos we already see in DevHub);
+// `dangling` = the operator named a repo-shaped target we could not resolve.
+export type CommandScope = 'issue' | 'repos' | 'board' | 'dangling';
+
 export interface ResolveChip {
   kind: 'repo-choice' | 'issue-search';
   label: string;
@@ -11,6 +15,7 @@ export interface ResolveChip {
 
 export interface ResolveResult {
   intent: CommandIntent;
+  scope: CommandScope;
   targets: string[];
   chips: ResolveChip[];
   issueNumbers: number[];
@@ -29,6 +34,15 @@ const FULL_REPO_RE = /([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/g;
 const INTENT_VERBS = new Set(
   'implement work fix ship build add create update refactor look show make run do plan check review merge release test suggest shape realize promote'.split(' ')
 );
+// Repo prepositions: a lowercase word right after one of these is an explicit
+// repo mention ("fix it in app"), eligible for an ambiguity/unknown chip.
+const REPO_PREPS = new Set(['in', 'for', 'of', 'across', 'repo', 'on']);
+// An ask that opens interrogatively or names board-wide work has no target —
+// it runs against the whole board, never a forced repo pick.
+const EXPLORATORY_START_RE =
+  /^\s*(which|what|whats|what's|where|when|why|who|how|should|could|would|any|list|suggest|recommend|prioriti[sz]e|brainstorm|ideas?|find|show)\b/i;
+const WHOLE_BOARD_RE =
+  /\b(low[- ]?hanging|next steps?|roadmap|whole board|across (the )?(board|repos?|projects?)|overall plan)\b/i;
 
 // Normalized for shorthand compare: lowercase, alphanumerics only.
 function norm(s: string): string {
@@ -39,16 +53,9 @@ function lastSegment(repo: string): string {
   return repo.split('/').pop() ?? repo;
 }
 
-// A repo mention candidate is either Capitalized (shorthand like XY, ZZZ) or
-// a word that loosely matches a known repo name (e.g. `warehouse`, `app`).
-function isCandidate(word: string, repoList: string[]): boolean {
-  if (word.length < 2) return false;
-  if (/[A-Z]/.test(word)) return true;
-  if (word.length < 3) return false;
-  const w = norm(word);
-  return repoList.some((r) => norm(lastSegment(r)).includes(w) || w.includes(norm(lastSegment(r))));
-}
-
+// Loose fuzzy match: a short/partial token that names part of a repo. Only
+// explicit or reasonably long lowercase words are allowed to reach here (see
+// the length guard in mapRepos) so prose words like "low" cannot resolve.
 function repoMatches(candidate: string, repo: string): boolean {
   const c = norm(candidate);
   if (!c) return false;
@@ -64,12 +71,25 @@ export function extractIssueNumbers(text: string): number[] {
 }
 
 export interface RepoMapping {
+  // Every resolved target, including loose fuzzy matches ('warehouse').
   matched: string[];
+  // Only targets named explicitly (full path, capitalized shorthand, or a word
+  // after a repo preposition) — the signal that decides whole-board vs. a
+  // concrete repo ask.
+  explicit: string[];
   chips: ResolveChip[];
+}
+
+// A token is an explicit repo mention when it looks repo-shaped: a Capitalized
+// shorthand (XY, ZZZ) or a word introduced by a repo preposition ("in app").
+function looksLikeRepoIntent(word: string, index: number, words: string[]): boolean {
+  if (/[A-Z]/.test(word)) return true;
+  return REPO_PREPS.has(words[index - 1]?.toLowerCase() ?? '');
 }
 
 export function mapRepos(text: string, repoList: string[]): RepoMapping {
   const matched: string[] = [];
+  const explicit: string[] = [];
   const chips: ResolveChip[] = [];
   const claimed = new Set<string>();
 
@@ -79,46 +99,52 @@ export function mapRepos(text: string, repoList: string[]): RepoMapping {
     if (found && !claimed.has(found)) {
       claimed.add(found);
       matched.push(found);
+      explicit.push(found);
     }
   }
 
   const words = text.match(/[A-Za-z][A-Za-z0-9_-]*/g) ?? [];
-  const unmatched: string[] = [];
   for (let index = 0; index < words.length; index++) {
     const word = words[index];
     if (index === 0 && INTENT_VERBS.has(word.toLowerCase())) continue;
-    if (!isCandidate(word, repoList)) continue;
     // Skip words already consumed by a full-path match.
-    if (text.toLowerCase().includes(word.toLowerCase()) && matched.some((m) => norm(m).includes(norm(word)))) {
-      continue;
-    }
+    if (matched.some((m) => norm(m).includes(norm(word)))) continue;
+    const isExplicit = looksLikeRepoIntent(word, index, words);
+    // Guard generic prose: only explicit mentions, or reasonably long lowercase
+    // words, may fuzzy-match a repo ("low"/"next" must not resolve to anything).
+    if (!isExplicit && word.length < 4) continue;
     const hits = repoList.filter((r) => !claimed.has(r) && repoMatches(word, r));
     if (hits.length === 1) {
       claimed.add(hits[0]);
       matched.push(hits[0]);
-    } else if (hits.length > 1) {
+      if (isExplicit) explicit.push(hits[0]);
+      continue;
+    }
+    // Only an explicit repo mention may produce a chip. Generic prose ("low",
+    // "hanging") must never dump the board repo list.
+    if (!isExplicit) continue;
+    if (hits.length > 1) {
+      // Ambiguous → choose-one chip, restricted to board repos.
       chips.push({ kind: 'repo-choice', label: `Which repo did you mean by "${word}"?`, options: hits });
-    } else if (!matched.some((m) => norm(m).includes(norm(word)))) {
-      unmatched.push(word);
+    } else {
+      // Unknown but explicit ("ZZZ") → pick-one chip, restricted to board repos.
+      chips.push({ kind: 'repo-choice', label: `Unknown repo "${word}" — pick one:`, options: repoList });
     }
   }
-
-  // Never silently guess: unrecognized mentions become keyword chips offering
-  // the full repo list. An explicit #issue ref is precise enough to skip this.
-  if (unmatched.length > 0 && extractIssueNumbers(text).length === 0) {
-    chips.push({
-      kind: 'repo-choice',
-      label: `Unknown repo "${unmatched[0]}" — pick one:`,
-      options: repoList,
-    });
-  }
-  return { matched, chips };
+  return { matched, explicit, chips };
 }
 
 export function parseIntent(text: string, hasOpenThread: boolean): CommandIntent {
   if (STRATEGY_RE.test(text)) return 'strategy';
-  if (hasOpenThread && extractIssueNumbers(text).length === 0 && !mentionsRepo(text)) return 'question';
+  const hasTarget = extractIssueNumbers(text).length > 0 || mentionsRepo(text);
+  // No target + an exploratory ask → whole-board strategy, not a repo pick.
+  if (!hasTarget && isExploratory(text)) return 'strategy';
+  if (hasOpenThread && !hasTarget) return 'question';
   return 'implement';
+}
+
+function isExploratory(text: string): boolean {
+  return EXPLORATORY_START_RE.test(text) || WHOLE_BOARD_RE.test(text);
 }
 
 // Cheap repo-mention sniff for intent routing (the authoritative mapping lives
@@ -137,17 +163,29 @@ export function resolveCommand(text: string, repoList: string[], opts: ResolveOp
   // Recompute honestly: parseIntent's internal sniff must agree with mapping.
   if (intent === 'question' && hasRepoSignal) intent = 'implement';
   if (intent === 'question' && opts.openThreadId != null) {
-    return { intent, targets: [], chips: [], issueNumbers, openThreadId: opts.openThreadId };
+    return { intent, scope: 'issue', targets: [], chips: [], issueNumbers, openThreadId: opts.openThreadId };
   }
   if (intent === 'question') {
     return {
       intent,
+      scope: 'dangling',
       targets: [],
       chips: [{ kind: 'issue-search', label: 'Which work item is this about?', options: [], repos: [] }],
       issueNumbers,
     };
   }
-  return { intent, targets: mapping.matched, chips: mapping.chips, issueNumbers };
+  // Whole-board: an exploratory ask names no explicit repo/issue → run against
+  // the board as a whole; never nag for a target.
+  if (intent === 'strategy' && mapping.explicit.length === 0 && issueNumbers.length === 0) {
+    return { intent, scope: 'board', targets: [], chips: [], issueNumbers };
+  }
+  const scope: CommandScope =
+    mapping.explicit.length === 0 && mapping.chips.length > 0
+      ? 'dangling'
+      : issueNumbers.length > 0 && mapping.matched.length <= 1
+        ? 'issue'
+        : 'repos';
+  return { intent, scope, targets: mapping.matched, chips: mapping.chips, issueNumbers };
 }
 
 export function formatMention(owner: string, repo: string, number?: number): string {

@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, test } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { Issue } from './types';
 
 const tmpDb = path.join(os.tmpdir(), `devhub-threads-run-test-${process.pid}.db`);
 process.env.DEVHUB_DB = tmpDb;
@@ -22,6 +23,24 @@ afterAll(() => {
 
 beforeEach(() => {
   runs.resetQueueForTests();
+});
+
+describe('buildScopeBrief', () => {
+  test('an empty target list means the whole board', () => {
+    const issues = [
+      { owner: 'a', repo: 'b' },
+      { owner: 'c', repo: 'd' },
+    ] as Issue[];
+    expect(runs.buildScopeBrief(issues, [])).toEqual(issues);
+  });
+
+  test('named targets filter the board', () => {
+    const issues = [
+      { owner: 'a', repo: 'b' },
+      { owner: 'c', repo: 'd' },
+    ] as Issue[];
+    expect(runs.buildScopeBrief(issues, ['c/d'])).toEqual([issues[1]]);
+  });
 });
 
 describe('thread blocked reason', () => {

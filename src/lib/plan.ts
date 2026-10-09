@@ -90,7 +90,7 @@ export function capSplitProposal(items: SplitItem[], cap = 10): CappedSplit {
   };
 }
 
-export function buildPlannerPrompt(brief: RepoBrief[], userText: string): string {
+export function buildPlannerPrompt(brief: RepoBrief[], userText: string, wholeBoard = false): string {
   const lines: string[] = [
     'You are a DevHub implementation strategist. Context brief (open + recently closed issues, condensed):',
     '',
@@ -105,6 +105,9 @@ export function buildPlannerPrompt(brief: RepoBrief[], userText: string): string
     '',
     `User request: ${userText}`,
     '',
+    wholeBoard
+      ? 'Scope: the whole board — there is no repo filter. Consider every repo above as one workstream.'
+      : 'Scope: the repos listed above.',
     'Each turn ends in one of: strategy content, follow-up questions, or a split proposal.',
     'A split proposal is a fenced json array of {repo, title, body, why} records.',
     'Propose at most 10 cards per split (cap and offer the rest as a follow-up).',

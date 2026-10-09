@@ -107,4 +107,13 @@ describe('buildPlannerPrompt', () => {
     expect(prompt).toContain('10');
     expect(prompt).toContain('come up with a strategy');
   });
+
+  test('signals whole-board scope when there is no repo filter', () => {
+    const prompt = buildPlannerPrompt(
+      [{ repo: 'a/b', items: [{ number: 1, title: 'T', gist: 'G' }] }],
+      'which low hanging fruits next?',
+      true
+    );
+    expect(prompt).toContain('whole board');
+  });
 });

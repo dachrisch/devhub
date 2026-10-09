@@ -546,6 +546,13 @@ export function getGithubIssues(): Issue[] {
   return rows.map(serializeIssue);
 }
 
+// Distinct repos currently represented on the board (derived from the synced
+// GitHub issues, not the /user/repos registry). This is the resolution universe
+// for command chips and the scope of a whole-board strategy run.
+export function getBoardRepos(): string[] {
+  return [...new Set(getGithubIssues().map((i) => `${i.owner}/${i.repo}`))].sort();
+}
+
 export function getIssue(id: number): Issue | null {
   const row = getDb().prepare('SELECT * FROM issues WHERE id = ?').get(id) as IssueRow | undefined;
   return row ? serializeIssue(row) : null;

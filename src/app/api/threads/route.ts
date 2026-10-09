@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createWorkRequest, getIssue, getIssueByGithub, getIssues, listThreads } from '@/lib/store';
+import { createWorkRequest, getBoardRepos, getIssue, getIssueByGithub, listThreads } from '@/lib/store';
 import { createThread, listQueuePositions, replyToThread, startStrategyThread, startWorkThread } from '@/lib/threads-run';
 import { resolveCommand } from '@/lib/resolve';
 import { deriveWorkRequestTitle } from '@/lib/work-requests';
@@ -18,24 +18,11 @@ function authError(err: unknown): NextResponse {
   return NextResponse.json({ error: 'github auth failed' }, { status: 401 });
 }
 
-async function fetchRepoNames(token: string): Promise<string[]> {
-  try {
-    const res = await fetch('https://api.github.com/user/repos?per_page=100', {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    });
-    if (!res.ok) throw new Error(`repos fetch failed (${res.status})`);
-    const repos = (await res.json()) as { full_name?: string }[];
-    const names = repos.map((r) => r.full_name).filter((n): n is string => typeof n === 'string');
-    if (names.length > 0) return names;
-  } catch {
-    // fall through to the local fallback
-  }
-  // Offline fallback: repos already seen on the board.
-  return [...new Set(getIssues().map((i) => `${i.owner}/${i.repo}`))].sort();
+// A repo the operator may target: one already on the board, or an explicit
+// owner/name path (the escape hatch for a repo with no synced issues yet).
+const FULL_REPO_PATH_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+function isTargetRepo(value: string, boardRepos: string[]): boolean {
+  return boardRepos.includes(value) || FULL_REPO_PATH_RE.test(value);
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
@@ -77,12 +64,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const selectedModel: OpencodeModel | null = modelId ? { id: modelId, providerID: providerID ?? 'opencode' } : null;
   const openThreadId = typeof body.openThreadId === 'number' ? body.openThreadId : undefined;
 
-  const repoNames = await fetchRepoNames(session.token);
-  const resolved = resolveCommand(input, repoNames, { openThread: openThreadId != null, openThreadId });
+  // The resolution universe is the board we already see in DevHub — never the
+  // /user/repos registry. An explicit owner/name path is the only escape hatch.
+  const boardRepos = getBoardRepos();
+  const resolved = resolveCommand(input, boardRepos, { openThread: openThreadId != null, openThreadId });
 
   // Explicit chip answers ride the same pathway: a confirmed repo or a
   // hand-selected issue skips resolution.
-  if (typeof body.repoChoice === 'string' && repoNames.includes(body.repoChoice)) {
+  if (typeof body.repoChoice === 'string' && isTargetRepo(body.repoChoice, boardRepos)) {
     resolved.targets = [body.repoChoice];
     resolved.chips = [];
     if (resolved.intent === 'question') resolved.intent = 'implement';
@@ -103,14 +92,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // develop pipeline against it — the agent works the free-text request.
   if (body.newWork === true) {
     const repo =
-      typeof body.repoChoice === 'string' && repoNames.includes(body.repoChoice)
+      typeof body.repoChoice === 'string' && isTargetRepo(body.repoChoice, boardRepos)
         ? body.repoChoice
         : resolved.targets[0];
     if (!repo) {
       return NextResponse.json({
         needsChoice: true,
         intent: 'implement',
-        chips: [{ kind: 'repo-choice', label: 'Which repo should this work go to?', options: repoNames }],
+        chips: [{ kind: 'repo-choice', label: 'Which repo should this work go to?', options: boardRepos }],
       });
     }
     const [owner, name] = repo.split('/');
