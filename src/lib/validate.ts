@@ -83,6 +83,32 @@ export function buildRefinePrompt(issue: Issue, project?: { name: string; config
   ].join('\n');
 }
 
+// Operator answers to a "Needs input" question are folded into the issue body
+// so the next refinement pass actually sees them. Without this the refiner
+// re-reads the unchanged body and asks the same question forever (reply →
+// refine → same block → reply …). Kept as a marked section so repeated
+// answers accumulate instead of overwriting each other.
+export const CLARIFICATIONS_HEADING = '## Clarifications';
+
+export function appendClarification(body: string | null | undefined, answer: string): string {
+  const clean = answer.trim();
+  const base = (body ?? '').replace(/\s+$/, '');
+  if (!clean) return base;
+  const bullet = `- ${clean}`;
+  const headingAt = base.indexOf(CLARIFICATIONS_HEADING);
+  if (headingAt === -1) {
+    return `${base}${base ? '\n\n' : ''}${CLARIFICATIONS_HEADING}\n${bullet}`;
+  }
+  // Insert after the section's existing bullets, before the next `## ` heading
+  // (or at EOF when the section runs to the end, which is the normal case).
+  const sectionEnd = headingAt + CLARIFICATIONS_HEADING.length;
+  const rest = base.slice(sectionEnd);
+  const nextHeading = rest.search(/\n##\s/);
+  const section = (nextHeading === -1 ? rest : rest.slice(0, nextHeading)).replace(/\s+$/, '');
+  const tail = nextHeading === -1 ? '' : `\n\n${rest.slice(nextHeading).replace(/^\s+/, '')}`;
+  return `${base.slice(0, sectionEnd)}${section}\n${bullet}${tail}`;
+}
+
 // Hard limits for refiner-supplied acceptance criteria: a runaway list must
 // not bloat the verifier prompt or the refinement event payload.
 const MAX_ACCEPTANCE_CRITERIA = 20;

@@ -84,6 +84,16 @@ export function planRunsForIssue(issue: Issue): { role: RunRole; repoOwner: stri
 // prod server, fire-and-forget.
 const liveVerifyRuns = new Set<number>();
 
+// The board's "working" badge must reflect a run that is actually in flight,
+// not a stage name — `refinement` is a resting stage, so a card parked there
+// is idle, not working. Expose the process-local live-run sets so the board
+// can distinguish the two. Develop runs need no entry here: an issue in
+// `developing` with no blocked_reason is live by definition (recovery stamps
+// blocked_reason on restart).
+export function getLiveIssueIds(): number[] {
+  return [...new Set([...liveRefinementRuns, ...liveVerifyRuns])];
+}
+
 // Reads the testable acceptance criteria from the latest completed
 // refinement event. Empty when the issue was refined before criteria were
 // recorded — the verifier skips with a trace in that case.
@@ -462,10 +472,16 @@ async function runRefinement(
 ): Promise<void> {
   if (liveRefinementRuns.has(issue.id)) return;
   liveRefinementRuns.add(issue.id);
+  // Nudge the board so the working badge appears the moment the run goes live
+  // (a refinement re-check changes no issue state, so nothing else publishes).
+  const started = getIssue(issue.id);
+  if (started) publishIssue(started);
   try {
     await runRefinementInner(issue, command, token, selectedModel, ideaContext);
   } finally {
     liveRefinementRuns.delete(issue.id);
+    const stopped = getIssue(issue.id);
+    if (stopped) publishIssue(stopped);
   }
 }
 

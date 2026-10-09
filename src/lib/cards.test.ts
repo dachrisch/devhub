@@ -72,6 +72,11 @@ describe('cardForThread', () => {
     expect(card.working).toBe(false);
     expect(card.blockedReason).toBe('need input');
   });
+
+  it('never marks a strategy thread as working (no live-run marker)', () => {
+    const thread = makeThread({ kind: 'strategy', state: 'planning' });
+    expect(cardForThread(thread, [makeIssue({ state: 'developing' })]).working).toBe(false);
+  });
 });
 
 describe('cardForIssue', () => {
@@ -79,12 +84,27 @@ describe('cardForIssue', () => {
     expect(cardForIssue(makeIssue()).title).toBe("Ofelia scheduler doesn't run on codey");
   });
 
-  it('is working for refinement/developing but not backlog/pr/blocked', () => {
-    expect(cardForIssue(makeIssue({ state: 'refinement' })).working).toBe(true);
+  it('does not call an idle refinement card working', () => {
+    expect(cardForIssue(makeIssue({ state: 'refinement' })).working).toBe(false);
+  });
+
+  it('is working for a develop run in flight but not backlog/pr/blocked', () => {
     expect(cardForIssue(makeIssue({ state: 'developing' })).working).toBe(true);
     expect(cardForIssue(makeIssue({ state: 'backlog' })).working).toBe(false);
     expect(cardForIssue(makeIssue({ state: 'pr' })).working).toBe(false);
     expect(cardForIssue(makeIssue({ state: 'developing', blockedReason: 'stuck' })).working).toBe(false);
+  });
+
+  it('is working while the server reports a live refinement run', () => {
+    const idle = cardForIssue(makeIssue({ state: 'refinement' }));
+    const live = cardForIssue(makeIssue({ state: 'refinement' }), {}, new Set([1]));
+    expect(idle.working).toBe(false);
+    expect(live.working).toBe(true);
+  });
+
+  it('does not trust a live set when the card is blocked', () => {
+    const card = cardForIssue(makeIssue({ state: 'refinement', blockedReason: 'need input' }), {}, new Set([1]));
+    expect(card.working).toBe(false);
   });
 });
 

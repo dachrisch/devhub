@@ -22,9 +22,6 @@ export function WorkCard({ card, onOpen, onCommandOn }: WorkCardProps) {
         <button type="button" className="v2-card-main" onClick={onOpen} aria-label={`Open ${card.title}`}>
           <span className="v2-card-title">{card.title}</span>
           <span className="v2-card-repo">{card.repo}</span>
-          <span className="v2-card-counts">
-            work ({card.issueCount}) - ({card.prCount})
-          </span>
         </button>
         <div className="v2-card-badges">
           {card.working && card.queuePosition !== 'live' && (

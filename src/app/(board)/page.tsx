@@ -35,6 +35,7 @@ export default function HomePage() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [queuePositions, setQueuePositions] = useState<QueuePositions>({});
+  const [liveIssueIds, setLiveIssueIds] = useState<number[]>([]);
   const [connected, setConnected] = useState(false);
   const [command, setCommand] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -52,9 +53,14 @@ export default function HomePage() {
     try {
       const [t, i] = await Promise.all([fetch('/api/threads'), fetch('/api/issues')]);
       if (t.ok) {
-        const data = (await t.json()) as { threads?: Thread[]; queuePositions?: QueuePositions };
+        const data = (await t.json()) as {
+          threads?: Thread[];
+          queuePositions?: QueuePositions;
+          liveIssueIds?: number[];
+        };
         if (data.threads) setThreads(data.threads);
         if (data.queuePositions) setQueuePositions(data.queuePositions);
+        if (data.liveIssueIds) setLiveIssueIds(data.liveIssueIds);
       }
       if (i.ok) {
         const data = (await i.json()) as { issues?: Issue[] };
@@ -120,22 +126,23 @@ export default function HomePage() {
   // queue badge while it drains instead of hiding behind the finished thread.
   const { activeCards, closedCards } = useMemo(() => {
     const linkedIds = new Set<number>();
+    const live = new Set(liveIssueIds);
     const threadCards = threads.map((t) => {
       if (t.state !== 'done') for (const id of t.issueIds) linkedIds.add(id);
-      return cardForThread(t, issues.filter((i) => t.issueIds.includes(i.id)), queuePositions);
+      return cardForThread(t, issues.filter((i) => t.issueIds.includes(i.id)), queuePositions, live);
     });
     const all = [
       ...threadCards,
       ...issues
         .filter((i) => i.source !== 'request' && !linkedIds.has(i.id))
-        .map((i) => cardForIssue(i, queuePositions)),
+        .map((i) => cardForIssue(i, queuePositions, live)),
     ].sort((a, b) => cardRank(a) - cardRank(b));
     const isDone = (c: CardItem) => c.statusKey === 'closed' || c.statusKey === 'done';
     return {
       activeCards: all.filter((c) => !isDone(c)),
       closedCards: all.filter(isDone).slice(0, 8),
     };
-  }, [threads, issues, queuePositions]);
+  }, [threads, issues, queuePositions, liveIssueIds]);
 
   const detailIssue = detailIssueId !== null ? issues.find((i) => i.id === detailIssueId) ?? null : null;
 

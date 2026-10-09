@@ -20,38 +20,31 @@ export interface CardItem {
   working: boolean;
   /** Terminal detail for the closed strip (e.g. not_planned → "not planned"). */
   note: string | null;
-  /** GitHub issues linked to this work (0 for a free-text request). */
-  issueCount: number;
-  /** Distinct pull requests produced by this work (0 before any PR). */
-  prCount: number;
 }
 
 // Serial-queue position per work-item id ('live' while its run is in flight).
 export type QueuePositions = Record<number, number | 'live'>;
 
-// Issue states that mean a run is live.
-const WORKING_STATES = new Set(['refining', 'planning', 'developing', 'refinement']);
-
-function isWorking(statusKey: string): boolean {
-  return WORKING_STATES.has(statusKey);
+// A run is live when a refinement/verify session holds the issue (the server's
+// in-flight set) or a develop run is in flight — an issue in `developing`
+// without a blocked_reason. A card parked in the `refinement` *stage* is idle:
+// stage names are not run markers, so they must never light the working badge.
+function isLive(issue: Issue | undefined, liveIssueIds: ReadonlySet<number>): boolean {
+  if (!issue) return false;
+  return issue.state === 'developing' || liveIssueIds.has(issue.id);
 }
 
-function countPrs(issues: Issue[]): number {
-  const urls = new Set<string>();
-  for (const i of issues) {
-    if (i.resultPrUrl) urls.add(i.resultPrUrl);
-    if (i.linkedPrUrl) urls.add(i.linkedPrUrl);
-  }
-  return urls.size;
-}
-
-export function cardForThread(thread: Thread, issues: Issue[], queuePositions: QueuePositions = {}): CardItem {
+export function cardForThread(
+  thread: Thread,
+  issues: Issue[],
+  queuePositions: QueuePositions = {},
+  liveIssueIds: ReadonlySet<number> = new Set()
+): CardItem {
   const linked = thread.issueIds
     .map((id) => issues.find((i) => i.id === id))
     .filter((i): i is Issue => Boolean(i));
   const blocked =
     linked.find((i) => i.blockedReason)?.blockedReason ?? null;
-  const githubLinked = linked.filter((i) => i.source !== 'request');
   const repo =
     linked.length > 0
       ? [...new Set(linked.map((i) => `${i.owner}/${i.repo}`))].join(', ')
@@ -85,13 +78,15 @@ export function cardForThread(thread: Thread, issues: Issue[], queuePositions: Q
       : thread.title,
     note: linked.find((i) => i.state === 'closed')?.stateReason ?? null,
     active: thread.state !== 'done',
-    working: !blocked && isWorking(statusKey),
-    issueCount: githubLinked.length,
-    prCount: countPrs(linked),
+    working: thread.kind === 'work' && !blocked && isLive(anchor, liveIssueIds),
   };
 }
 
-export function cardForIssue(issue: Issue, queuePositions: QueuePositions = {}): CardItem {
+export function cardForIssue(
+  issue: Issue,
+  queuePositions: QueuePositions = {},
+  liveIssueIds: ReadonlySet<number> = new Set()
+): CardItem {
   return {
     key: `issue-${issue.id}`,
     title: issue.title,
@@ -105,9 +100,7 @@ export function cardForIssue(issue: Issue, queuePositions: QueuePositions = {}):
     commandMention: `Implement ${issue.owner}/${issue.repo}#${issue.number}`,
     note: issue.stateReason,
     active: issue.state !== 'rollout' && issue.state !== 'closed',
-    working: !issue.blockedReason && isWorking(issue.state),
-    issueCount: issue.source === 'request' ? 0 : 1,
-    prCount: countPrs([issue]),
+    working: !issue.blockedReason && isLive(issue, liveIssueIds),
   };
 }
 

@@ -6,13 +6,15 @@ import {
   getThreadEvents,
   updateThread,
 } from './store';
-import type { Thread } from './types';
+import type { Issue, Thread } from './types';
 import { buildContextBrief, buildPlannerPrompt, capSplitProposal, parseSplitProposal, type SplitItem } from './plan';
 import { ENV } from './env';
 import { getAvailableModels, resolveModels, runDevelop, sanitizeModels, type OpencodeModel } from './opencode';
 import { canDevelop, startWork } from './develop';
-import { getIssue } from './store';
+import { getIssue, setIssueBody } from './store';
 import { publishThread, publishThreadEvent } from './sse';
+import { updateIssueBody } from './github';
+import { appendClarification } from './validate';
 
 // A stalled thread records its reason as a `blocked:`-prefixed system event —
 // the same resume pattern as Work's blocked_reason, without a new column.
@@ -192,6 +194,24 @@ export async function startStrategyThread(
   }
 }
 
+// Folds an operator's answer into the issue body (and mirrors it to GitHub for
+// real issues) so the next refinement pass sees it. Returns the freshly-loaded
+// issue — the caller must pass THAT to startWork, since refinement reads
+// issue.body from the object it is handed.
+export function persistClarification(issue: Issue, answer: string, token: string): Issue | null {
+  const body = appendClarification(issue.body, answer);
+  const updated = setIssueBody(issue.id, body);
+  if (issue.source !== 'request') {
+    void updateIssueBody(issue.owner, issue.repo, issue.number, body, token).catch((err) => {
+      console.error(
+        `[threads] clarification write-back failed for #${issue.id}:`,
+        err instanceof Error ? err.message : err
+      );
+    });
+  }
+  return updated;
+}
+
 // Reply resumes the run from the detail view (same pattern as Work resume).
 export async function replyToThread(thread: Thread, text: string, command: ThreadCommand): Promise<void> {
   appendThreadEvent(thread.id, 'user', text);
@@ -208,7 +228,10 @@ export async function replyToThread(thread: Thread, text: string, command: Threa
     markThreadBlocked(thread.id, 'nothing resumable — pick a work item');
     return;
   }
-  await startWork(issue, text, command.token, command.model ?? null);
+  // The answer must land in the body BEFORE refinement re-reads the issue,
+  // otherwise the refiner re-asks the same blocking question on every reply.
+  const fresh = persistClarification(issue, text, command.token) ?? issue;
+  await startWork(fresh, text, command.token, command.model ?? null);
 }
 
 export interface SplitConfirmer {

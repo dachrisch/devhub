@@ -3,7 +3,7 @@ import { createWorkRequest, getIssue, getIssueByGithub, getIssues, listThreads }
 import { createThread, listQueuePositions, replyToThread, startStrategyThread, startWorkThread } from '@/lib/threads-run';
 import { resolveCommand } from '@/lib/resolve';
 import { deriveWorkRequestTitle } from '@/lib/work-requests';
-import { canDevelop } from '@/lib/develop';
+import { canDevelop, getLiveIssueIds } from '@/lib/develop';
 import { UnauthorizedError, ForbiddenError, GithubUnavailableError, requireMember } from '@/lib/auth';
 import type { OpencodeModel } from '@/lib/opencode';
 
@@ -44,7 +44,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     return authError(err);
   }
-  return NextResponse.json({ threads: listThreads(), queuePositions: listQueuePositions() });
+  return NextResponse.json({
+    threads: listThreads(),
+    queuePositions: listQueuePositions(),
+    liveIssueIds: getLiveIssueIds(),
+  });
 }
 
 // Every bar/mic submission goes through this one pipeline: parse intent →
