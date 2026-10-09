@@ -101,3 +101,19 @@ export interface ActivitySourceState {
   lastCursor: string | null;
   history: unknown | null;
 }
+
+// Durable usage rollups (devhub#273). Cost provenance stays split.
+export interface UsageBucket {
+  key: string;
+  sessions: number;
+  tokens: number;
+  costReported: number;
+  costEstimated: number;
+}
+
+export interface UsageHistory {
+  days: UsageBucket[];
+  clients: UsageBucket[];
+  projects: UsageBucket[];
+  models: UsageBucket[];
+}

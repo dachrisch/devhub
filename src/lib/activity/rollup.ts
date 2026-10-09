@@ -2,7 +2,7 @@ import { getDb } from '../store';
 import { getActivityFleet } from './store';
 import { attributeFleet } from './attribution';
 import { getOpencodeFleetCached } from './sources/opencode-api';
-import type { ActivitySession } from './types';
+import type { ActivitySession, UsageBucket, UsageHistory } from './types';
 
 // Durable usage history (devhub#273). usage_session accumulates every session
 // DevHub has ever seen (server + ingested), so re-deriving usage_daily from it
@@ -11,21 +11,6 @@ import type { ActivitySession } from './types';
 
 const STALE_MS = 15 * 60 * 1000;
 const ROLLUP_KEY = 'rollup';
-
-export interface UsageBucket {
-  key: string;
-  sessions: number;
-  tokens: number;
-  costReported: number;
-  costEstimated: number;
-}
-
-export interface UsageHistory {
-  days: UsageBucket[];
-  clients: UsageBucket[];
-  projects: UsageBucket[];
-  models: UsageBucket[];
-}
 
 interface UsageRow {
   source: string;
