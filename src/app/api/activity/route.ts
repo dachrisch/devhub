@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
-import { getActivityFleet } from '@/lib/activity/store';
+import { getActivitySnapshot } from '@/lib/activity/query';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,9 +15,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (err instanceof GithubUnavailableError) return NextResponse.json({ error: 'github unavailable, try again' }, { status: 502 });
     return NextResponse.json({ error: 'github auth failed' }, { status: 401 });
   }
-  return NextResponse.json({
-    fleet: getActivityFleet(),
-    history: [],
-    generatedAt: new Date().toISOString(),
-  });
+  const snapshot = await getActivitySnapshot();
+  return NextResponse.json({ ...snapshot, history: [] });
 }

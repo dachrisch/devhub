@@ -4,7 +4,7 @@ import type { DevelopRun, Issue, RunRole } from './types';
 
 // opencode on code.lehel.xyz uses a real cert in production; only the opt-in
 // servyy-test deployment needs TLS verification disabled (mirrors dontforget).
-const insecureDispatcher: Dispatcher | undefined =
+export const insecureDispatcher: Dispatcher | undefined =
   process.env.OPENCODE_ALLOW_INSECURE_TLS === 'true' ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
 
 // Contract confirmed live against code.lehel.xyz (see dontforget's
@@ -23,7 +23,7 @@ const insecureDispatcher: Dispatcher | undefined =
 // code.lehel.xyz fronts opencode with Basic auth (user `opencode`, password =
 // the server password). Local opencode servers may instead use an `X-Api-Key`.
 // Prefer Basic when a password is configured, otherwise fall back to the key.
-function authHeaders(): Record<string, string> {
+export function authHeaders(): Record<string, string> {
   if (ENV.opencodeBasicPassword) {
     const basic = Buffer.from(`${ENV.opencodeBasicUser}:${ENV.opencodeBasicPassword}`).toString('base64');
     return { Authorization: `Basic ${basic}` };
@@ -228,7 +228,7 @@ function isEdgeNotFound(status: number, body: string): boolean {
   return status === 404 && /page not found/i.test(body);
 }
 
-async function tagTransport(fetchCall: () => Promise<{ status: number; text: () => Promise<string> }>): Promise<{ status: number; body: string }> {
+export async function tagTransport(fetchCall: () => Promise<{ status: number; text: () => Promise<string> }>): Promise<{ status: number; body: string }> {
   let res;
   try {
     res = await fetchCall();
@@ -475,7 +475,7 @@ export async function streamEvents(
   }
 }
 
-function parseSseBlock(raw: string): OpencodeEvent | null {
+export function parseSseBlock(raw: string): OpencodeEvent | null {
   const dataLines: string[] = [];
   for (const line of raw.split('\n')) {
     if (line.startsWith('data:')) {
