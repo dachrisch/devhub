@@ -43,7 +43,7 @@ describe('parseBatch', () => {
       source: 'laptop',
       sentAt: 5,
       sessions: [
-        { harness: 'claude', sessionId: 's1', status: 'working', tokens: { input: 10, bogus: 1 } },
+        { harness: 'claude', sessionId: 's1', title: 'Fix the widget', status: 'working', tokens: { input: 10, bogus: 1 } },
         { harness: 'opencode' },
         'junk',
       ],
@@ -51,6 +51,7 @@ describe('parseBatch', () => {
     });
     expect(batch?.source).toBe('laptop');
     expect(batch?.sessions).toHaveLength(1);
+    expect(batch?.sessions?.[0].title).toBe('Fix the widget');
     expect(batch?.sessions?.[0].tokens).toEqual({ input: 10 });
     expect(batch?.events).toHaveLength(1);
   });
@@ -65,7 +66,7 @@ describe('parseBatch', () => {
 describe('activity store merge', () => {
   it('keeps the newest updatedAt per session (idempotent replay)', () => {
     store.upsertActivitySessions('laptop', [
-      { harness: 'claude', sessionId: 'a', status: 'working', updatedAt: 200, activity: 'newer' },
+      { harness: 'claude', sessionId: 'a', title: 'Session A', status: 'working', updatedAt: 200, activity: 'newer' },
     ]);
     store.upsertActivitySessions('laptop', [
       { harness: 'claude', sessionId: 'a', status: 'idle', updatedAt: 100, activity: 'stale' },
@@ -74,6 +75,7 @@ describe('activity store merge', () => {
     let a = fleet.find((s) => s.sessionId === 'a');
     expect(a?.activity).toBe('newer');
     expect(a?.status).toBe('working');
+    expect(a?.title).toBe('Session A');
 
     store.upsertActivitySessions('laptop', [
       { harness: 'claude', sessionId: 'a', status: 'done', updatedAt: 300, activity: 'newest' },

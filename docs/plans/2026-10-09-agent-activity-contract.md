@@ -47,7 +47,7 @@ landed) and `{type:'activity-heartbeat', source}`. Clients refetch
 { "source": "laptop", "sentAt": <ms>,
   "sessions": [{
     "harness": "claude" | "opencode", "sessionId": "...",
-    "project": "/home/cda/dev/...", "repo": "owner/name", "branch": "...",
+    "title": "...", "project": "/home/cda/dev/...", "repo": "owner/name", "branch": "...",
     "model": "...", "agent": "build",
     "status": "working" | "needs-input" | "idle" | "done" | "error",
     "activity": "edit src/x.ts", "startedAt": <ms>, "updatedAt": <ms>,
@@ -63,6 +63,10 @@ Rules:
   the session row.
 - `sessionId` is required per session; unknown/missing harness defaults to
   `opencode`, unknown/missing status defaults to `idle`.
+- `title` is the session's human title. The opencode-web source derives it from
+  `GET /api/session`; the relay producer reads it from the local opencode DB.
+  The Live timeline headlines each lane with it and hides placeholder titles
+  (`New session - <ISO>` / `Child session - <ISO>`) and empty sessions.
 - `costKind` is per source: opencode = `reported`, Claude = `estimated`.
   **Cost must never be summed across provenances.**
 - `tokens.contextUsed` / `contextLimit` feed the context meter; only numeric

@@ -23,6 +23,7 @@ export interface ActivityTokens {
 export interface IngestSession {
   harness: ActivityHarness;
   sessionId: string;
+  title?: string | null;
   project?: string | null;
   repo?: string | null;
   branch?: string | null;
@@ -64,6 +65,7 @@ export interface ActivitySession {
   source: string;
   sessionId: string;
   harness: ActivityHarness;
+  title: string | null;
   project: string | null;
   repo: string | null;
   branch: string | null;

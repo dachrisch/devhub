@@ -223,6 +223,7 @@ function migrate(database: Database.Database): void {
       source TEXT NOT NULL,
       session_id TEXT NOT NULL,
       harness TEXT NOT NULL DEFAULT 'opencode',
+      title TEXT,
       project TEXT,
       repo TEXT,
       branch TEXT,
@@ -409,6 +410,14 @@ function migrate(database: Database.Database): void {
   // for topics with an open thread, so legacy one-shot ideas land on `new`.
   database.exec(`UPDATE topics SET status = 'new' WHERE status = 'idea'`);
   database.exec(`UPDATE topics SET status = 'realizing' WHERE status = 'active'`);
+
+  // Agent Activity timeline (devhub#274): the session title the Live timeline
+  // headlines each lane with. The column is new; existing rows keep NULL until
+  // the next ingest/server snapshot refreshes them.
+  const activityCols = database.prepare('PRAGMA table_info(activity_session)').all() as { name: string }[];
+  if (!activityCols.some((c) => c.name === 'title')) {
+    database.exec(`ALTER TABLE activity_session ADD COLUMN title TEXT`);
+  }
 
   // Ideas-first shaping loop (devhub#171 Phase 2): the options thread.
   database.exec(`

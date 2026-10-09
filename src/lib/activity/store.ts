@@ -27,16 +27,17 @@ export function upsertActivitySessions(source: string, sessions: IngestSession[]
   if (sessions.length === 0) return 0;
   const stmt = getDb().prepare(`
     INSERT INTO activity_session (
-      source, session_id, harness, project, repo, branch, model, agent, status,
+      source, session_id, harness, title, project, repo, branch, model, agent, status,
       activity, started_at, updated_at, tokens_json, cost, cost_kind, messages,
       tool_calls, last_seen
     ) VALUES (
-      @source, @session_id, @harness, @project, @repo, @branch, @model, @agent, @status,
+      @source, @session_id, @harness, @title, @project, @repo, @branch, @model, @agent, @status,
       @activity, @started_at, @updated_at, @tokens_json, @cost, @cost_kind, @messages,
       @tool_calls, datetime('now')
     )
     ON CONFLICT(source, session_id) DO UPDATE SET
       harness = excluded.harness,
+      title = excluded.title,
       project = excluded.project,
       repo = excluded.repo,
       branch = excluded.branch,
@@ -61,6 +62,7 @@ export function upsertActivitySessions(source: string, sessions: IngestSession[]
         source,
         session_id: s.sessionId,
         harness: s.harness,
+        title: s.title ?? null,
         project: s.project ?? null,
         repo: s.repo ?? null,
         branch: s.branch ?? null,
@@ -140,6 +142,7 @@ function rowToSession(row: Record<string, unknown>): ActivitySession {
     source: row.source as string,
     sessionId: row.session_id as string,
     harness: row.harness as ActivitySession['harness'],
+    title: (row.title as string | null) ?? null,
     project: (row.project as string | null) ?? null,
     repo: (row.repo as string | null) ?? null,
     branch: (row.branch as string | null) ?? null,

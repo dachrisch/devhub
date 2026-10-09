@@ -52,6 +52,7 @@ function parseSession(raw: unknown): IngestSession | null {
   return {
     harness: harness && HARNESSES.includes(harness) ? harness : 'opencode',
     sessionId,
+    title: str(s.title),
     project: str(s.project),
     repo: str(s.repo),
     branch: str(s.branch),

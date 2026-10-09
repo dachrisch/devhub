@@ -6,9 +6,7 @@ import type { ActivitySession, UsageHistory } from '@/lib/activity/types';
 import { useAuth } from '@/components/use-auth';
 import { WelcomeScreen } from '@/components/auth-ui';
 import { AppHeader } from '@/components/app-header';
-import { SummaryHeader } from '@/components/activity/summary-header';
-import { FleetGrid } from '@/components/activity/fleet-grid';
-import { ActivityTicker } from '@/components/activity/activity-ticker';
+import { Timeline } from '@/components/activity/timeline';
 import { HistoryView } from '@/components/activity/history-view';
 
 interface ActivityResponse {
@@ -121,13 +119,7 @@ export default function ActivityPage() {
         </div>
 
         {tab === 'live' ? (
-          <>
-            <SummaryHeader fleet={fleet} />
-            <div className="activity-live">
-              <FleetGrid fleet={fleet} now={now} />
-              <ActivityTicker fleet={fleet} now={now} />
-            </div>
-          </>
+          <Timeline fleet={fleet} now={now} />
         ) : history ? (
           <HistoryView history={history} />
         ) : (

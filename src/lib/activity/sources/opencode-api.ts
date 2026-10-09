@@ -1,7 +1,14 @@
 import { fetch as undiciFetch } from 'undici';
 import { ENV } from '../../env';
-import { authHeaders, insecureDispatcher, OpencodeUnavailableError, parseSseBlock } from '../../opencode';
-import type { ActivitySession, ActivityStatus, ActivityTokens } from '../types';
+import {
+  authHeaders,
+  insecureDispatcher,
+  OpencodeUnavailableError,
+  parseSseBlock,
+  type OpencodeEvent,
+} from '../../opencode';
+import { appendActivityEvents } from '../store';
+import type { ActivitySession, ActivityStatus, ActivityTokens, IngestEvent } from '../types';
 
 // Activity source: the opencode web/API server (code.lehel.xyz). Probe-verified
 // shape (devhub#272) — no volume mount, no OPENCODE_DATA_DIR:
@@ -84,6 +91,7 @@ export function normalizeSession(s: OpencodeServerSession, now: number): Activit
     source: OPENCODE_WEB_SOURCE,
     sessionId: s.id,
     harness: 'opencode',
+    title: s.title ?? null,
     project: s.location?.directory ?? null,
     repo: null,
     branch: null,
@@ -229,4 +237,83 @@ export async function getOpencodeFleetCached(ttlMs = DEFAULT_TTL_MS): Promise<Ac
 
 export function resetOpencodeFleetCacheForTests(): void {
   cache = null;
+}
+
+// --- Event collection (devhub#274) -------------------------------------------
+// The Live timeline headlines lanes with titles and does NOT render event
+// ticks, but the opencode /event stream is still collected into activity_event
+// for later use. Persist-only, best-effort, and guarded on globalThis so HMR /
+// repeated imports never stack subscriptions.
+
+function numOr(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+function firstString(...vals: unknown[]): string | null {
+  for (const v of vals) if (typeof v === 'string' && v) return v;
+  return null;
+}
+
+function eventSessionId(props: Record<string, unknown>): string | null {
+  const part = props.part as Record<string, unknown> | undefined;
+  const info = props.info as Record<string, unknown> | undefined;
+  const message = props.message as Record<string, unknown> | undefined;
+  return firstString(props.sessionID, part?.sessionID, info?.sessionID, info?.id, message?.sessionID);
+}
+
+function eventText(part: Record<string, unknown> | undefined): string | null {
+  if (!part) return null;
+  const state = part.state as Record<string, unknown> | undefined;
+  const input = state?.input as Record<string, unknown> | undefined;
+  return firstString(state?.title, input?.command, input?.description, part.text);
+}
+
+// Maps one opencode /event into the append-only ingest shape. Events without a
+// session id are dropped (nothing to attribute them to).
+export function toIngestEvent(event: OpencodeEvent, now = Date.now()): IngestEvent | null {
+  const type = firstString(event.type, event.kind);
+  if (!type) return null;
+  const props = (event.properties ?? {}) as Record<string, unknown>;
+  const sessionId = eventSessionId(props);
+  if (!sessionId) return null;
+  const part = props.part as Record<string, unknown> | undefined;
+  const time = (part?.time ?? props.time) as Record<string, unknown> | undefined;
+  const ts = numOr(time?.start) ?? numOr(time?.created) ?? now;
+  const tool = part && typeof part.tool === 'string' ? part.tool : null;
+  return { sessionId, ts, type, tool, text: eventText(part) };
+}
+
+interface EventSubscriptionState {
+  started: boolean;
+}
+
+const EVENT_SUB_KEY = '__devhubOpencodeActivityEventSub';
+const EVENT_RETRY_MS = 5000;
+
+async function runEventSubscription(signal: AbortSignal): Promise<void> {
+  while (!signal.aborted) {
+    try {
+      await subscribeEvents((event) => {
+        const mapped = toIngestEvent(event);
+        if (!mapped) return;
+        try {
+          appendActivityEvents(OPENCODE_WEB_SOURCE, [mapped]);
+        } catch {
+          // best-effort persistence; a failing DB must not kill the loop
+        }
+      }, signal);
+    } catch {
+      // subscribeEvents already swallows fetch errors; guard the mapper too
+    }
+    if (signal.aborted) break;
+    await new Promise((resolve) => setTimeout(resolve, EVENT_RETRY_MS));
+  }
+}
+
+// Idempotent across HMR: the subscription lives for the process lifetime.
+export function ensureOpencodeEventSubscription(): void {
+  const g = globalThis as unknown as Record<string, EventSubscriptionState | undefined>;
+  if (g[EVENT_SUB_KEY]?.started) return;
+  g[EVENT_SUB_KEY] = { started: true };
+  void runEventSubscription(new AbortController().signal);
 }

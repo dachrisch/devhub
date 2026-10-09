@@ -15,6 +15,7 @@ function session(over: Partial<ActivitySession>): ActivitySession {
     source: 'opencode-web',
     sessionId: 's',
     harness: 'opencode',
+    title: null,
     project: '/p',
     repo: null,
     branch: null,

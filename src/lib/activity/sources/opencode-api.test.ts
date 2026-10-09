@@ -5,6 +5,7 @@ import {
   listSessions,
   normalizeSession,
   subscribeEvents,
+  toIngestEvent,
   type OpencodeFetch,
   type OpencodeResponse,
 } from './opencode-api';
@@ -29,6 +30,7 @@ describe('normalizeSession', () => {
         id: 'ses_1',
         projectID: 'proj',
         agent: 'build',
+        title: 'Do the thing',
         model: { id: 'deepseek-v4.1-flash', providerID: 'opencode-go' },
         cost: 0.05,
         tokens: { input: 10, output: 2, reasoning: 3, cache: { read: 7, write: 1 } },
@@ -40,11 +42,32 @@ describe('normalizeSession', () => {
     expect(s.source).toBe('opencode-web');
     expect(s.sessionId).toBe('ses_1');
     expect(s.harness).toBe('opencode');
+    expect(s.title).toBe('Do the thing');
     expect(s.model).toBe('opencode-go/deepseek-v4.1-flash');
     expect(s.project).toBe('/root/dev/x');
     expect(s.tokens).toEqual({ input: 10, output: 2, reasoning: 3, cacheRead: 7, cacheWrite: 1 });
     expect(s.costKind).toBe('reported');
     expect(s.status).toBe('working');
+  });
+});
+
+describe('toIngestEvent', () => {
+  it('maps a tool part event to an ingest event', () => {
+    const e = toIngestEvent(
+      {
+        type: 'message.part.updated',
+        properties: {
+          sessionID: 'ses_1',
+          part: { type: 'tool', tool: 'bash', time: { start: 123 }, state: { title: 'ls -la' } },
+        },
+      },
+      999
+    );
+    expect(e).toEqual({ sessionId: 'ses_1', ts: 123, type: 'message.part.updated', tool: 'bash', text: 'ls -la' });
+  });
+
+  it('drops events with no session id', () => {
+    expect(toIngestEvent({ type: 'server.connected', properties: {} })).toBeNull();
   });
 });
 
