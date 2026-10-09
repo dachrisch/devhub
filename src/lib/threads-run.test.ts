@@ -41,6 +41,21 @@ describe('thread blocked reason', () => {
   });
 });
 
+describe('persistClarification', () => {
+  test('folds the answer into the issue body and returns the fresh issue', () => {
+    const issue = store.createWorkRequest({
+      owner: 'dachrisch',
+      repo: 'servyy-container',
+      title: 'Ofelia scheduler',
+      body: 'Which scheduler should run on codey?',
+    });
+    const updated = runs.persistClarification(issue, 'option a', 'token');
+    expect(updated?.body).toContain('## Clarifications');
+    expect(updated?.body).toContain('- option a');
+    expect(store.getIssue(issue.id)?.body).toContain('- option a');
+  });
+});
+
 describe('recordPlannerTurn', () => {
   test('appends the turn and returns parsed split items', () => {
     const t = store.createThread({ kind: 'strategy', title: 'Plan', issueIds: [] });

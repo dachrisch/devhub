@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildRefinePrompt, extractCheckboxes, parseRefineResult, sanitizeAcceptanceCriteria } from './validate.js';
+import {
+  appendClarification,
+  buildRefinePrompt,
+  extractCheckboxes,
+  parseRefineResult,
+  sanitizeAcceptanceCriteria,
+} from './validate.js';
 
 function issue() {
   return {
@@ -136,5 +142,37 @@ describe('parseRefineResult', () => {
 
   it('asks the refiner for testable acceptance criteria', () => {
     expect(buildRefinePrompt(issue())).toContain('acceptanceCriteria');
+  });
+});
+
+describe('appendClarification', () => {
+  it('starts a Clarifications section when the body has none', () => {
+    expect(appendClarification('Original body', 'option a')).toBe(
+      'Original body\n\n## Clarifications\n- option a'
+    );
+  });
+
+  it('handles a missing body', () => {
+    expect(appendClarification(null, 'do it the simple way')).toBe(
+      '## Clarifications\n- do it the simple way'
+    );
+  });
+
+  it('accumulates answers under the existing section', () => {
+    const once = appendClarification('Body', 'first');
+    expect(appendClarification(once, 'second')).toBe(
+      'Body\n\n## Clarifications\n- first\n- second'
+    );
+  });
+
+  it('inserts before a later section instead of after it', () => {
+    const body = 'Body\n\n## Clarifications\n- first\n\n## Notes\ntail';
+    expect(appendClarification(body, 'second')).toBe(
+      'Body\n\n## Clarifications\n- first\n- second\n\n## Notes\ntail'
+    );
+  });
+
+  it('ignores empty answers', () => {
+    expect(appendClarification('Body', '   ')).toBe('Body');
   });
 });
