@@ -19,6 +19,10 @@ export type ServerEvent =
   // pattern — the client hydrates via GET /api/threads[/id].
   | { type: 'thread'; threadId: number }
   | { type: 'thread-event'; threadId: number }
+  // Agent Activity (devhub#270): a batch landed or a source heartbeat arrived.
+  // The /activity page refetches GET /api/activity on these notifications.
+  | { type: 'activity'; source: string }
+  | { type: 'activity-heartbeat'; source: string }
   | { type: 'hello'; now: string };
 
 type Listener = (event: ServerEvent) => void;
@@ -86,4 +90,12 @@ export function publishThread(threadId: number): void {
 
 export function publishThreadEvent(threadId: number): void {
   broadcaster.publish({ type: 'thread-event', threadId });
+}
+
+export function publishActivity(source: string): void {
+  broadcaster.publish({ type: 'activity', source });
+}
+
+export function publishActivityHeartbeat(source: string): void {
+  broadcaster.publish({ type: 'activity-heartbeat', source });
 }

@@ -20,6 +20,9 @@ export interface DevhubEnv {
   workspaceRoot: string;
   openWorkspaceRoot: string;
   dbPath: string;
+  // Shared secret for the setup-home agent-relay ingest endpoint
+  // (POST /api/activity/ingest, header X-Activity-Token). Empty disables ingest.
+  activityIngestToken: string;
 }
 
 export const ENV: DevhubEnv = {
@@ -56,6 +59,7 @@ export const ENV: DevhubEnv = {
   workspaceRoot: process.env.WORKSPACE_ROOT ?? '/home/cda/dev',
   openWorkspaceRoot: process.env.OPENCODE_WORKSPACE_ROOT ?? '/root/dev',
   dbPath: process.env.DEVHUB_DB ?? './devhub.db',
+  activityIngestToken: process.env.ACTIVITY_INGEST_TOKEN ?? '',
 };
 
 // Parses an env var as a positive integer (ms); falls back to `fallback`.

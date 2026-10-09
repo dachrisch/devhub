@@ -219,6 +219,49 @@ function migrate(database: Database.Database): void {
       ts TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_thread_events_thread ON thread_events(thread_id);
+    CREATE TABLE IF NOT EXISTS activity_session (
+      source TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      harness TEXT NOT NULL DEFAULT 'opencode',
+      project TEXT,
+      repo TEXT,
+      branch TEXT,
+      model TEXT,
+      agent TEXT,
+      status TEXT NOT NULL DEFAULT 'idle',
+      activity TEXT,
+      started_at INTEGER,
+      updated_at INTEGER,
+      tokens_json TEXT NOT NULL DEFAULT '{}',
+      cost REAL,
+      cost_kind TEXT NOT NULL DEFAULT 'reported',
+      messages INTEGER NOT NULL DEFAULT 0,
+      tool_calls INTEGER NOT NULL DEFAULT 0,
+      client TEXT,
+      issue_id INTEGER,
+      attribution_json TEXT,
+      last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (source, session_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_session_updated ON activity_session(updated_at);
+    CREATE TABLE IF NOT EXISTS activity_event (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      ts INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      tool TEXT,
+      text TEXT,
+      UNIQUE(source, session_id, ts, type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_event_session ON activity_event(session_id, ts);
+    CREATE TABLE IF NOT EXISTS activity_source (
+      source TEXT PRIMARY KEY,
+      last_heartbeat TEXT,
+      sent_at INTEGER,
+      last_cursor TEXT,
+      history_json TEXT
+    );
   `);
 
   // One-time migration: rollout metadata for the terminal "released" state.
