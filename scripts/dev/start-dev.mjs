@@ -55,6 +55,9 @@ const childEnv = {
   // opencode.ts uses undici's fetch directly, so a global fetch patch can't
   // intercept it — point the app at the local mock server instead.
   OPENCODE_BASE_URL: mockOpencodeUrl,
+  // Token so the activity ingest path is exercisable in mock dev mode
+  // (scripts/dev/activity-smoke.mjs).
+  ACTIVITY_INGEST_TOKEN: process.env.ACTIVITY_INGEST_TOKEN ?? 'dev-activity-token',
   NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require ${mockHook}`].filter(Boolean).join(' '),
 };
 
@@ -103,6 +106,7 @@ if (up) {
   console.log(`DB: ${dbPath} (seeded ${seed.issues} issues)`);
   console.log(`Headless check: node scripts/dev/headless-check.mjs --url ${base}`);
   console.log(`Work-flow e2e:  node scripts/dev/e2e-workflow.mjs --url ${base}`);
+  console.log(`Activity smoke: node scripts/dev/activity-smoke.mjs --url ${base}`);
   console.log('──────────────────────────────────────────────────────────');
 } else {
   console.error(`Dev server did not become ready within 120s (base=${base})`);

@@ -16,11 +16,13 @@ export interface AppHeaderProps {
   connection?: { connected: boolean };
   /** Right-side controls: search, refresh, batch actions. */
   controls?: React.ReactNode;
+  /** Optional primary nav slot (e.g. Board ⇄ Activity links). */
+  nav?: React.ReactNode;
   /** User info + sign-out. */
   user?: { login: string; avatarUrl: string | null; onLogout: () => void };
 }
 
-export function AppHeader({ back, title, status, connection, controls, user }: AppHeaderProps) {
+export function AppHeader({ back, title, status, connection, controls, nav, user }: AppHeaderProps) {
   return (
     <header className="app-head">
       <div className="brand">
@@ -39,6 +41,11 @@ export function AppHeader({ back, title, status, connection, controls, user }: A
         <span className="brand-name">{title}</span>
         {status}
       </div>
+      {nav && (
+        <nav className="app-nav" aria-label="Primary">
+          {nav}
+        </nav>
+      )}
       <div className="head-controls">
         {controls}
         {connection && (
