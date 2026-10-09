@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0](https://github.com/dachrisch/devhub/compare/v2.3.2...v2.4.0) (2026-10-09)
+
+
+### Features
+
+* **activity:** /activity Live fleet + History page, nav slot, smoke (devhub[#274](https://github.com/dachrisch/devhub/issues/274)) ([892f32a](https://github.com/dachrisch/devhub/commit/892f32a8d65cd8160f5a7676892a4d0d3834d333))
+
 ## [2.3.2](https://github.com/dachrisch/devhub/compare/v2.3.1...v2.3.2) (2026-10-09)
 
 
