@@ -7,6 +7,7 @@ import {
   upsertActivitySessions,
 } from '@/lib/activity/store';
 import { publishActivity } from '@/lib/sse';
+import { refreshUsageRollupsIfStale } from '@/lib/activity/rollup';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const events = appendActivityEvents(batch.source, batch.events ?? []);
   recordActivityHeartbeat(batch.source, batch.sentAt ?? null, null, batch.history);
   publishActivity(batch.source);
+  // Keep durable history current; refresh-if-stale makes this a no-op most of
+  // the time, so a high-frequency producer doesn't trigger a rollup each batch.
+  void refreshUsageRollupsIfStale().catch(() => false);
 
   return NextResponse.json({ ok: true, sessions, events }, { status: 202 });
 }

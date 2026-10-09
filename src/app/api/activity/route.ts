@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireMember, UnauthorizedError, ForbiddenError, GithubUnavailableError } from '@/lib/auth';
 import { getActivitySnapshot } from '@/lib/activity/query';
+import { attributeFleet } from '@/lib/activity/attribution';
+import { getUsageHistory, refreshUsageRollupsIfStale } from '@/lib/activity/rollup';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Current fleet + (devhub#273) history aggregates for the /activity page.
+// Live fleet (attributed) + durable usage history for the /activity page.
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     await requireMember(req);
@@ -15,6 +17,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (err instanceof GithubUnavailableError) return NextResponse.json({ error: 'github unavailable, try again' }, { status: 502 });
     return NextResponse.json({ error: 'github auth failed' }, { status: 401 });
   }
+  await refreshUsageRollupsIfStale().catch(() => false);
   const snapshot = await getActivitySnapshot();
-  return NextResponse.json({ ...snapshot, history: [] });
+  return NextResponse.json({
+    fleet: attributeFleet(snapshot.fleet),
+    history: getUsageHistory(),
+    generatedAt: snapshot.generatedAt,
+  });
 }

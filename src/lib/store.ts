@@ -262,6 +262,44 @@ function migrate(database: Database.Database): void {
       last_cursor TEXT,
       history_json TEXT
     );
+    CREATE TABLE IF NOT EXISTS usage_session (
+      source TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      harness TEXT NOT NULL DEFAULT 'opencode',
+      client TEXT,
+      project TEXT,
+      repo TEXT,
+      model TEXT,
+      agent TEXT,
+      issue_id INTEGER,
+      started_at INTEGER,
+      updated_at INTEGER,
+      tokens_json TEXT NOT NULL DEFAULT '{}',
+      cost_reported REAL,
+      cost_estimated REAL,
+      PRIMARY KEY (source, session_id)
+    );
+    CREATE TABLE IF NOT EXISTS usage_daily (
+      day TEXT NOT NULL,
+      source TEXT NOT NULL,
+      client TEXT NOT NULL,
+      project TEXT NOT NULL,
+      model TEXT NOT NULL,
+      sessions INTEGER NOT NULL DEFAULT 0,
+      tokens_in INTEGER NOT NULL DEFAULT 0,
+      tokens_out INTEGER NOT NULL DEFAULT 0,
+      tokens_reasoning INTEGER NOT NULL DEFAULT 0,
+      tokens_cache_read INTEGER NOT NULL DEFAULT 0,
+      tokens_cache_write INTEGER NOT NULL DEFAULT 0,
+      cost_reported REAL NOT NULL DEFAULT 0,
+      cost_estimated REAL NOT NULL DEFAULT 0,
+      PRIMARY KEY (day, source, client, project, model)
+    );
+    CREATE TABLE IF NOT EXISTS usage_source_state (
+      source TEXT PRIMARY KEY,
+      last_rollup_at INTEGER,
+      cursor TEXT
+    );
   `);
 
   // One-time migration: rollout metadata for the terminal "released" state.
