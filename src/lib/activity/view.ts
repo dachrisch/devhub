@@ -119,6 +119,16 @@ export function visibleFleet(fleet: ActivitySession[]): ActivitySession[] {
   return fleet.filter((s) => !isPlaceholderTitle(s.title) && !isEmptySession(s));
 }
 
+// The Live timeline only shows sessions that end inside the window.
+// Working sessions always end at `now`; sessions without any timing are kept
+// (there is no end to judge them by).
+export function inWindowFleet(fleet: ActivitySession[], windowStart: number, now: number): ActivitySession[] {
+  return fleet.filter((s) => {
+    const end = s.status === 'working' ? now : (s.updatedAt ?? now);
+    return end >= windowStart;
+  });
+}
+
 // Lane headline: the session title, falling back to repo/project/harness.
 export function sessionLabel(s: ActivitySession): string {
   const title = s.title?.trim();
@@ -153,7 +163,9 @@ export interface LaneGeometry {
 }
 
 // Geometry for one lane. Never returns null when the session has any timing;
-// the window only scales/clips the bar, it never drops the session (devhub#274).
+// the window only scales/clips the bar. Sessions that ended before the window
+// are described as outOfWindow here but dropped by the Timeline via
+// inWindowFleet, so lanes never render that state.
 export function laneWindow(
   s: ActivitySession,
   windowStart: number,
