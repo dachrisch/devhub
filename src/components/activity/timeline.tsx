@@ -8,6 +8,7 @@ import {
   formatDuration,
   formatTokens,
   harnessLabel,
+  inWindowFleet,
   laneWindow,
   sessionLabel,
   sortFleet,
@@ -21,8 +22,8 @@ import {
 
 // Live timeline (devhub#274): a Gantt-style view of the fleet. Lanes are
 // headlined by session title; the bar spans the session runtime clipped to a
-// fixed, selectable window. Placeholder/empty sessions are hidden; sessions
-// that ended before the window stay listed with a ◀ out-of-window cap.
+// fixed, selectable window. Placeholder/empty sessions are hidden, as is any
+// session that ended before the window — only lanes ending in the window show.
 
 function costLabel(s: ActivitySession): string | null {
   if (s.cost == null) return null;
@@ -48,7 +49,6 @@ function Lane({ session, windowStart, windowEnd, now }: {
         </span>
         <span className={`activity-harness activity-harness-${harnessClass}`}>{harnessLabel(session)}</span>
         <span className="activity-lane-title" title={label}>
-          {geo?.outOfWindow && <span className="activity-lane-before" aria-hidden="true">◀ </span>}
           {label}
         </span>
         <span className="activity-lane-model">
@@ -57,19 +57,12 @@ function Lane({ session, windowStart, windowEnd, now }: {
         </span>
       </div>
       <div className="activity-lane-track">
-        {geo &&
-          (geo.outOfWindow ? (
-            <span
-              className="activity-lane-bar activity-lane-bar-out"
-              style={{ left: '0%', width: '4%' }}
-              title="ended before window"
-            />
-          ) : (
-            <span
-              className={`activity-lane-bar${geo.clippedLeft ? ' activity-lane-bar-clipped' : ''}`}
-              style={{ left: `${geo.x0 * 100}%`, width: `${Math.max(0.5, (geo.x1 - geo.x0) * 100)}%` }}
-            />
-          ))}
+        {geo && (
+          <span
+            className={`activity-lane-bar${geo.clippedLeft ? ' activity-lane-bar-clipped' : ''}`}
+            style={{ left: `${geo.x0 * 100}%`, width: `${Math.max(0.5, (geo.x1 - geo.x0) * 100)}%` }}
+          />
+        )}
       </div>
       <div className="activity-lane-meta">
         {runtime && <span title="runtime">{runtime}</span>}
@@ -83,11 +76,12 @@ function Lane({ session, windowStart, windowEnd, now }: {
 export function Timeline({ fleet, now }: { fleet: ActivitySession[]; now: number }) {
   const [windowKey, setWindowKey] = useState<TimelineWindowKey>(DEFAULT_TIMELINE_WINDOW);
   const visible = visibleFleet(fleet);
-  const sorted = sortFleet(visible);
-  const summary = summarizeFleet(visible);
-  const hidden = fleet.length - visible.length;
   const windowEnd = now;
   const windowStart = now - timelineWindowMs(windowKey);
+  const windowed = inWindowFleet(visible, windowStart, now);
+  const sorted = sortFleet(windowed);
+  const summary = summarizeFleet(windowed);
+  const hidden = fleet.length - windowed.length;
   const ticks = timelineTicks(windowStart, windowEnd);
 
   return (
@@ -117,7 +111,6 @@ export function Timeline({ fleet, now }: { fleet: ActivitySession[]; now: number
       </header>
 
       <div className="activity-axis" aria-hidden="true">
-        <span className="activity-axis-before">◀ before</span>
         <div className="activity-axis-track">
           {ticks.map((t) => (
             <span key={t.at} className="activity-axis-tick" style={{ left: `${((t.at - windowStart) / (windowEnd - windowStart)) * 100}%` }}>
@@ -150,7 +143,7 @@ export function Timeline({ fleet, now }: { fleet: ActivitySession[]; now: number
         <span><i className="dot dot-needs-input" /> needs input</span>
         <span><i className="dot dot-done" /> done</span>
         <span><i className="dot dot-error" /> error</span>
-        <span className="activity-timeline-legend-note">bar = runtime (clipped to window) · ◀ = ended before window</span>
+        <span className="activity-timeline-legend-note">bar = runtime (clipped to window)</span>
       </footer>
     </section>
   );

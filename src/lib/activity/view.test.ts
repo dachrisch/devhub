@@ -6,6 +6,7 @@ import {
   formatDuration,
   formatTokens,
   harnessLabel,
+  inWindowFleet,
   isPlaceholderTitle,
   isEmptySession,
   laneWindow,
@@ -184,8 +185,31 @@ describe('laneWindow', () => {
   });
 });
 
-describe('timeline window + ticks', () => {
-  it('resolves window lengths', () => {
+describe('inWindowFleet', () => {
+  const HOUR = 60 * 60 * 1000;
+  const now = 10 * HOUR;
+  const windowStart = now - HOUR;
+
+  it('drops sessions that ended before the window, keeps the rest', () => {
+    const fleet = [
+      s({ sessionId: 'before', status: 'idle', startedAt: windowStart - 3 * HOUR, updatedAt: windowStart - HOUR }),
+      s({ sessionId: 'inside', status: 'idle', startedAt: windowStart - HOUR, updatedAt: windowStart + HOUR / 2 }),
+    ];
+    expect(inWindowFleet(fleet, windowStart, now).map((x) => x.sessionId)).toEqual(['inside']);
+  });
+
+  it('keeps working sessions which always end at now', () => {
+    const fleet = [s({ sessionId: 'work', status: 'working', startedAt: windowStart - 3 * HOUR, updatedAt: windowStart - HOUR })];
+    expect(inWindowFleet(fleet, windowStart, now).map((x) => x.sessionId)).toEqual(['work']);
+  });
+
+  it('keeps sessions without any timing', () => {
+    const fleet = [s({ sessionId: 'notimed', status: 'idle', startedAt: null, updatedAt: null })];
+    expect(inWindowFleet(fleet, windowStart, now).map((x) => x.sessionId)).toEqual(['notimed']);
+  });
+});
+
+describe('timeline window + ticks', () => {  it('resolves window lengths', () => {
     expect(timelineWindowMs('1h')).toBe(60 * 60 * 1000);
     expect(timelineWindowMs('24h')).toBe(24 * 60 * 60 * 1000);
   });

@@ -5283,10 +5283,6 @@ button.recap-link {
   font-family: var(--font-mono);
 }
 
-.activity-axis-before {
-  text-align: right;
-}
-
 .activity-axis-track {
   position: relative;
   height: 16px;
@@ -5336,10 +5332,6 @@ button.recap-link {
   font-weight: 600;
 }
 
-.activity-lane-before {
-  color: var(--muted);
-}
-
 .activity-lane-model {
   color: var(--muted);
   font-size: 11px;
@@ -5385,10 +5377,6 @@ button.recap-link {
 .activity-lane-bar-clipped {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-}
-
-.activity-lane-bar-out {
-  background: repeating-linear-gradient(45deg, var(--muted), var(--muted) 3px, transparent 3px, transparent 6px);
 }
 
 .activity-lane-meta {
