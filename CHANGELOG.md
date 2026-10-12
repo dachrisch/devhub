@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.1](https://github.com/dachrisch/devhub/compare/v2.5.0...v2.5.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **activity:** hide timeline sessions that ended before the window ([35678e2](https://github.com/dachrisch/devhub/commit/35678e2671c980306516483fbb5257bfb14051c4))
+* **activity:** hide timeline sessions that ended before the window ([2479b85](https://github.com/dachrisch/devhub/commit/2479b850b01412000f14e1d570569d171bba31c8)), closes [#286](https://github.com/dachrisch/devhub/issues/286)
+
 ## [2.5.0](https://github.com/dachrisch/devhub/compare/v2.4.1...v2.5.0) (2026-10-09)
 
 
