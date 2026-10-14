@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.6](https://github.com/dachrisch/devhub/compare/v2.5.5...v2.5.6) (2026-10-14)
+
+
+### Bug Fixes
+
+* **deps:** update dependency next to v16.4.1 ([#297](https://github.com/dachrisch/devhub/issues/297)) ([e7b23f8](https://github.com/dachrisch/devhub/commit/e7b23f8be502249c5f5b751de8ff7c4566f6c5ff))
+
 ## [2.5.5](https://github.com/dachrisch/devhub/compare/v2.5.4...v2.5.5) (2026-10-14)
 
 
