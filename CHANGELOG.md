@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.4](https://github.com/dachrisch/devhub/compare/v2.5.3...v2.5.4) (2026-10-14)
+
+
+### Bug Fixes
+
+* **deps:** update react monorepo to v19.3.1 ([#293](https://github.com/dachrisch/devhub/issues/293)) ([36ab65a](https://github.com/dachrisch/devhub/commit/36ab65ab5fab7a7d7dec1703e40539bf6cca5f21))
+
 ## [2.5.3](https://github.com/dachrisch/devhub/compare/v2.5.2...v2.5.3) (2026-10-14)
 
 
