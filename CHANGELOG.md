@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.5](https://github.com/dachrisch/devhub/compare/v2.5.4...v2.5.5) (2026-10-14)
+
+
+### Bug Fixes
+
+* **deps:** update dependency eslint-config-next to v16.4.1 ([#295](https://github.com/dachrisch/devhub/issues/295)) ([111fc50](https://github.com/dachrisch/devhub/commit/111fc50258b56d2c86b192782fe97894a48b165f))
+
 ## [2.5.4](https://github.com/dachrisch/devhub/compare/v2.5.3...v2.5.4) (2026-10-14)
 
 
