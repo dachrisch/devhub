@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.7](https://github.com/dachrisch/devhub/compare/v2.5.6...v2.5.7) (2026-10-15)
+
+
+### Bug Fixes
+
+* **deps:** update dependency undici to v8.12.2 ([#299](https://github.com/dachrisch/devhub/issues/299)) ([d7edc98](https://github.com/dachrisch/devhub/commit/d7edc98c02a39efdce43c998da0c05b03ebff84c))
+* **deps:** update dependency vitest to v5.0.5 ([#300](https://github.com/dachrisch/devhub/issues/300)) ([92d7d5b](https://github.com/dachrisch/devhub/commit/92d7d5bc5b227f255b1bace6bf602a2805c73e85))
+
 ## [2.5.6](https://github.com/dachrisch/devhub/compare/v2.5.5...v2.5.6) (2026-10-14)
 
 
