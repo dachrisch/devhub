@@ -10,8 +10,30 @@ vi.mock('undici', () => {
   };
 });
 
-const { runDevelop, extractPrUrl, extractBaseSha, buildDevelopPrompt, buildVerifyPrompt, parseVerifyResult, repoPathFor, ensureWorktree, defaultModels, discoverModels, getAvailableModels, resolveModels, sanitizeModels, cancelSession, createSession, OpencodeUnavailableError } =
-  await import('./opencode.js');
+const {
+  runDevelop,
+  extractPrUrl,
+  extractBaseSha,
+  buildDevelopPrompt,
+  buildVerifyPrompt,
+  parseVerifyResult,
+  repoPathFor,
+  ensureWorktree,
+  resetProjectIdCacheForTests,
+  isSpaHtml,
+  isSessionEvent,
+  isMeaningfulOpencodeEvent,
+  slimOpencodeEvent,
+  pollForFinish,
+  defaultModels,
+  discoverModels,
+  getAvailableModels,
+  resolveModels,
+  sanitizeModels,
+  cancelSession,
+  createSession,
+  OpencodeUnavailableError,
+} = await import('./opencode.js');
 
 function jsonRes(body: unknown, ok = true) {
   const text = JSON.stringify(body);
@@ -184,13 +206,21 @@ describe('opencode client', () => {
   });
 
   it('ensureWorktree reuses an existing worktree whose directory ends with the given name', async () => {
+    resetProjectIdCacheForTests();
     fakeFetch.mockReset();
     fakeFetch.mockImplementation(async (url: string, opts?: { method?: string }) => {
       expect(opts?.method ?? 'GET').toBe('GET');
-      expect(String(url)).toBe(
-        `https://code.lehel.xyz/experimental/worktree?directory=${encodeURIComponent('/root/dev/dachrisch/widget')}`
-      );
-      return jsonRes(['/root/.local/share/opencode/worktree/abc/3-service']);
+      if (String(url).includes('/api/location')) {
+        expect(String(url)).toBe(
+          `https://code.lehel.xyz/api/location?location%5Bdirectory%5D=${encodeURIComponent('/root/dev/dachrisch/widget')}`
+        );
+        return jsonRes({
+          directory: '/root/dev/dachrisch/widget',
+          project: { id: 'proj-1', directory: '/root/dev/dachrisch/widget', canonical: '/root/dev/dachrisch/widget' },
+        });
+      }
+      expect(String(url)).toBe('https://code.lehel.xyz/api/worktree?projectID=proj-1');
+      return jsonRes([{ directory: '/root/.local/share/opencode/worktree/abc/3-service', strategy: 'git' }]);
     });
 
     const result = await ensureWorktree('dachrisch', 'widget', '3-service');
@@ -200,20 +230,22 @@ describe('opencode client', () => {
     });
   });
 
-  it('ensureWorktree creates a new worktree when none matches the name', async () => {
+  it('ensureWorktree creates a new project-scoped worktree when none matches the name', async () => {
+    resetProjectIdCacheForTests();
     fakeFetch.mockReset();
     fakeFetch.mockImplementation(async (url: string, opts?: { method?: string; body?: string }) => {
+      if (String(url).includes('/api/location')) {
+        return jsonRes({ directory: '/root/dev/dachrisch/widget', project: { id: 'proj-1' } });
+      }
       const method = opts?.method ?? 'GET';
       if (method === 'GET') {
-        return jsonRes(['/root/.local/share/opencode/worktree/abc/other-run']);
+        return jsonRes([{ directory: '/root/.local/share/opencode/worktree/abc/other-run', strategy: 'git' }]);
       }
       expect(method).toBe('POST');
-      expect(JSON.parse(String(opts?.body))).toEqual({ name: '3-service' });
-      return jsonRes({
-        name: '3-service',
-        branch: 'opencode/3-service',
-        directory: '/root/.local/share/opencode/worktree/xyz/3-service',
-      });
+      expect(String(url)).toBe('https://code.lehel.xyz/api/worktree');
+      expect(JSON.parse(String(opts?.body))).toEqual({ projectID: 'proj-1', name: '3-service' });
+      // V2 create returns the directory only; the branch is always opencode/<name>.
+      return jsonRes({ directory: '/root/.local/share/opencode/worktree/xyz/3-service' });
     });
 
     const result = await ensureWorktree('dachrisch', 'widget', '3-service');
@@ -223,7 +255,28 @@ describe('opencode client', () => {
     });
   });
 
-  it('cancelSession aborts then deletes the session, ignoring failures', async () => {
+  it('ensureWorktree surfaces the V2 SPA fallback as an actionable error, not a parse error', async () => {
+    resetProjectIdCacheForTests();
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async (url: string) => {
+      if (String(url).includes('/api/location')) {
+        return jsonRes({ directory: '/root/dev/dachrisch/widget', project: { id: 'proj-1' } });
+      }
+      return { ok: true, status: 200, json: async () => ({}), text: async () => '<!doctype html><html><body>OpenCode</body></html>' };
+    });
+
+    await expect(ensureWorktree('dachrisch', 'widget', '3-service')).rejects.toThrow(
+      /worktree list returned the web UI instead of JSON/
+    );
+  });
+
+  it('detects the V2 SPA HTML fallback', () => {
+    expect(isSpaHtml('<!doctype html><html></html>')).toBe(true);
+    expect(isSpaHtml('\n  <html><body></body></html>')).toBe(true);
+    expect(isSpaHtml('{"data":[]}')).toBe(false);
+  });
+
+  it('cancelSession interrupts then deletes the session, ignoring failures', async () => {
     fakeFetch.mockReset();
     fakeFetch.mockImplementation(async (url: string, opts: { method?: string }) => {
       if (opts?.method === 'DELETE') throw new Error('network down');
@@ -231,10 +284,11 @@ describe('opencode client', () => {
     });
 
     await expect(cancelSession('ses_1')).resolves.toBeUndefined();
-    const abortCall = fakeFetch.mock.calls.find((c) => String(c[0]).endsWith('/api/session/ses_1/abort'));
+    const interruptCall = fakeFetch.mock.calls.find((c) => String(c[0]).endsWith('/api/session/ses_1/interrupt'));
     const deleteCall = fakeFetch.mock.calls.find((c) => String(c[0]).endsWith('/api/session/ses_1'));
-    expect(abortCall?.[1]?.method).toBe('POST');
+    expect(interruptCall?.[1]?.method).toBe('POST');
     expect(deleteCall?.[1]?.method).toBe('DELETE');
+    expect(fakeFetch.mock.calls.some((c) => String(c[0]).includes('/abort'))).toBe(false);
   });
 
   it('runDevelop cancels a timed-out session before retrying, then succeeds', async () => {
@@ -247,7 +301,7 @@ describe('opencode client', () => {
         attempts++;
         return jsonRes({ data: { id: `ses_${attempts}` } });
       }
-      if (String(url).includes('/abort')) return jsonRes({});
+      if (String(url).includes('/interrupt')) return jsonRes({ interrupted: true });
       if (opts?.method === 'DELETE') return jsonRes({});
       if (String(url).includes('/prompt')) return jsonRes({ data: { id: 'msg_1' } });
       if (String(url).includes('/event')) return emptyStreamRes();
@@ -276,12 +330,13 @@ describe('opencode client', () => {
     expect(text).toContain('https://github.com/dachrisch/widget/pull/111');
     // Three sessions were created; the first two were abandoned and cancelled.
     expect(attempts).toBe(3);
-    const aborts = calls.filter((c) => c.url.endsWith('/abort'));
+    const interrupts = calls.filter((c) => c.url.endsWith('/interrupt'));
     const deletes = calls.filter((c) => c.method === 'DELETE');
-    expect(aborts.map((c) => c.url)).toEqual([
-      'https://code.lehel.xyz/api/session/ses_1/abort',
-      'https://code.lehel.xyz/api/session/ses_2/abort',
+    expect(interrupts.map((c) => c.url)).toEqual([
+      'https://code.lehel.xyz/api/session/ses_1/interrupt',
+      'https://code.lehel.xyz/api/session/ses_2/interrupt',
     ]);
+    expect(calls.some((c) => c.url.endsWith('/abort'))).toBe(false);
     expect(deletes.map((c) => c.url)).toEqual([
       'https://code.lehel.xyz/api/session/ses_1',
       'https://code.lehel.xyz/api/session/ses_2',
@@ -603,7 +658,7 @@ describe('opencode client', () => {
       if (opts?.method === 'POST' && String(url).endsWith('/api/session')) {
         return { ok: false, status: 404, json: async () => ({}), text: async () => '404 page not found' };
       }
-      if (String(url).includes('/abort')) return jsonRes({});
+      if (String(url).includes('/interrupt')) return jsonRes({ interrupted: true });
       if (opts?.method === 'DELETE') return jsonRes({});
       return jsonRes({}, false);
     });
@@ -612,4 +667,106 @@ describe('opencode client', () => {
       /opencode server unavailable: 404: 404 page not found/
     );
   }, 30_000);
+
+  it('runDevelop sends the V2 prompt body ({ text })', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async (url: string, opts: { method?: string }) => {
+      if (opts?.method === 'POST' && String(url).endsWith('/api/session')) return jsonRes({ data: { id: 'ses_1' } });
+      if (String(url).includes('/prompt')) return jsonRes({ data: { id: 'msg_1' } });
+      if (String(url).includes('/api/event')) return emptyStreamRes();
+      if (String(url).includes('/message')) {
+        return jsonRes({ data: [{ type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'ok' }] }] });
+      }
+      return jsonRes({}, false);
+    });
+
+    await runDevelop('do it', () => {});
+    const promptCall = fakeFetch.mock.calls.find((c) => String(c[0]).includes('/prompt'));
+    expect(JSON.parse(String(promptCall?.[1]?.body))).toEqual({ text: 'do it' });
+  });
+});
+
+describe('pollForFinish (V2 message list)', () => {
+  it('skips a trailing idle entry and returns the assistant text', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async () =>
+      jsonRes({
+        data: [
+          { type: 'idle', outcome: 'succeeded' },
+          { type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'done' }] },
+          { type: 'user' },
+        ],
+        cursor: { previous: null, next: null },
+      })
+    );
+
+    await expect(pollForFinish('ses_1', 1000)).resolves.toEqual({ text: 'done', finish: 'stop' });
+    expect(String(fakeFetch.mock.calls[0][0])).toContain('/message?limit=50&order=desc');
+  });
+
+  it('fails the turn when the idle entry reports a failure', async () => {
+    fakeFetch.mockReset();
+    fakeFetch.mockImplementation(async () =>
+      jsonRes({
+        data: [{ type: 'idle', outcome: 'failed', error: { type: 'api', message: 'boom' } }],
+        cursor: { previous: null, next: null },
+      })
+    );
+
+    await expect(pollForFinish('ses_1', 1000)).rejects.toThrow(/opencode generation failed: boom/);
+  });
+
+  it('keeps polling while the newest assistant entry has no finish yet', async () => {
+    fakeFetch.mockReset();
+    let polls = 0;
+    fakeFetch.mockImplementation(async () => {
+      polls++;
+      if (polls === 1) {
+        return jsonRes({
+          data: [{ type: 'assistant', content: [{ type: 'reasoning', text: 'thinking' }] }],
+          cursor: { previous: null, next: null },
+        });
+      }
+      return jsonRes({
+        data: [{ type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'finished' }] }],
+        cursor: { previous: null, next: null },
+      });
+    });
+
+    await expect(pollForFinish('ses_1', 5000)).resolves.toEqual({ text: 'finished', finish: 'stop' });
+    expect(polls).toBe(2);
+  }, 10_000);
+});
+
+describe('V2 event helpers', () => {
+  it('isSessionEvent only accepts events from the requested session', () => {
+    expect(isSessionEvent({ type: 'session.step.ended', data: { sessionID: 'ses_a' } }, 'ses_a')).toBe(true);
+    expect(isSessionEvent({ type: 'session.step.ended', data: { sessionID: 'ses_b' } }, 'ses_a')).toBe(false);
+    expect(isSessionEvent({ type: 'server.connected', data: {} }, 'ses_a')).toBe(false);
+    expect(isSessionEvent({ type: 'shell.exited', data: { id: 'sh_1' } }, 'ses_a')).toBe(false);
+  });
+
+  it('isMeaningfulOpencodeEvent drops per-token deltas and progress pings', () => {
+    expect(isMeaningfulOpencodeEvent({ type: 'session.reasoning.delta' })).toBe(false);
+    expect(isMeaningfulOpencodeEvent({ type: 'session.text.delta' })).toBe(false);
+    expect(isMeaningfulOpencodeEvent({ type: 'session.usage.updated' })).toBe(false);
+    expect(isMeaningfulOpencodeEvent({ type: 'session.tool.progress' })).toBe(false);
+    expect(isMeaningfulOpencodeEvent({ type: 'session.step.ended' })).toBe(true);
+    expect(isMeaningfulOpencodeEvent({ type: 'session.tool.success' })).toBe(true);
+    expect(isMeaningfulOpencodeEvent({ type: 'server.connected' })).toBe(false);
+    expect(isMeaningfulOpencodeEvent({})).toBe(false);
+  });
+
+  it('slimOpencodeEvent bounds the payload of large tool events', () => {
+    const big = 'x'.repeat(50_000);
+    const slimmer = slimOpencodeEvent({
+      type: 'session.tool.success',
+      data: { sessionID: 'ses_a', content: [{ type: 'text', text: big }].concat(Array.from({ length: 40 }, () => ({ type: 'text', text: big }))) },
+    });
+    expect(JSON.stringify(slimmer).length).toBeLessThan(5000);
+    expect((slimmer.data as { sessionID: string }).sessionID).toBe('ses_a');
+    // Small events pass through untouched.
+    const small = { type: 'session.step.ended', data: { sessionID: 'ses_a' } };
+    expect(slimOpencodeEvent(small)).toBe(small);
+  });
 });

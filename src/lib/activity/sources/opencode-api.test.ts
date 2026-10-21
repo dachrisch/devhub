@@ -52,7 +52,44 @@ describe('normalizeSession', () => {
 });
 
 describe('toIngestEvent', () => {
-  it('maps a tool part event to an ingest event', () => {
+  it('maps a V2 tool event (data payload) to an ingest event', () => {
+    const e = toIngestEvent(
+      {
+        id: 'evt_1',
+        created: 999,
+        type: 'session.tool.success',
+        data: { sessionID: 'ses_1', id: 'call_1', content: [{ type: 'text', text: 'ls -la output' }] },
+      },
+      999
+    );
+    expect(e).toEqual({ sessionId: 'ses_1', ts: 999, type: 'session.tool.success', tool: null, text: 'ls -la output' });
+  });
+
+  it('maps a V2 tool-call event and keeps the tool name', () => {
+    const e = toIngestEvent(
+      {
+        id: 'evt_2',
+        created: 500,
+        type: 'session.tool.called',
+        data: { sessionID: 'ses_1', id: 'call_1', name: 'bash', input: { command: 'ls -la' } },
+      },
+      999
+    );
+    expect(e).toEqual({ sessionId: 'ses_1', ts: 500, type: 'session.tool.called', tool: 'bash', text: 'ls -la' });
+  });
+
+  it('drops per-token delta events', () => {
+    expect(
+      toIngestEvent({ type: 'session.reasoning.delta', created: 1, data: { sessionID: 'ses_1', delta: 'x' } })
+    ).toBeNull();
+  });
+
+  it('drops events with no session id', () => {
+    expect(toIngestEvent({ type: 'server.connected', data: {} })).toBeNull();
+    expect(toIngestEvent({ type: 'shell.exited', data: { id: 'sh_1' } })).toBeNull();
+  });
+
+  it('still accepts the V1 properties shape', () => {
     const e = toIngestEvent(
       {
         type: 'message.part.updated',
@@ -64,10 +101,6 @@ describe('toIngestEvent', () => {
       999
     );
     expect(e).toEqual({ sessionId: 'ses_1', ts: 123, type: 'message.part.updated', tool: 'bash', text: 'ls -la' });
-  });
-
-  it('drops events with no session id', () => {
-    expect(toIngestEvent({ type: 'server.connected', properties: {} })).toBeNull();
   });
 });
 
@@ -109,11 +142,12 @@ describe('listSessions', () => {
 });
 
 describe('subscribeEvents', () => {
-  it('forwards parsed events and skips the server.connected handshake', async () => {
+  it('subscribes to the V2 /api/event stream and skips the server.connected handshake', async () => {
     const enc = new TextEncoder();
     const chunk =
-      'data: {"id":"e0","type":"server.connected","properties":{}}\n\n' +
-      'data: {"id":"e1","type":"message.updated","properties":{"x":1}}\n\n';
+      'data: {"id":"e0","type":"server.connected","data":{}}\n\n' +
+      'data: {"id":"e1","created":5,"type":"session.step.ended","data":{"sessionID":"ses_1"}}\n\n';
+    let requested = '';
     let sent = false;
     const body = {
       getReader: () => ({
@@ -124,10 +158,14 @@ describe('subscribeEvents', () => {
         },
       }),
     };
-    const fetchFn: OpencodeFetch = async () => ({ status: 200, ok: true, text: async () => '', body });
+    const fetchFn: OpencodeFetch = async (url) => {
+      requested = url;
+      return { status: 200, ok: true, text: async () => '', body };
+    };
     const seen: { type?: string }[] = [];
     await subscribeEvents((e) => seen.push(e), undefined, fetchFn);
+    expect(requested).toContain('/api/event');
     expect(seen).toHaveLength(1);
-    expect(seen[0].type).toBe('message.updated');
+    expect(seen[0].type).toBe('session.step.ended');
   });
 });
