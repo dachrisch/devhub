@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.10](https://github.com/dachrisch/devhub/compare/v2.5.9...v2.5.10) (2026-10-21)
+
+
+### Bug Fixes
+
+* **opencode:** migrate the client to OpenCode V2 ([126efec](https://github.com/dachrisch/devhub/commit/126efecd29c9aed49f2b734d5730d48d12fda081))
+* **opencode:** migrate the client to OpenCode V2 ([4d23e2d](https://github.com/dachrisch/devhub/commit/4d23e2df02d08265b4d2136678214c7c8bdd8d65)), closes [#306](https://github.com/dachrisch/devhub/issues/306)
+
 ## [2.5.9](https://github.com/dachrisch/devhub/compare/v2.5.8...v2.5.9) (2026-10-20)
 
 
