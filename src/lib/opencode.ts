@@ -7,14 +7,39 @@ import type { DevelopRun, Issue, RunRole } from './types';
 export const insecureDispatcher: Dispatcher | undefined =
   process.env.OPENCODE_ALLOW_INSECURE_TLS === 'true' ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
 
-// Contract confirmed live against code.lehel.xyz (see dontforget's
-// opencodeClient.ts for the full verification history):
-//   POST /api/session            -> {"data": {"id": "ses_..."}}
-//   POST /api/session/:id/prompt -> ack ({"data": {"id": "msg_..."}})
-//   GET  /api/session/:id/message -> {"data": [<newest first>]}
-//   GET  /api/session/:id/event   -> SSE of live events
-//   POST /api/session/:id/abort  -> stop a running session (best-effort)
-//   DELETE /api/session/:id      -> delete a session and its data
+// Contract verified live against OpenCode V2 2.1.2 (2026-10-21):
+//   POST /api/session                 -> {"data": {"id": "ses_..."}}
+//   POST /api/session/:id/prompt      -> {"text": "..."} request body (V1's
+//                                        {"prompt":{"text"}} is rejected with
+//                                        400; the schema is
+//                                        additionalProperties:false)
+//   GET  /api/session/:id/message     -> {"data": [<newest first>], "cursor": {...}}
+//                                        (?limit=&order=desc supported). V2
+//                                        appends `idle`/`system`/`synthetic`
+//                                        entries AFTER the assistant turn, so
+//                                        `data[0]` is not always the assistant
+//                                        message.
+//   POST /api/session/:id/interrupt   -> {"interrupted": bool}; V2 has no
+//                                        /abort endpoint (404)
+//   DELETE /api/session/:id           -> delete a session and its data
+//   GET  /api/event                   -> one global SSE stream
+//                                        ({id,created,type,location,data});
+//                                        session events carry data.sessionID,
+//                                        so subscribers must filter by session
+//   GET  /api/location?location[directory]=… -> {"directory":…, "project":{"id":…}}
+//   GET  /api/worktree?projectID=…     -> [{"directory":…,"strategy":"git"}]
+//   POST /api/worktree {projectID,name} -> {"directory":…}. The worktree starts
+//                                        detached at the project HEAD — the
+//                                        develop prompt normalizes it onto
+//                                        `opencode/<name>` (step 0a), which is
+//                                        the branch name ensureWorktree
+//                                        returns. Passing `branch` to create
+//                                        only accepts an existing ref. V1's
+//                                        /experimental/worktree is gone and now
+//                                        answers with the SPA HTML page.
+//
+// Unknown routes fall through to the V2 web UI (HTML, status 200), so every
+// JSON read must treat an HTML body as "route missing", never as a parse error.
 //
 // The poll budget is the *entire* wall-clock window one session gets to
 // explore, implement, lint, commit, push and open a PR — measured in tens of
@@ -254,6 +279,33 @@ export function repoPathFor(repoOwner: string, repoName: string): string {
   return `${ENV.openWorkspaceRoot}/${repoOwner}/${repoName}`;
 }
 
+const HTML_RE = /^\s*(?:<!doctype\s+html|<html)/i;
+
+// V2 serves the web UI for unknown routes with status 200, so an HTML body on
+// an API path means "this route does not exist on this server" — not a
+// transient failure. Surface that as an actionable message (it ends up in the
+// card's blocked_reason) instead of an opaque JSON parse error.
+export function isSpaHtml(body: string): boolean {
+  return HTML_RE.test(body);
+}
+
+function parseJsonBody<T>(body: string, what: string): T {
+  if (isSpaHtml(body)) {
+    throw new Error(
+      `opencode ${what} returned the web UI instead of JSON — this server does not expose the expected V2 API route`
+    );
+  }
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new Error(`opencode ${what} returned an unrecognized body (server version mismatch): ${body.slice(0, 120)}`);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 // opencode's native worktree API (create/list/remove) isolates each run in
 // its own git worktree, server-side — replacing the old approach of having
 // the agent run `git worktree add` by hand in its own first prompt step,
@@ -262,12 +314,57 @@ export function repoPathFor(repoOwner: string, repoName: string): string {
 // the caller's deterministic per-run key (e.g. `${issue.id}-${role}`); a
 // prior attempt's worktree is adopted in place rather than recreated so a
 // failed run's retry keeps whatever progress was already committed.
+//
+// V2 worktree calls are project-scoped: the repo must be resolved to its
+// opencode project id first, and create returns only the directory. The
+// worktree is left detached at the project HEAD; the develop prompt's step 0a
+// checks it out as `opencode/<name>`, which is the branch name returned here.
+const projectIdCache = new Map<string, string>();
+
+export async function resolveProjectId(repoPath: string): Promise<string> {
+  const cached = projectIdCache.get(repoPath);
+  if (cached) return cached;
+  const { status, body } = await tagTransport(() =>
+    undiciFetch(`${ENV.opencodeBaseUrl}/api/location?location%5Bdirectory%5D=${encodeURIComponent(repoPath)}`, {
+      headers: authHeaders(),
+      dispatcher: insecureDispatcher,
+    })
+  );
+  if (status !== 200) {
+    throw new Error(`opencode location lookup failed for ${repoPath}: ${status}: ${body.slice(0, 200)}`);
+  }
+  const parsed = parseJsonBody<{ project?: { id?: string } }>(body, 'location lookup');
+  const id = parsed?.project?.id;
+  if (!id) {
+    throw new Error(`opencode location lookup returned no project id for ${repoPath} (server version mismatch)`);
+  }
+  projectIdCache.set(repoPath, id);
+  return id;
+}
+
+export function resetProjectIdCacheForTests(): void {
+  projectIdCache.clear();
+}
+
+// Normalizes the V2 worktree list ([{directory, strategy?}]) and also accepts
+// the legacy string array, so a drifted server still lists instead of throwing.
+function worktreeDirectories(parsed: unknown): string[] | null {
+  if (!Array.isArray(parsed)) return null;
+  const out: string[] = [];
+  for (const entry of parsed) {
+    if (typeof entry === 'string') out.push(entry);
+    else if (isRecord(entry) && typeof entry.directory === 'string') out.push(entry.directory);
+  }
+  return out;
+}
+
 export async function ensureWorktree(repoOwner: string, repoName: string, name: string): Promise<{ directory: string; branch: string }> {
   const repoPath = repoPathFor(repoOwner, repoName);
-  const directoryParam = `directory=${encodeURIComponent(repoPath)}`;
+  const branch = `opencode/${name}`;
+  const projectID = await resolveProjectId(repoPath);
 
   const { status: listStatus, body: listBody } = await tagTransport(() =>
-    undiciFetch(`${ENV.opencodeBaseUrl}/experimental/worktree?${directoryParam}`, {
+    undiciFetch(`${ENV.opencodeBaseUrl}/api/worktree?projectID=${encodeURIComponent(projectID)}`, {
       headers: authHeaders(),
       dispatcher: insecureDispatcher,
     })
@@ -275,21 +372,7 @@ export async function ensureWorktree(repoOwner: string, repoName: string, name: 
   if (listStatus !== 200) {
     throw new Error(`opencode worktree list failed: ${listStatus}: ${listBody.slice(0, 200)}`);
   }
-  const parsed = JSON.parse(listBody) as unknown;
-  // Server drift guard: the worktree API is documented to return a string
-  // array, but live servers have also answered `{}` (empty map) and
-  // `{ worktrees: [...] }`. Normalize both; anything else isn't a compatible
-  // server — fail with a message the blocked_reason can act on, instead of
-  // an opaque internal error.
-  const isRecord = (v: unknown): v is Record<string, unknown> =>
-    !!v && typeof v === 'object' && !Array.isArray(v);
-  const existing = Array.isArray(parsed)
-    ? (parsed as string[])
-    : isRecord(parsed) && Array.isArray((parsed as { worktrees?: unknown }).worktrees)
-      ? (parsed as { worktrees: string[] }).worktrees
-      : isRecord(parsed) && Object.keys(parsed).length === 0
-        ? []
-        : null;
+  const existing = worktreeDirectories(parseJsonBody<unknown>(listBody, 'worktree list'));
   if (!existing) {
     throw new Error(
       `opencode worktree list returned an unrecognized shape (server version mismatch): ${listBody.slice(0, 120)}`
@@ -297,22 +380,25 @@ export async function ensureWorktree(repoOwner: string, repoName: string, name: 
   }
   const reused = existing.find((dir) => dir.endsWith(`/${name}`));
   if (reused) {
-    return { directory: reused, branch: `opencode/${name}` };
+    return { directory: reused, branch };
   }
 
   const { status, body } = await tagTransport(() =>
-    undiciFetch(`${ENV.opencodeBaseUrl}/experimental/worktree?${directoryParam}`, {
+    undiciFetch(`${ENV.opencodeBaseUrl}/api/worktree`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ projectID, name }),
       dispatcher: insecureDispatcher,
     })
   );
   if (status !== 200) {
     throw new Error(`opencode worktree create failed: ${status}: ${body.slice(0, 200)}`);
   }
-  const created = JSON.parse(body) as { directory: string; branch: string };
-  return { directory: created.directory, branch: created.branch };
+  const created = parseJsonBody<{ directory?: string }>(body, 'worktree create');
+  if (!created?.directory) {
+    throw new Error(`opencode worktree create returned no directory: ${body.slice(0, 120)}`);
+  }
+  return { directory: created.directory, branch };
 }
 
 export async function createSession(model: OpencodeModel, directory?: string): Promise<string> {
@@ -327,7 +413,7 @@ export async function createSession(model: OpencodeModel, directory?: string): P
   if (status !== 200) {
     throw new Error(`opencode session create failed: ${status}: ${body.slice(0, 200)}`);
   }
-  const data = JSON.parse(body) as { data: { id: string } };
+  const data = parseJsonBody<{ data: { id: string } }>(body, 'session create');
   return data.data.id;
 }
 
@@ -336,7 +422,7 @@ export async function sendPrompt(sessionId: string, text: string): Promise<void>
     undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/prompt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ prompt: { text } }),
+      body: JSON.stringify({ text }),
       dispatcher: insecureDispatcher,
     })
   );
@@ -347,12 +433,14 @@ export async function sendPrompt(sessionId: string, text: string): Promise<void>
 
 // Stops an abandoned session so it cannot keep running its tool-call loop
 // (and mutating the shared worktree) after DevHub has given up on it. First
-// aborts the run, then deletes the session and its data so it stops consuming
-// quota. Best-effort: never throws — a 404 (already gone) or transient network
-// failure must not break the retry/failover path.
+// interrupts the run, then deletes the session and its data so it stops
+// consuming quota. V2 has no /abort endpoint — /interrupt is the stop signal
+// and answers {"interrupted": bool}. Best-effort: never throws — a 404
+// (already gone/idle) or transient network failure must not break the
+// retry/failover path.
 export async function cancelSession(sessionId: string): Promise<void> {
   const attempts: Array<{ method: 'POST' | 'DELETE'; url: string }> = [
-    { method: 'POST', url: `${ENV.opencodeBaseUrl}/api/session/${sessionId}/abort` },
+    { method: 'POST', url: `${ENV.opencodeBaseUrl}/api/session/${sessionId}/interrupt` },
     { method: 'DELETE', url: `${ENV.opencodeBaseUrl}/api/session/${sessionId}` },
   ];
   for (const { method, url } of attempts) {
@@ -372,10 +460,14 @@ export async function cancelSession(sessionId: string): Promise<void> {
 }
 
 interface OpencodeMessage {
-  type: 'user' | 'assistant';
+  // V2 message list carries more than user/assistant entries: `idle`,
+  // `system`, `synthetic`, tool/shell entries… Only `assistant` ones carry a
+  // `finish`; `idle` carries the turn `outcome`.
+  type: string;
   finish?: string;
   content?: Array<{ type: string; text?: string }>;
   error?: { message: string };
+  outcome?: string;
 }
 
 function messageText(msg: OpencodeMessage | undefined): string {
@@ -396,15 +488,25 @@ function lastAssistantText(messages: OpencodeMessage[]): string {
   return '';
 }
 
-// Polls GET /api/session/:id/message until the newest assistant message has a
-// `finish` set to a terminal state (stop/error). Returns the assistant text.
+// Terminal finishes: the assistant turn is over. `tool-calls` means the agent
+// is still working (it issued tool calls and will continue); `error` is a
+// failure, handled separately below.
+const TERMINAL_FINISHES = new Set(['stop', 'length', 'content-filter', 'unknown']);
+
+// Polls GET /api/session/:id/message until the current turn has finished.
 // Used as the authoritative completion signal (the /event SSE runs concurrently
 // for live UI updates).
+//
+// V2 appends non-assistant entries after the assistant turn — most importantly
+// `idle` (which carries the turn `outcome`) and sometimes `system`/`synthetic`
+// — so the newest entry is NOT reliably the assistant message. Scan the page
+// (newest first) for the newest assistant entry instead, and treat a newer
+// `idle` entry as the end-of-turn marker.
 export async function pollForFinish(sessionId: string, timeoutMs: number = POLL_TIMEOUT_MS): Promise<{ text: string; finish: string }> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const { status, body } = await tagTransport(() =>
-      undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/message`, {
+      undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/message?limit=50&order=desc`, {
         headers: { ...authHeaders() },
         dispatcher: insecureDispatcher,
       })
@@ -412,21 +514,33 @@ export async function pollForFinish(sessionId: string, timeoutMs: number = POLL_
     if (status !== 200) {
       throw new Error(`opencode message poll failed: ${status}: ${body.slice(0, 200)}`);
     }
-    const data = JSON.parse(body) as { data: OpencodeMessage[] };
-    const latest = data.data[0];
-    if (latest?.type === 'assistant' && latest.finish) {
-      // Only treat terminal finishes as done; tool-calls means the agent
-      // is still working (it issued tool calls and will continue).
-      if (latest.finish === 'tool-calls') {
-        await sleep(POLL_INTERVAL_MS);
-        continue;
-      }
-      if (latest.finish === 'error') {
-        throw new Error(`opencode generation failed: ${latest.error?.message ?? 'unknown error'}`);
+    const data = parseJsonBody<{ data?: OpencodeMessage[] }>(body, 'message poll');
+    const messages = Array.isArray(data.data) ? data.data : [];
+    const assistantIdx = messages.findIndex((m) => m.type === 'assistant');
+    const idleIdx = messages.findIndex((m) => m.type === 'idle');
+
+    // A newer `idle` entry means the turn is over even though it now outranks
+    // the final assistant message in the list.
+    if (idleIdx !== -1 && (assistantIdx === -1 || idleIdx < assistantIdx)) {
+      const idle = messages[idleIdx];
+      if (idle.outcome === 'failed' || idle.outcome === 'interrupted') {
+        throw new Error(`opencode generation ${idle.outcome}: ${idle.error?.message ?? 'unknown error'}`);
       }
       // Conclusions may live in `reasoning` blocks, not only `text`, so gather
       // all content text and fall back to the most recent assistant answer.
-      const text = messageText(latest) || lastAssistantText(data.data);
+      const text = assistantIdx === -1 ? '' : messageText(messages[assistantIdx]) || lastAssistantText(messages);
+      if (!text) {
+        throw new Error('opencode reply had no text content');
+      }
+      return { text, finish: messages[assistantIdx]?.finish ?? 'stop' };
+    }
+
+    const latest = assistantIdx === -1 ? undefined : messages[assistantIdx];
+    if (latest?.finish === 'error') {
+      throw new Error(`opencode generation failed: ${latest.error?.message ?? 'unknown error'}`);
+    }
+    if (latest?.finish && TERMINAL_FINISHES.has(latest.finish)) {
+      const text = messageText(latest) || lastAssistantText(messages);
       if (!text) {
         throw new Error('opencode reply had no text content');
       }
@@ -437,15 +551,24 @@ export async function pollForFinish(sessionId: string, timeoutMs: number = POLL_
   throw new Error('opencode reply timed out');
 }
 
-// Subscribes to the opencode /event SSE and re-broadcasts each event via
-// onEvent. Resolves when the connection closes or `signal` is aborted.
+// True when an event belongs to the given session. V2's /api/event is one
+// global stream for every session on the server, so every subscriber has to
+// filter; session events carry their id at data.sessionID.
+export function isSessionEvent(event: OpencodeEvent, sessionId: string): boolean {
+  const data = event.data;
+  if (!data || typeof data !== 'object') return false;
+  return (data as Record<string, unknown>).sessionID === sessionId;
+}
+
+// Subscribes to the opencode /api/event SSE and forwards this session's events
+// via onEvent. Resolves when the connection closes or `signal` is aborted.
 export async function streamEvents(
   sessionId: string,
   onEvent: (event: OpencodeEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
   try {
-    const res = await undiciFetch(`${ENV.opencodeBaseUrl}/api/session/${sessionId}/event`, {
+    const res = await undiciFetch(`${ENV.opencodeBaseUrl}/api/event`, {
       headers: { ...authHeaders(), Accept: 'text/event-stream' },
       dispatcher: insecureDispatcher,
       signal,
@@ -465,7 +588,7 @@ export async function streamEvents(
         const raw = buf.slice(0, idx);
         buf = buf.slice(idx + 2);
         const event = parseSseBlock(raw);
-        if (event) onEvent(event);
+        if (event && event.type !== 'server.connected' && isSessionEvent(event, sessionId)) onEvent(event);
       }
     }
   } catch {
@@ -473,6 +596,48 @@ export async function streamEvents(
     // completion. Aborts/network errors during teardown are expected.
     return;
   }
+}
+
+// V2 emits per-token `*.delta` events (reasoning/text) plus high-volume
+// progress pings. Persisting or broadcasting every one of them floods DevHub's
+// events table and client SSE (a 20-minute run emits thousands), so only
+// turn/tool-level events are forwarded.
+const SKIPPED_EVENT_TYPES = new Set(['session.usage.updated', 'session.step.streamed', 'session.tool.progress']);
+
+export function isMeaningfulOpencodeEvent(event: OpencodeEvent): boolean {
+  const type = event.type;
+  if (typeof type !== 'string' || !type.startsWith('session.')) return false;
+  if (type.endsWith('.delta') || SKIPPED_EVENT_TYPES.has(type)) return false;
+  return true;
+}
+
+const MAX_EVENT_JSON_CHARS = 4000;
+const MAX_EVENT_STRING_CHARS = 300;
+const MAX_EVENT_DEPTH = 4;
+
+function truncateValue(value: unknown, depth = 0): unknown {
+  if (typeof value === 'string') {
+    return value.length > MAX_EVENT_STRING_CHARS ? `${value.slice(0, MAX_EVENT_STRING_CHARS)}…[truncated]` : value;
+  }
+  if (Array.isArray(value)) {
+    if (depth >= MAX_EVENT_DEPTH) return `[${value.length} items]`;
+    return value.slice(0, 5).map((entry) => truncateValue(entry, depth + 1));
+  }
+  if (isRecord(value)) {
+    if (depth >= MAX_EVENT_DEPTH) return '[object]';
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) out[key] = truncateValue(entry, depth + 1);
+    return out;
+  }
+  return value;
+}
+
+// Tool events embed the full tool input/output (a shell result can be tens of
+// KB). Keep a bounded summary so one event cannot bloat a row.
+export function slimOpencodeEvent(event: OpencodeEvent): OpencodeEvent {
+  const encoded = JSON.stringify(event);
+  if (encoded.length <= MAX_EVENT_JSON_CHARS) return event;
+  return truncateValue(event) as OpencodeEvent;
 }
 
 export function parseSseBlock(raw: string): OpencodeEvent | null {

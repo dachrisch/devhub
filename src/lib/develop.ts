@@ -24,10 +24,12 @@ import {
   extractBaseSha,
   extractPrUrl,
   getAvailableModels,
+  isMeaningfulOpencodeEvent,
   parseVerifyResult,
   resolveModels,
   runDevelop,
   sanitizeModels,
+  slimOpencodeEvent,
   type DevelopCarryOver,
   type IdeaContext,
   type OpencodeEvent,
@@ -156,8 +158,10 @@ async function runVerificationInner(
     const models = sanitizeModels(resolveModels(selectedModel), await getAvailableModels());
     const prompt = buildVerifyPrompt(issue, criteria, prUrls);
     const onEvent = (event: OpencodeEvent) => {
-      appendEvent(issue.id, 'verification-event', event);
-      publishOpencodeEvent(issue.id, event);
+      if (!isMeaningfulOpencodeEvent(event)) return;
+      const slim = slimOpencodeEvent(event);
+      appendEvent(issue.id, 'verification-event', slim);
+      publishOpencodeEvent(issue.id, slim);
     };
     const text = await runDevelop(prompt, onEvent, models, undefined, ENV.opencodeRefinementPollTimeoutMs);
     const outcome = parseVerifyResult(text, criteria.length);
@@ -367,8 +371,10 @@ async function runSingleChildRun(
   updateRun(run.id, { state: 'developing', blockedReason: null });
   publishRun(run.id, issue.id);
   const onEvent = (event: OpencodeEvent) => {
-    appendEvent(issue.id, 'opencode', { ...event, runId: run.id, role: run.role });
-    publishOpencodeEvent(issue.id, event);
+    if (!isMeaningfulOpencodeEvent(event)) return;
+    const slim = slimOpencodeEvent(event);
+    appendEvent(issue.id, 'opencode', { ...slim, runId: run.id, role: run.role });
+    publishOpencodeEvent(issue.id, slim);
   };
   try {
     const worktree = await ensureWorktree(run.repoOwner, run.repoName, `${issue.id}-${run.role}`);
@@ -500,8 +506,10 @@ async function runRefinementInner(
     const project = issue.projectId != null ? getProject(issue.projectId) : null;
     const prompt = buildRefinePrompt(issue, project ? { name: project.name, config: project.config } : null);
     const onEvent = (event: OpencodeEvent) => {
-      appendEvent(issue.id, 'refinement-event', event);
-      publishOpencodeEvent(issue.id, event);
+      if (!isMeaningfulOpencodeEvent(event)) return;
+      const slim = slimOpencodeEvent(event);
+      appendEvent(issue.id, 'refinement-event', slim);
+      publishOpencodeEvent(issue.id, slim);
     };
 
     const text = await runDevelop(prompt, onEvent, models, undefined, ENV.opencodeRefinementPollTimeoutMs);

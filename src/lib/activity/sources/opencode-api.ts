@@ -10,12 +10,16 @@ import {
 import { appendActivityEvents } from '../store';
 import type { ActivitySession, ActivityStatus, ActivityTokens, IngestEvent } from '../types';
 
-// Activity source: the opencode web/API server (code.lehel.xyz). Probe-verified
-// shape (devhub#272) — no volume mount, no OPENCODE_DATA_DIR:
+// Activity source: the opencode web/API server (code.lehel.xyz). Verified live
+// against OpenCode V2 2.1.2 (devhub#272, 2026-10-21) — no volume mount, no
+// OPENCODE_DATA_DIR:
 //   GET /api/session        -> {"data": [<newest first, 50>], "cursor": {"next": <b64>}}
 //   GET /api/session?cursor=<b64> -> next page
-//   GET /event              -> global SSE, v2 {id,type,properties}; server.connected handshake
-// Unknown routes fall through to the v2 SPA HTML (200) — treat that as not-found.
+//   GET /api/event          -> global SSE, {id,created,type,location,data};
+//                              session events carry data.sessionID
+// `/event` (the V1 stream) now answers with the V2 web UI HTML (200), so it
+// must not be used. Unknown routes fall through to that same SPA HTML — treat
+// it as not-found.
 
 export const OPENCODE_WEB_SOURCE = 'opencode-web';
 
@@ -176,8 +180,9 @@ export async function listSessions(opts: ListSessionsOptions = {}): Promise<Acti
   return out;
 }
 
-// Subscribes to the global opencode /event SSE. The `server.connected`
-// handshake is liveness-only and is not forwarded.
+// Subscribes to the global opencode /api/event SSE. The `server.connected`
+// handshake is liveness-only and is not forwarded. (`/event`, the V1 route,
+// now answers with the V2 web UI HTML, so it silently yielded nothing.)
 export async function subscribeEvents(
   onEvent: (event: { type?: string; kind?: string; [k: string]: unknown }) => void,
   signal?: AbortSignal,
@@ -185,7 +190,7 @@ export async function subscribeEvents(
 ): Promise<void> {
   let res: OpencodeResponse;
   try {
-    res = await safeFetch(fetchFn, `${ENV.opencodeBaseUrl}/event`, {
+    res = await safeFetch(fetchFn, `${ENV.opencodeBaseUrl}/api/event`, {
       headers: { ...authHeaders(), Accept: 'text/event-stream' },
       dispatcher: insecureDispatcher,
       signal,
@@ -241,7 +246,7 @@ export function resetOpencodeFleetCacheForTests(): void {
 
 // --- Event collection (devhub#274) -------------------------------------------
 // The Live timeline headlines lanes with titles and does NOT render event
-// ticks, but the opencode /event stream is still collected into activity_event
+// ticks, but the opencode /api/event stream is still collected into activity_event
 // for later use. Persist-only, best-effort, and guarded on globalThis so HMR /
 // repeated imports never stack subscriptions.
 
@@ -261,26 +266,38 @@ function eventSessionId(props: Record<string, unknown>): string | null {
   return firstString(props.sessionID, part?.sessionID, info?.sessionID, info?.id, message?.sessionID);
 }
 
-function eventText(part: Record<string, unknown> | undefined): string | null {
-  if (!part) return null;
-  const state = part.state as Record<string, unknown> | undefined;
-  const input = state?.input as Record<string, unknown> | undefined;
-  return firstString(state?.title, input?.command, input?.description, part.text);
+function eventText(part: Record<string, unknown> | undefined, data: Record<string, unknown>): string | null {
+  if (part) {
+    const state = part.state as Record<string, unknown> | undefined;
+    const input = state?.input as Record<string, unknown> | undefined;
+    const text = firstString(state?.title, input?.command, input?.description, part.text);
+    if (text) return text.slice(0, 300);
+  }
+  // V2 tool events carry the tool result as content[0].text; reasoning/tool
+  // input events carry plain text/name/input fields.
+  const content = Array.isArray(data.content) ? (data.content[0] as Record<string, unknown> | undefined) : undefined;
+  const input = data.input as Record<string, unknown> | undefined;
+  const text = firstString(data.text, content?.text, input?.command, input?.description, data.description);
+  return text ? text.slice(0, 300) : null;
 }
 
-// Maps one opencode /event into the append-only ingest shape. Events without a
-// session id are dropped (nothing to attribute them to).
+// Maps one opencode /api/event payload into the append-only ingest shape.
+// Events without a session id are dropped (nothing to attribute them to).
+// V2 emits a per-token `*.delta` for every reasoning/text chunk; persisting
+// those would add thousands of rows per run and nothing renders them.
 export function toIngestEvent(event: OpencodeEvent, now = Date.now()): IngestEvent | null {
   const type = firstString(event.type, event.kind);
-  if (!type) return null;
-  const props = (event.properties ?? {}) as Record<string, unknown>;
-  const sessionId = eventSessionId(props);
+  if (!type || type.endsWith('.delta')) return null;
+  // V2 puts the payload in `data`; `properties` is the V1 shape, kept as a
+  // tolerant fallback for old fixtures.
+  const data = (event.data ?? event.properties ?? {}) as Record<string, unknown>;
+  const sessionId = eventSessionId(data);
   if (!sessionId) return null;
-  const part = props.part as Record<string, unknown> | undefined;
-  const time = (part?.time ?? props.time) as Record<string, unknown> | undefined;
-  const ts = numOr(time?.start) ?? numOr(time?.created) ?? now;
-  const tool = part && typeof part.tool === 'string' ? part.tool : null;
-  return { sessionId, ts, type, tool, text: eventText(part) };
+  const part = data.part as Record<string, unknown> | undefined;
+  const time = (part?.time ?? data.time) as Record<string, unknown> | undefined;
+  const ts = numOr(time?.start) ?? numOr(time?.created) ?? numOr(event.created) ?? now;
+  const tool = firstString(part && typeof part.tool === 'string' ? part.tool : null, data.name);
+  return { sessionId, ts, type, tool, text: eventText(part, data) };
 }
 
 interface EventSubscriptionState {

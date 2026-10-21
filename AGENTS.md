@@ -76,9 +76,19 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
   against the server model registry before each run (missing/deprecated models
   are skipped), and refinement uses a shorter poll budget
   (`OPENCODE_REFINEMENT_POLL_TIMEOUT_MS`, default 10 min).
-  Polling `GET .../message` is the completion signal; `GET .../event` SSE is streamed for the
-  UI. `buildDevelopPrompt` expects repos already checked out at `WORKSPACE_ROOT/<owner>/<repo>`
-  (no cloning). Final assistant message must end in a PR URL or `CANNOT FULFILL: <reason>`.
+  **The server is OpenCode V2 (2.1.2)** and the client is V2-only: the prompt body is
+  `{text}`; cancellation is `POST /api/session/:id/interrupt` (V2 has no `/abort`);
+  worktrees are project-scoped (`GET /api/location?location[directory]=` → project id,
+  `GET/POST /api/worktree?projectID=`; create returns only the directory and the worktree
+  starts detached at the project HEAD, so the prompt's step 0a checks it out as
+  `opencode/<name>`); live events come from the global `GET /api/event` stream and must be
+  filtered by `data.sessionID`. Polling `GET .../message?limit=50&order=desc` is the
+  completion signal — V2 appends `idle`/`system`/`synthetic` entries after the turn, so never
+  assume `data[0]` is the assistant message. `*.delta` events are dropped before persistence
+  (thousands per run). Unknown V2 routes answer with the web UI HTML, so treat an HTML body
+  as "route missing", never as JSON. `buildDevelopPrompt` expects repos already checked out at
+  `WORKSPACE_ROOT/<owner>/<repo>` (no cloning). Final assistant message must end in a PR URL or
+  `CANNOT FULFILL: <reason>`.
 - `src/lib/develop.ts` — `startWork` (devhub#132) is the single entry point behind the "Work"
   button and routes by stage: `backlog` → refinement readiness check (opencode assesses +
   auto-refines the issue body, then develops when ready), `refinement` → re-check,
