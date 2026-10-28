@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- deps: install all dependencies (incl. dev) for build ----
-FROM node:24-alpine AS deps
+FROM node:26-alpine AS deps
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -13,14 +13,14 @@ COPY . .
 RUN npm run build
 
 # ---- prod-deps: production-only dependencies ----
-FROM node:24-alpine AS prod-deps
+FROM node:26-alpine AS prod-deps
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # ---- runtime: slim image with only what's needed to run ----
-FROM node:24-alpine AS runtime
+FROM node:26-alpine AS runtime
 RUN apk add --no-cache curl
 WORKDIR /app
 ENV NODE_ENV=production
