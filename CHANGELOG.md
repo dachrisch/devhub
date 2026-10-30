@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.12](https://github.com/dachrisch/devhub/compare/v2.5.11...v2.5.12) (2026-10-30)
+
+
+### Bug Fixes
+
+* **deps:** update dependency node to v26 ([709a049](https://github.com/dachrisch/devhub/commit/709a049cfa7272d6ed8993d965e8b66ebaf20fb3))
+* **deps:** update dependency node to v26 ([e6ab5d7](https://github.com/dachrisch/devhub/commit/e6ab5d7bec4df87ec641722f44866d3282450a11))
+
 ## [2.5.11](https://github.com/dachrisch/devhub/compare/v2.5.10...v2.5.11) (2026-10-23)
 
 
