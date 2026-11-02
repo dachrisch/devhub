@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.14](https://github.com/dachrisch/devhub/compare/v2.5.13...v2.5.14) (2026-11-02)
+
+
+### Bug Fixes
+
+* **deps:** update dependency vitest to v5.1.0 ([#314](https://github.com/dachrisch/devhub/issues/314)) ([6499667](https://github.com/dachrisch/devhub/commit/6499667343ad681eccb0877378297a8e7e31635a))
+
 ## [2.5.13](https://github.com/dachrisch/devhub/compare/v2.5.12...v2.5.13) (2026-11-02)
 
 
