@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.19](https://github.com/dachrisch/devhub/compare/v2.5.18...v2.5.19) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** update dependency better-sqlite3 to v13.2.0 ([#325](https://github.com/dachrisch/devhub/issues/325)) ([085a61d](https://github.com/dachrisch/devhub/commit/085a61db649046b71ac7e80314094a648736b319))
+
 ## [2.5.18](https://github.com/dachrisch/devhub/compare/v2.5.17...v2.5.18) (2026-11-11)
 
 
