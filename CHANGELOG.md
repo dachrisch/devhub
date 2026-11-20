@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.21](https://github.com/dachrisch/devhub/compare/v2.5.20...v2.5.21) (2026-11-20)
+
+
+### Bug Fixes
+
+* **deps:** update dependency undici to v8.13.0 ([#329](https://github.com/dachrisch/devhub/issues/329)) ([a69a462](https://github.com/dachrisch/devhub/commit/a69a462dc2db3822c39bfdb66600304de6eb023e))
+
 ## [2.5.20](https://github.com/dachrisch/devhub/compare/v2.5.19...v2.5.20) (2026-11-18)
 
 
