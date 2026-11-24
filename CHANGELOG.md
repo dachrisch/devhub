@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.23](https://github.com/dachrisch/devhub/compare/v2.5.22...v2.5.23) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @types/node to v26.6.7 ([#334](https://github.com/dachrisch/devhub/issues/334)) ([67602f6](https://github.com/dachrisch/devhub/commit/67602f6584ec48fefdb8667507a69abc132dfe3f))
+* **deps:** update dependency @types/react to v19.3.1 ([#335](https://github.com/dachrisch/devhub/issues/335)) ([6688691](https://github.com/dachrisch/devhub/commit/66886911bfcfdf8e5a97a51d21bdaa8425a31e79))
+
 ## [2.5.22](https://github.com/dachrisch/devhub/compare/v2.5.21...v2.5.22) (2026-11-21)
 
 
