@@ -1,7 +1,7 @@
 # AGENTS.md
 
-Personal, single-user dev command board (Next.js 15 App Router + better-sqlite3 + opencode).
-No auth, no multi-tenancy. The live design plan is `docs/plans/2026-10-08-devhub-v2-command-first-design.md`
+Personal, single-user dev command board (Next.js 16 App Router + better-sqlite3 + opencode).
+Access is GitHub OAuth-gated (single org); no multi-tenancy. The live design plan is `docs/plans/2026-10-08-devhub-v2-command-first-design.md`
 (v2, command-first); the v1 board shell was deleted in the same change that shipped v2.
 
 ## Commands
@@ -38,8 +38,8 @@ Order for a safe change: `typecheck` → `lint` → `test` → `build`.
 - Every API route sets `export const runtime = 'nodejs'` and
   `export const dynamic = 'force-dynamic'` (better-sqlite3 + SSE need the Node runtime, no
   static optimization).
-- Route `params` is a **Promise** in Next 15: `async (req, { params }) => { const { id } =
-  await params }`.
+- Route `params` is a **Promise** in Next 15+ (this repo is on Next 16):
+  `async (req, { params }) => { const { id } = await params }`.
 - SSE: `GET /api/stream` returns a `text/event-stream` driven by the in-process
   `broadcaster` in `src/lib/sse.ts` (persisted on `globalThis` across HMR).
 
