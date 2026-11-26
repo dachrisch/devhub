@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.26](https://github.com/dachrisch/devhub/compare/v2.5.25...v2.5.26) (2026-11-26)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @types/node to v26.6.11 ([#342](https://github.com/dachrisch/devhub/issues/342)) ([65d3d69](https://github.com/dachrisch/devhub/commit/65d3d69d005dde4753f07b77336dd919d99f3370))
+
 ## [2.5.25](https://github.com/dachrisch/devhub/compare/v2.5.24...v2.5.25) (2026-11-25)
 
 
